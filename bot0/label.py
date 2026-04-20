@@ -41,7 +41,7 @@ import io
 from urllib.parse import quote
 
 from db.repositories.release_files import get_release_file_id
-from services import notifications
+from services import notifications, payments
 from utils.security import escape_html, escape_markdown, validate_file_upload
 
 # Load environment variables
@@ -212,43 +212,11 @@ def save_draft_at_any_step(message):
 
 # --- Balance helpers ---
 def get_user_balance_safe(user_id: int) -> float:
-    conn = get_pg_connection()
-    if not conn:
-        return 0.0
-    try:
-        cur = conn.cursor()
-        cur.execute('SELECT COALESCE(balance, 0) FROM label WHERE telegram_id = %s', (user_id,))
-        row = cur.fetchone()
-        return float(row[0]) if row else 0.0
-    except Exception as e:
-        logger.error(f"Failed to get balance for {user_id}: {e}")
-        return 0.0
-    finally:
-        try:
-            cur.close()
-            return_pg_connection(conn)
-        except Exception:
-            pass
+    return payments.get_user_balance(user_id, get_pg_connection, return_pg_connection, logger)
 
 
 def change_user_balance(user_id: int, delta: float) -> bool:
-    conn = get_pg_connection()
-    if not conn:
-        return False
-    try:
-        cur = conn.cursor()
-        cur.execute('UPDATE label SET balance = COALESCE(balance,0) + %s WHERE telegram_id = %s', (delta, user_id))
-        conn.commit()
-        return True
-    except Exception as e:
-        logger.error(f"Failed to change balance for {user_id} by {delta}: {e}")
-        return False
-    finally:
-        try:
-            cur.close()
-            return_pg_connection(conn)
-        except Exception:
-            pass
+    return payments.change_user_balance(user_id, delta, get_pg_connection, return_pg_connection, logger)
 
 
 def is_profile_complete(user_id: int) -> tuple[bool, str]:
@@ -13015,25 +12983,9 @@ def handle_check_ton(call):
 def handle_cancel_topup(call):
     """Handle topup cancellation"""
     user_id = call.from_user.id
-    
-    # Отменяем активные заказы пользователя
-    conn = get_pg_connection()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE orders 
-                SET status = 'cancelled' 
-                WHERE user_id = %s AND service_type = 'topup' AND status = 'pending'
-            ''', (user_id,))
-            conn.commit()
-            cancelled_count = cursor.rowcount
-            logger.info(f"Cancelled {cancelled_count} pending topup orders for user {user_id}")
-        except Exception as e:
-            logger.error(f"Failed to cancel orders for user {user_id}: {e}")
-        finally:
-            cursor.close()
-            return_pg_connection(conn)
+
+    cancelled_count = payments.cancel_pending_topup_orders(user_id, get_pg_connection, return_pg_connection, logger)
+    logger.info(f"Cancelled {cancelled_count} pending topup orders for user {user_id}")
     
     try:
         bot.edit_message_text(
