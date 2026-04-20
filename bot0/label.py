@@ -41,7 +41,7 @@ import io
 from urllib.parse import quote
 
 from db.repositories.release_files import get_release_file_id
-from services import notifications, payments
+from services import admin_access, notifications, payments
 from utils.security import escape_html, escape_markdown, validate_file_upload
 
 # Load environment variables
@@ -895,49 +895,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 def get_all_admins():
     """Получить всех администраторов (постоянных + из БД)"""
-    admin_ids = set(PERMANENT_ADMINS)  # Начинаем с постоянных админов
-
-    conn = get_pg_connection()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute('SELECT telegram_id FROM label WHERE admin = 1')
-            db_admins = cursor.fetchall()
-
-            # Добавляем админов из БД
-            for admin in db_admins:
-                if admin[0]:  # Проверяем что telegram_id не NULL
-                    admin_ids.add(admin[0])
-
-        except Exception as e:
-            logger.error(f"Error getting admins from database: {e}")
-        finally:
-            return_pg_connection(conn)
-
-    return list(admin_ids)
+    return admin_access.get_all_admin_ids(PERMANENT_ADMINS, get_pg_connection, return_pg_connection, logger)
 
 
 def is_admin(user_id):
     """Проверить, является ли пользователь администратором"""
-    # Сначала проверяем постоянных админов
-    if user_id in PERMANENT_ADMINS:
-        return True
-
-    # Проверяем в БД
-    conn = get_pg_connection()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute('SELECT admin FROM label WHERE telegram_id = %s', (user_id,))
-            result = cursor.fetchone()
-            return result and result[0] == 1
-        except Exception as e:
-            logger.error(f"Error checking admin status: {e}")
-            return False
-        finally:
-            return_pg_connection(conn)
-
-    return False
+    return admin_access.is_admin_user(user_id, PERMANENT_ADMINS, get_pg_connection, return_pg_connection, logger)
 
 
 def debug_user_data(user_id, step_name="unknown"):
@@ -5103,49 +5066,12 @@ def send_file_smart(chat_id, file_id, caption="", file_type_hint=None, user_id=N
 
 def get_all_admins():
     """Получить всех администраторов (постоянных + из БД)"""
-    admin_ids = set(PERMANENT_ADMINS)  # Начинаем с постоянных админов
-
-    conn = get_pg_connection()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute('SELECT telegram_id FROM label WHERE admin = 1')
-            db_admins = cursor.fetchall()
-
-            # Добавляем админов из БД
-            for admin in db_admins:
-                if admin[0]:  # Проверяем что telegram_id не NULL
-                    admin_ids.add(admin[0])
-
-        except Exception as e:
-            logger.error(f"Error getting admins from database: {e}")
-        finally:
-            return_pg_connection(conn)
-
-    return list(admin_ids)
+    return admin_access.get_all_admin_ids(PERMANENT_ADMINS, get_pg_connection, return_pg_connection, logger)
 
 
 def is_admin(user_id):
     """Проверить, является ли пользователь администратором"""
-    # Сначала проверяем постоянных админов
-    if user_id in PERMANENT_ADMINS:
-        return True
-
-    # Проверяем в БД
-    conn = get_pg_connection()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute('SELECT admin FROM label WHERE telegram_id = %s', (user_id,))
-            result = cursor.fetchone()
-            return result and result[0] == 1
-        except Exception as e:
-            logger.error(f"Error checking admin status: {e}")
-            return False
-        finally:
-            return_pg_connection(conn)
-
-    return False
+    return admin_access.is_admin_user(user_id, PERMANENT_ADMINS, get_pg_connection, return_pg_connection, logger)
 
 
 def debug_user_data(user_id, step_name="unknown"):
