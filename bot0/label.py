@@ -41,7 +41,7 @@ import io
 from urllib.parse import quote
 
 from db.repositories.release_files import get_release_file_id
-from services import admin_access, notifications, payments
+from services import admin_access, contracts, notifications, payments
 from utils.security import escape_html, escape_markdown, validate_file_upload
 
 # Load environment variables
@@ -10837,29 +10837,7 @@ def process_phonogram_producer_step(message):
     
     # Проверяем корректность всех данных перед отображением
     contract_data = bot.user_data[user_id]['contract_data']
-    
-    # Формируем сводку для подтверждения
-    summary = "📋 Проверьте введенные данные:\n\n"
-    summary += f"📅 Дата договора: {contract_data.get('date', 'Не указано')}\n"
-    summary += f"👤 ФИО: {contract_data.get('full_name', 'Не указано')}\n"
-    summary += f"🆔 Паспорт: {contract_data.get('passport', 'Не указано')}\n"
-    summary += f"🎭 Псевдоним: {contract_data.get('nickname', 'Не указано')}\n"
-    summary += f"🏛️ Кем выдан: {contract_data.get('passport_issued', 'Не указано')}\n"
-    summary += f"📅 Дата выдачи: {contract_data.get('issue_date', 'Не указано')}\n"
-    summary += f"🔢 Код подразделения: {contract_data.get('department_code', 'Не указано')}\n"
-    summary += f"🎂 Дата рождения: {contract_data.get('birth_date', 'Не указано')}\n"
-    summary += f"🌍 Место рождения: {contract_data.get('birth_place', 'Не указано')}\n"
-    summary += f"🏠 Адрес: {contract_data.get('address', 'Не указано')}\n"
-    summary += f"📋 СНИЛС: {contract_data.get('snils', 'Не указано')}\n"
-    summary += f"🔢 ИНН: {contract_data.get('inn', 'Не указано')}\n"
-    summary += f"💿 Релиз: {contract_data.get('release_name', 'Не указано')}\n"
-    summary += f"🎵 Трек: {contract_data.get('track_name', 'Не указано')}\n"
-    summary += f"🎼 Автор музыки: {contract_data.get('music_author', 'Не указано')}\n"
-    summary += f"📝 Автор текста: {contract_data.get('text_author', 'Не указано')}\n"
-    summary += f"🎤 Исполнитель: {contract_data.get('performer', 'Не указано')}\n"
-    summary += f"🎧 Изготовитель фонограммы: {contract_data.get('phonogram_producer', 'Не указано')}\n\n"
-    
-    summary += "✅ Всё верно?"
+    summary = contracts.build_contract_summary(contract_data)
     
     bot.reply_to(
         message,
@@ -10960,14 +10938,7 @@ def generate_contract_document_new(message):
         logger.info(f"Создание документа для пользователя {user_id}")
         logger.info(f"Данные договора: {contract_data}")
         
-        # Проверяем корректность данных
-        for key, value in contract_data.items():
-            if value is None or value == "":
-                contract_data[key] = "N/A"
-            elif not isinstance(value, str):
-                contract_data[key] = str(value)
-            elif value.strip() == "":
-                contract_data[key] = "N/A"
+        contract_data = contracts.normalize_contract_data(contract_data)
         
         # Проверяем доступность модуля для создания документов
         if not DOCX_AVAILABLE:
@@ -11011,14 +10982,7 @@ def generate_contract_document_new(message):
         
         # Отправка документа
         try:
-            # Формируем безопасное имя файла
-            nickname = contract_data.get('nickname', 'N/A')
-            if nickname and nickname != 'N/A':
-                # Убираем недопустимые символы для имени файла
-                safe_nickname = re.sub(r'[<>:"/\\|?*]', '_', str(nickname))
-                filename = f"Лицензионный_договор_{safe_nickname}.docx"
-            else:
-                filename = "Лицензионный_договтор.docx"
+            filename = contracts.contract_filename(contract_data.get('nickname', 'N/A'))
             
             bot.send_document(
                 message.chat.id, 

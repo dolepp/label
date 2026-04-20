@@ -42,6 +42,7 @@ from handlers.topups import _parse_amount
 from handlers.web_auth import _auth_text
 from keyboards.reply import MAIN_MENU_BUTTONS, PROFILE_MENU_ROWS
 from services.diagnostics import diagnostics_text
+from services import contracts as contract_service
 from utils.security import escape_html, escape_markdown, validate_file_upload
 
 
@@ -66,6 +67,13 @@ class FormattingTests(unittest.TestCase):
     def test_topup_amount_parser(self):
         self.assertEqual(_parse_amount("1 500₽"), 1500)
         self.assertIsNone(_parse_amount("нет"))
+
+    def test_contract_service_helpers(self):
+        data = {"date": "01.01.2026", "full_name": "", "nickname": "Artist/Name"}
+        normalized = contract_service.normalize_contract_data(data)
+        self.assertEqual(normalized["full_name"], "N/A")
+        self.assertIn("Дата договора: 01.01.2026", contract_service.build_contract_summary(normalized))
+        self.assertEqual(contract_service.contract_filename("Artist/Name"), "Лицензионный_договор_Artist_Name.docx")
 
     def test_security_helpers(self):
         self.assertEqual(escape_html("<tag & value>"), "&lt;tag &amp; value&gt;")
