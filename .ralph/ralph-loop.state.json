@@ -7,7 +7,7 @@
   "tasksMode": false,
   "taskPromise": "READY_FOR_NEXT_TASK",
   "prompt": "Продолжи рефакторинг бота. Выноси модули из label.py: contracts, payments, notifications, остатки admin. После каждого изменения запускай ./scripts/run_tests.sh и проверяй 'python -c import label'. Если тесты проходят — коммить. Не ломай legacy fallback. COMPLETE когда всё готово",
-  "startedAt": "2026-04-20T16:26:29.724Z",
+  "startedAt": "2026-04-20T16:26:46.726Z",
   "model": "",
   "agent": "codex"
 }

@@ -2,26 +2,50 @@
   "iterations": [
     {
       "iteration": 1,
-      "startedAt": "2026-04-20T16:26:29.742Z",
-      "endedAt": "2026-04-20T16:26:29.857Z",
-      "durationMs": 100,
+      "startedAt": "2026-04-20T16:26:48.001Z",
+      "endedAt": "2026-04-20T16:39:04.243Z",
+      "durationMs": 734931,
       "agent": "codex",
       "model": "",
-      "toolsUsed": {},
+      "toolsUsed": {
+        "data": 2,
+        "new": 3,
+        "YooKassa": 2,
+        "Telegram": 4,
+        "handler": 1
+      },
       "filesModified": [],
-      "exitCode": 2,
+      "exitCode": 0,
       "completionDetected": false,
       "errors": [
-        "error: the argument '--full-auto' cannot be used with '--dangerously-bypass-approvals-and-sandbox'"
+        "bot0/label.py:8633:        logger.error(f\"Admin notification error: {e}\")",
+        "except ImportError:",
+        "except Exception:",
+        "bot.answer_callback_query(call.id, f\"❌ Error: {str(e)}\", show_alert=True)",
+        "#     logger.error(f\"YooKassa API check failed: {status_message}\")",
+        "except Exception as date_error:",
+        "logger.error(f\"Admin notification error: {e}\")",
+        "except Exception as doc_error:",
+        "except Exception as save_error:",
+        "except Exception as send_error:"
       ]
     }
   ],
-  "totalDurationMs": 100,
+  "totalDurationMs": 734931,
   "struggleIndicators": {
     "repeatedErrors": {
-      "error: the argument '--full-auto' cannot be used with '--dangerously-bypass-approvals-and-sandbox'": 1
+      "bot0/label.py:8633:        logger.error(f\"Admin notification error: {e}\")": 1,
+      "except ImportError:": 1,
+      "except Exception:": 1,
+      "bot.answer_callback_query(call.id, f\"❌ Error: {str(e)}\", show_alert=True)": 1,
+      "#     logger.error(f\"YooKassa API check failed: {status_message}\")": 1,
+      "except Exception as date_error:": 1,
+      "logger.error(f\"Admin notification error: {e}\")": 1,
+      "except Exception as doc_error:": 1,
+      "except Exception as save_error:": 1,
+      "except Exception as send_error:": 1
     },
     "noProgressIterations": 1,
-    "shortIterations": 1
+    "shortIterations": 0
   }
 }
