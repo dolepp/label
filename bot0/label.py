@@ -41,6 +41,7 @@ import io
 from urllib.parse import quote
 
 from db.repositories.release_files import get_release_file_id
+from services import notifications
 from utils.security import escape_html, escape_markdown, validate_file_upload
 
 # Load environment variables
@@ -3676,206 +3677,52 @@ def save_release_data(message):
 
 def create_admin_notification(release_info):
     """Create detailed notification message for admins"""
-    fields = {
-        'ID релиза': release_info[0],
-        'Тип релиза': release_info[2],
-        'Артист': f"{release_info[3]} (@{release_info[-1]})",
-        'Название': release_info[4],
-        'Продюсер': release_info[5] or 'не указан',
-        'Жанр': release_info[6],
-        'Дата релиза': release_info[9].strftime('%d.%m.%Y'),
-        'Исполнитель': release_info[10],
-        'Автор музыки': release_info[11],
-        'Эксплисит контент': 'да' if release_info[14] else 'нет',
-        'Превью (сек)': release_info[16] or 'не указано',
-        'Яндекс "Скоро"': 'да' if release_info[17] else 'нет',
-        'Создать ссылки': 'да' if release_info[18] else 'нет',
-        'TikTok коммерч.': 'да' if release_info[19] else 'нет',
-        'TikTok полная версия': 'да' if release_info[20] else 'нет'
-    }
-
-    message = "🎵 *Новый релиз на модерацию!*\n\n"
-    message += "\n".join([f"*{key}:* {value}" for key, value in fields.items()])
-
-    # Добавляем ссылки на файлы если они есть
-    if release_info[7]:  # cover_file_id
-        message += f"\n\n🎨 [Обложка](https://api.telegram.org/file/bot{BOT_TOKEN}/{release_info[7]})"
-    if release_info[8]:  # audio_file_id
-        message += f"\n🎧 [Аудио](https://api.telegram.org/file/bot{BOT_TOKEN}/{release_info[8]})"
-    if release_info[12]:  # contract_file_id
-        message += f"\n📄 [Контракт](https://api.telegram.org/file/bot{BOT_TOKEN}/{release_info[12]})"
-
-    return message
+    return notifications.create_admin_notification_message(release_info, BOT_TOKEN)
 
 
 def notify_all_admins(message_text):
     """Send notification to all admins"""
-    admin_ids = get_all_admins()
-
-    if not admin_ids:
-        logger.warning("Не найдено ни одного администратора для уведомления")
-        return
-
-    for admin_id in admin_ids:
-        try:
-            bot.send_message(
-                admin_id,
-                message_text,
-                parse_mode='Markdown',
-                disable_web_page_preview=True
-            )
-            logger.info(f"Уведомление отправлено админу {admin_id}")
-        except Exception as e:
-            logger.error(f"Не удалось уведомить админа {admin_id}: {e}")
+    notifications.notify_all_admins(bot, get_all_admins(), message_text, logger)
 
 
 def notify_admins(user_id, release_id):
     """Notify admins about new release"""
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            return
-
-        cursor = conn.cursor()
-
-        # Получаем данные пользователя
-        cursor.execute('SELECT name, tg FROM label WHERE telegram_id = %s', (user_id,))
-        user_info = cursor.fetchone()
-
-        # Получаем данные релиза
-        cursor.execute('''
-            SELECT artist_name, release_name, release_date 
-            FROM releases WHERE id = %s
-        ''', (release_id,))
-        release_info = cursor.fetchone()
-
-        if user_info and release_info:
-            artist_name, username = user_info
-            release_artist, release_name, release_date = release_info
-
-            msg = (
-                "🎵 Новый релиз на проверку!\n\n"
-                f"Артист: {escape_markdown(artist_name)} (@{escape_markdown(username)})\n"
-                f"Название: {escape_markdown(release_name)}\n"
-                f"Дата релиза: {release_date.strftime('%d.%m.%Y')}\n"
-                f"ID: {release_id}"
-            )
-
-            # Отправляем всем админам
-            admin_ids = get_all_admins()
-            for admin_id in admin_ids:
-                try:
-                    bot.send_message(admin_id, msg)
-                except Exception as e:
-                    logger.error(f"Failed to notify admin {admin_id}: {e}")
-
-    except Exception as e:
-        logger.error(f"Error in admin notification: {e}")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
+    notifications.notify_release_admins(
+        bot,
+        user_id,
+        release_id,
+        get_pg_connection,
+        return_pg_connection,
+        get_all_admins,
+        logger,
+        escape_markdown,
+    )
 
 
 def notify_admins_about_new_release(user_id, release_id):
     """Notify admins about new release submission"""
-    conn = get_pg_connection()
-    if not conn:
-        logger.error("Database connection failed for admin notification")
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        # Получаем информацию о пользователе
-        cursor.execute('''
-            SELECT name, tg FROM label WHERE telegram_id = %s
-        ''', (user_id,))
-        user_info = cursor.fetchone()
-
-        if not user_info:
-            logger.error(f"User {user_id} not found")
-            return
-
-        artist_name, username = user_info
-
-        # Получаем информацию о релизе
-        cursor.execute('''
-            SELECT release_name, release_date FROM releases WHERE id = %s
-        ''', (release_id,))
-        release_info = cursor.fetchone()
-
-        if not release_info:
-            logger.error(f"Release {release_id} not found")
-            return
-
-        release_name, release_date = release_info
-
-        # Создаем клавиатуру с кнопкой просмотра вложений
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton("📎 Просмотреть вложения", callback_data=f"admin_view_release_{release_id}")
-        )
-
-        # Формируем сообщение для админов
-        message = (
-            "📢 Новый релиз на проверку!\n\n"
-            f"🎤 Артист: {artist_name} (@{username})\n"
-            f"🎵 Название: {release_name}\n"
-            f"📅 Дата релиза: {release_date.strftime('%d.%m.%Y')}\n"
-            f"🆔 ID релиза: {release_id}"
-        )
-
-        # Отправляем уведомление всем админам
-        cursor.execute('SELECT telegram_id FROM label WHERE admin = 1')
-        admins = cursor.fetchall()
-
-        for admin in admins:
-            try:
-                bot.send_message(admin[0], message, reply_markup=markup)
-            except Exception as e:
-                logger.error(f"Failed to notify admin {admin[0]}: {e}")
-
-    except Exception as e:
-        logger.error(f"Error in admin notification: {e}")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
+    notifications.notify_admins_about_new_release(
+        bot,
+        user_id,
+        release_id,
+        get_pg_connection,
+        return_pg_connection,
+        logger,
+    )
 
 
 def notify_admins_about_report_request(user_id, report_id, user_name, username):
     """Notify admins about new report request"""
-    try:
-        # Формируем сообщение для админов
-        message = (
-            "📊 Новый запрос отчета!\n\n"
-            f"👤 Пользователь: {user_name} (@{username})\n"
-            f"🆔 ID пользователя: {user_id}\n"
-            f"📊 ID запроса: {report_id}\n"
-            f"📅 Дата запроса: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
-            f"💡 Перейдите в админ панель → Пользователи → Запросы отчетов для ответа"
-        )
-
-        # Отправляем уведомление всем админам
-        conn = get_pg_connection()
-        if conn:
-            try:
-                cursor = conn.cursor()
-                cursor.execute('SELECT telegram_id FROM label WHERE admin = 1')
-                admins = cursor.fetchall()
-
-                for admin in admins:
-                    try:
-                        bot.send_message(admin[0], message)
-                    except Exception as e:
-                        logger.error(f"Failed to notify admin {admin[0]} about report request: {e}")
-            finally:
-                cursor.close()
-                return_pg_connection(conn)
-
-    except Exception as e:
-        logger.error(f"Error notifying admins about report request: {e}")
+    notifications.notify_admins_about_report_request(
+        bot,
+        user_id,
+        report_id,
+        user_name,
+        username,
+        get_pg_connection,
+        return_pg_connection,
+        logger,
+    )
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_view_release_"))
@@ -8490,105 +8337,26 @@ def save_release_data(message):
 
 def create_admin_notification(release_info):
     """Create detailed notification message for admins"""
-    fields = {
-        'ID релиза': release_info[0],
-        'Тип релиза': release_info[2],
-        'Артист': f"{release_info[3]} (@{release_info[-1]})",
-        'Название': release_info[4],
-        'Продюсер': release_info[5] or 'не указан',
-        'Жанр': release_info[6],
-        'Дата релиза': release_info[9].strftime('%d.%m.%Y'),
-        'Исполнитель': release_info[10],
-        'Автор музыки': release_info[11],
-        'Эксплисит контент': 'да' if release_info[14] else 'нет',
-        'Превью (сек)': release_info[16] or 'не указано',
-        'Яндекс "Скоро"': 'да' if release_info[17] else 'нет',
-        'Создать ссылки': 'да' if release_info[18] else 'нет',
-        'TikTok коммерч.': 'да' if release_info[19] else 'нет',
-        'TikTok полная версия': 'да' if release_info[20] else 'нет'
-    }
-
-    message = "🎵 *Новый релиз на модерацию!*\n\n"
-    message += "\n".join([f"*{key}:* {value}" for key, value in fields.items()])
-
-    # Добавляем ссылки на файлы если они есть
-    if release_info[7]:  # cover_file_id
-        message += f"\n\n🎨 [Обложка](https://api.telegram.org/file/bot{BOT_TOKEN}/{release_info[7]})"
-    if release_info[8]:  # audio_file_id
-        message += f"\n🎧 [Аудио](https://api.telegram.org/file/bot{BOT_TOKEN}/{release_info[8]})"
-    if release_info[12]:  # contract_file_id
-        message += f"\n📄 [Контракт](https://api.telegram.org/file/bot{BOT_TOKEN}/{release_info[12]})"
-
-    return message
+    return notifications.create_admin_notification_message(release_info, BOT_TOKEN)
 
 
 def notify_all_admins(message_text):
     """Send notification to all admins"""
-    admin_ids = get_all_admins()
-
-    if not admin_ids:
-        logger.warning("Не найдено ни одного администратора для уведомления")
-        return
-
-    for admin_id in admin_ids:
-        try:
-            bot.send_message(
-                admin_id,
-                message_text,
-                parse_mode='Markdown',
-                disable_web_page_preview=True
-            )
-            logger.info(f"Уведомление отправлено админу {admin_id}")
-        except Exception as e:
-            logger.error(f"Не удалось уведомить админа {admin_id}: {e}")
+    notifications.notify_all_admins(bot, get_all_admins(), message_text, logger)
 
 
 def notify_admins(user_id, release_id):
     """Notify admins about new release"""
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            return
-
-        cursor = conn.cursor()
-
-        # Получаем данные пользователя
-        cursor.execute('SELECT name, tg FROM label WHERE telegram_id = %s', (user_id,))
-        user_info = cursor.fetchone()
-
-        # Получаем данные релиза
-        cursor.execute('''
-            SELECT artist_name, release_name, release_date 
-            FROM releases WHERE id = %s
-        ''', (release_id,))
-        release_info = cursor.fetchone()
-
-        if user_info and release_info:
-            artist_name, username = user_info
-            release_artist, release_name, release_date = release_info
-
-            msg = (
-                "🎵 Новый релиз на проверку!\n\n"
-                f"Артист: {escape_markdown(artist_name)} (@{escape_markdown(username)})\n"
-                f"Название: {escape_markdown(release_name)}\n"
-                f"Дата релиза: {release_date.strftime('%d.%m.%Y')}\n"
-                f"ID: {release_id}"
-            )
-
-            # Отправляем всем админам
-            admin_ids = get_all_admins()
-            for admin_id in admin_ids:
-                try:
-                    bot.send_message(admin_id, msg)
-                except Exception as e:
-                    logger.error(f"Failed to notify admin {admin_id}: {e}")
-
-    except Exception as e:
-        logger.error(f"Error in admin notification: {e}")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
+    notifications.notify_release_admins(
+        bot,
+        user_id,
+        release_id,
+        get_pg_connection,
+        return_pg_connection,
+        get_all_admins,
+        logger,
+        escape_markdown,
+    )
 
 
 def create_main_menu():
@@ -8639,103 +8407,28 @@ def notify_admins_about_new_release(user_id):
 
 def notify_admins_about_new_release(user_id, release_id):
     """Notify admins about new release submission"""
-    conn = get_pg_connection()
-    if not conn:
-        logger.error("Database connection failed for admin notification")
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        # Получаем информацию о пользователе
-        cursor.execute('''
-            SELECT name, tg FROM label WHERE telegram_id = %s
-        ''', (user_id,))
-        user_info = cursor.fetchone()
-
-        if not user_info:
-            logger.error(f"User {user_id} not found")
-            return
-
-        artist_name, username = user_info
-
-        # Получаем информацию о релизе
-        cursor.execute('''
-            SELECT release_name, release_date FROM releases WHERE id = %s
-        ''', (release_id,))
-        release_info = cursor.fetchone()
-
-        if not release_info:
-            logger.error(f"Release {release_id} not found")
-            return
-
-        release_name, release_date = release_info
-
-        # Создаем клавиатуру с кнопкой просмотра вложений
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton("📎 Просмотреть вложения", callback_data=f"admin_view_release_{release_id}")
-        )
-
-        # Формируем сообщение для админов
-        message = (
-            "📢 Новый релиз на проверку!\n\n"
-            f"🎤 Артист: {artist_name} (@{username})\n"
-            f"🎵 Название: {release_name}\n"
-            f"📅 Дата релиза: {release_date.strftime('%d.%m.%Y')}\n"
-            f"🆔 ID релиза: {release_id}"
-        )
-
-        # Отправляем уведомление всем админам
-        cursor.execute('SELECT telegram_id FROM label WHERE admin = 1')
-        admins = cursor.fetchall()
-
-        for admin in admins:
-            try:
-                bot.send_message(admin[0], message, reply_markup=markup)
-            except Exception as e:
-                logger.error(f"Failed to notify admin {admin[0]}: {e}")
-
-    except Exception as e:
-        logger.error(f"Error in admin notification: {e}")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
+    notifications.notify_admins_about_new_release(
+        bot,
+        user_id,
+        release_id,
+        get_pg_connection,
+        return_pg_connection,
+        logger,
+    )
 
 
 def notify_admins_about_report_request(user_id, report_id, user_name, username):
     """Notify admins about new report request"""
-    try:
-        # Формируем сообщение для админов
-        message = (
-            "📊 Новый запрос отчета!\n\n"
-            f"👤 Пользователь: {user_name} (@{username})\n"
-            f"🆔 ID пользователя: {user_id}\n"
-            f"📊 ID запроса: {report_id}\n"
-            f"📅 Дата запроса: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
-            f"💡 Перейдите в админ панель → Пользователи → Запросы отчетов для ответа"
-        )
-
-        # Отправляем уведомление всем админам
-        conn = get_pg_connection()
-        if conn:
-            try:
-                cursor = conn.cursor()
-                cursor.execute('SELECT telegram_id FROM label WHERE admin = 1')
-                admins = cursor.fetchall()
-
-                for admin in admins:
-                    try:
-                        bot.send_message(admin[0], message)
-                    except Exception as e:
-                        logger.error(f"Failed to notify admin {admin[0]} about report request: {e}")
-            finally:
-                cursor.close()
-                return_pg_connection(conn)
-
-    except Exception as e:
-        logger.error(f"Error notifying admins about report request: {e}")
+    notifications.notify_admins_about_report_request(
+        bot,
+        user_id,
+        report_id,
+        user_name,
+        username,
+        get_pg_connection,
+        return_pg_connection,
+        logger,
+    )
 
 
 @bot.callback_query_handler(func=lambda call: False and call.data.startswith("admin_view_release_"))
@@ -14986,34 +14679,7 @@ def handle_successful_payment(call, payment):
 
 def notify_admins(message, levels):
     """Notify admins about new orders"""
-    conn = get_pg_connection()
-    if not conn:
-        logger.error("Could not connect to database in notify_admins")
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        # Get all users with required levels from label table
-        # Check admin, owner, creator columns
-        cursor.execute('''
-            SELECT telegram_id FROM label 
-            WHERE admin = 1 OR owner = 1 OR creator = 1
-        ''')
-        admin_users = cursor.fetchall()
-
-        for (user_id,) in admin_users:
-            try:
-                bot.send_message(user_id, message)
-            except Exception as e:
-                logger.error(f"Failed to send notification to user {user_id}: {e}")
-                continue
-    except Error as e:
-        logger.error(f"PostgreSQL error in notify_admins: {e}")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
+    notifications.notify_order_admins(bot, message, get_pg_connection, return_pg_connection, logger)
 
 
 def handle_distribution_payment(call, payment):
