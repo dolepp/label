@@ -1,0 +1,519 @@
+2026-01-13 12:26:26 | ERROR    | bot.utils.decorators:wrapper:59 - Ошибка проверки подписки для пользователя 1398275867: 'Message' object has no attribute 'bot'
+2026-01-13 12:26:26 | ERROR    | bot.repositories.base_repository:_execute_query:59 - Database error: column "username" does not exist
+LINE 2:             SELECT telegram_id, username, name, kanal, fio, ...
+                                        ^
+
+2026-01-13 12:26:26 | ERROR    | bot.utils.decorators:wrapper:83 - Ошибка в handle_profile: column "username" does not exist
+LINE 2:             SELECT telegram_id, username, name, kanal, fio, ...
+                                        ^
+
+Traceback (most recent call last):
+
+  File "/usr/lib/python3.11/threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+    │    └ <function Thread._bootstrap_inner at 0x7f5c36ed4900>
+    └ <WorkerThread(WorkerThread2, started daemon 140033970673408)>
+  File "/usr/lib/python3.11/threading.py", line 1045, in _bootstrap_inner
+    self.run()
+    │    └ <function WorkerThread.run at 0x7f5c35ae7c40>
+    └ <WorkerThread(WorkerThread2, started daemon 140033970673408)>
+  File "/home/goida/label/main_bot/venv/lib/python3.11/site-packages/telebot/util.py", line 97, in run
+    task(*args, **kwargs)
+    │     │       └ {'handlers': [{'function': <function register_common_handlers.<locals>.handle_start at 0x7f5c35447c40>, 'pass_bot': False, 'f...
+    │     └ (<telebot.types.Message object at 0x7f5c36c0cc50>,)
+    └ <bound method TeleBot._run_middlewares_and_handler of <telebot.TeleBot object at 0x7f5c35ae1450>>
+  File "/home/goida/label/main_bot/venv/lib/python3.11/site-packages/telebot/__init__.py", line 10134, in _run_middlewares_and_handler
+    result = handler['function'](message)
+             │                   └ <telebot.types.Message object at 0x7f5c36c0cc50>
+             └ {'function': <function register_user_handlers.<locals>.handle_profile at 0x7f5c3271fe20>, 'pass_bot': False, 'filters': {'con...
+
+  File "/home/goida/label/bot/utils/decorators.py", line 63, in wrapper
+    return func(message, *args, **kwargs)
+           │    │         │       └ {}
+           │    │         └ ()
+           │    └ <telebot.types.Message object at 0x7f5c36c0cc50>
+           └ <function register_user_handlers.<locals>.handle_profile at 0x7f5c3271fd80>
+
+> File "/home/goida/label/bot/utils/decorators.py", line 81, in wrapper
+    return func(*args, **kwargs)
+           │     │       └ {}
+           │     └ (<telebot.types.Message object at 0x7f5c36c0cc50>,)
+           └ <function register_user_handlers.<locals>.handle_profile at 0x7f5c3271fce0>
+
+  File "/home/goida/label/bot/handlers/user_handlers.py", line 32, in handle_profile
+    user = user_service.get_user(user_id)
+           │            │        └ 1398275867
+           │            └ <function UserService.get_user at 0x7f5c326fb740>
+           └ <bot.services.user_service.UserService object at 0x7f5c35452f10>
+
+  File "/home/goida/label/bot/services/user_service.py", line 38, in get_user
+    user = self.repository.get_by_telegram_id(telegram_id)
+           │    │          │                  └ 1398275867
+           │    │          └ <function UserRepository.get_by_telegram_id at 0x7f5c326fba60>
+           │    └ <bot.repositories.user_repository.UserRepository object at 0x7f5c35453ed0>
+           └ <bot.services.user_service.UserService object at 0x7f5c35452f10>
+
+  File "/home/goida/label/bot/repositories/user_repository.py", line 34, in get_by_telegram_id
+    row = self._execute_query(query, (telegram_id,), fetch_one=True)
+          │    │              │       └ 1398275867
+          │    │              └ '\n            SELECT telegram_id, username, name, kanal, fio, email, \n                   COALESCE(balance, 0), artist, refe...
+          │    └ <function BaseRepository._execute_query at 0x7f5c326fbce0>
+          └ <bot.repositories.user_repository.UserRepository object at 0x7f5c35453ed0>
+
+  File "/home/goida/label/bot/repositories/base_repository.py", line 44, in _execute_query
+    cursor.execute(query, params or ())
+    │      │       │      └ (1398275867,)
+    │      │       └ '\n            SELECT telegram_id, username, name, kanal, fio, email, \n                   COALESCE(balance, 0), artist, refe...
+    │      └ <method 'execute' of 'psycopg2.extensions.cursor' objects>
+    └ <cursor object at 0x7f5c32715b70; closed: -1>
+
+psycopg2.errors.UndefinedColumn: column "username" does not exist
+LINE 2:             SELECT telegram_id, username, name, kanal, fio, ...
+                                        ^
+
+2026-01-13 12:26:42 | ERROR    | bot.utils.decorators:wrapper:59 - Ошибка проверки подписки для пользователя 1398275867: 'Message' object has no attribute 'bot'
+2026-01-13 12:26:42 | ERROR    | bot.repositories.base_repository:_execute_query:59 - Database error: column "username" does not exist
+LINE 2:             SELECT telegram_id, username, name, kanal, fio, ...
+                                        ^
+
+2026-01-13 12:26:42 | ERROR    | bot.utils.decorators:wrapper:83 - Ошибка в handle_profile: column "username" does not exist
+LINE 2:             SELECT telegram_id, username, name, kanal, fio, ...
+                                        ^
+
+Traceback (most recent call last):
+
+  File "/usr/lib/python3.11/threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+    │    └ <function Thread._bootstrap_inner at 0x7f5c36ed4900>
+    └ <WorkerThread(WorkerThread1, started daemon 140033979066112)>
+  File "/usr/lib/python3.11/threading.py", line 1045, in _bootstrap_inner
+    self.run()
+    │    └ <function WorkerThread.run at 0x7f5c35ae7c40>
+    └ <WorkerThread(WorkerThread1, started daemon 140033979066112)>
+  File "/home/goida/label/main_bot/venv/lib/python3.11/site-packages/telebot/util.py", line 97, in run
+    task(*args, **kwargs)
+    │     │       └ {'handlers': [{'function': <function register_common_handlers.<locals>.handle_start at 0x7f5c35447c40>, 'pass_bot': False, 'f...
+    │     └ (<telebot.types.Message object at 0x7f5c358ddd10>,)
+    └ <bound method TeleBot._run_middlewares_and_handler of <telebot.TeleBot object at 0x7f5c35ae1450>>
+  File "/home/goida/label/main_bot/venv/lib/python3.11/site-packages/telebot/__init__.py", line 10134, in _run_middlewares_and_handler
+    result = handler['function'](message)
+             │                   └ <telebot.types.Message object at 0x7f5c358ddd10>
+             └ {'function': <function register_user_handlers.<locals>.handle_profile at 0x7f5c3271fe20>, 'pass_bot': False, 'filters': {'con...
+
+  File "/home/goida/label/bot/utils/decorators.py", line 63, in wrapper
+    return func(message, *args, **kwargs)
+           │    │         │       └ {}
+           │    │         └ ()
+           │    └ <telebot.types.Message object at 0x7f5c358ddd10>
+           └ <function register_user_handlers.<locals>.handle_profile at 0x7f5c3271fd80>
+
+> File "/home/goida/label/bot/utils/decorators.py", line 81, in wrapper
+    return func(*args, **kwargs)
+           │     │       └ {}
+           │     └ (<telebot.types.Message object at 0x7f5c358ddd10>,)
+           └ <function register_user_handlers.<locals>.handle_profile at 0x7f5c3271fce0>
+
+  File "/home/goida/label/bot/handlers/user_handlers.py", line 32, in handle_profile
+    user = user_service.get_user(user_id)
+           │            │        └ 1398275867
+           │            └ <function UserService.get_user at 0x7f5c326fb740>
+           └ <bot.services.user_service.UserService object at 0x7f5c35754e50>
+
+  File "/home/goida/label/bot/services/user_service.py", line 38, in get_user
+    user = self.repository.get_by_telegram_id(telegram_id)
+           │    │          │                  └ 1398275867
+           │    │          └ <function UserRepository.get_by_telegram_id at 0x7f5c326fba60>
+           │    └ <bot.repositories.user_repository.UserRepository object at 0x7f5c36f06d10>
+           └ <bot.services.user_service.UserService object at 0x7f5c35754e50>
+
+  File "/home/goida/label/bot/repositories/user_repository.py", line 34, in get_by_telegram_id
+    row = self._execute_query(query, (telegram_id,), fetch_one=True)
+          │    │              │       └ 1398275867
+          │    │              └ '\n            SELECT telegram_id, username, name, kanal, fio, email, \n                   COALESCE(balance, 0), artist, refe...
+          │    └ <function BaseRepository._execute_query at 0x7f5c326fbce0>
+          └ <bot.repositories.user_repository.UserRepository object at 0x7f5c36f06d10>
+
+  File "/home/goida/label/bot/repositories/base_repository.py", line 44, in _execute_query
+    cursor.execute(query, params or ())
+    │      │       │      └ (1398275867,)
+    │      │       └ '\n            SELECT telegram_id, username, name, kanal, fio, email, \n                   COALESCE(balance, 0), artist, refe...
+    │      └ <method 'execute' of 'psycopg2.extensions.cursor' objects>
+    └ <cursor object at 0x7f5c327174c0; closed: -1>
+
+psycopg2.errors.UndefinedColumn: column "username" does not exist
+LINE 2:             SELECT telegram_id, username, name, kanal, fio, ...
+                                        ^
+
+2026-01-13 12:29:39 | ERROR    | bot.utils.decorators:wrapper:59 - Ошибка проверки подписки для пользователя 1398275867: 'Message' object has no attribute 'bot'
+2026-01-13 12:29:39 | ERROR    | bot.repositories.base_repository:_execute_query:59 - Database error: column "username" does not exist
+LINE 2:             SELECT telegram_id, username, name, kanal, fio, ...
+                                        ^
+
+2026-01-13 12:29:39 | ERROR    | bot.utils.decorators:wrapper:83 - Ошибка в handle_profile: column "username" does not exist
+LINE 2:             SELECT telegram_id, username, name, kanal, fio, ...
+                                        ^
+
+Traceback (most recent call last):
+
+  File "/usr/lib/python3.11/threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+    │    └ <function Thread._bootstrap_inner at 0x7f86884a8900>
+    └ <WorkerThread(WorkerThread2, started daemon 140215649826560)>
+  File "/usr/lib/python3.11/threading.py", line 1045, in _bootstrap_inner
+    self.run()
+    │    └ <function WorkerThread.run at 0x7f86870bbc40>
+    └ <WorkerThread(WorkerThread2, started daemon 140215649826560)>
+  File "/home/goida/label/main_bot/venv/lib/python3.11/site-packages/telebot/util.py", line 97, in run
+    task(*args, **kwargs)
+    │     │       └ {'handlers': [{'function': <function register_common_handlers.<locals>.handle_start at 0x7f8686a27c40>, 'pass_bot': False, 'f...
+    │     └ (<telebot.types.Message object at 0x7f868450b190>,)
+    └ <bound method TeleBot._run_middlewares_and_handler of <telebot.TeleBot object at 0x7f86870634d0>>
+  File "/home/goida/label/main_bot/venv/lib/python3.11/site-packages/telebot/__init__.py", line 10134, in _run_middlewares_and_handler
+    result = handler['function'](message)
+             │                   └ <telebot.types.Message object at 0x7f868450b190>
+             └ {'function': <function register_user_handlers.<locals>.handle_profile at 0x7f86844ffe20>, 'pass_bot': False, 'filters': {'con...
+
+  File "/home/goida/label/bot/utils/decorators.py", line 63, in wrapper
+    return func(message, *args, **kwargs)
+           │    │         │       └ {}
+           │    │         └ ()
+           │    └ <telebot.types.Message object at 0x7f868450b190>
+           └ <function register_user_handlers.<locals>.handle_profile at 0x7f86844ffd80>
+
+> File "/home/goida/label/bot/utils/decorators.py", line 81, in wrapper
+    return func(*args, **kwargs)
+           │     │       └ {}
+           │     └ (<telebot.types.Message object at 0x7f868450b190>,)
+           └ <function register_user_handlers.<locals>.handle_profile at 0x7f86844ffce0>
+
+  File "/home/goida/label/bot/handlers/user_handlers.py", line 32, in handle_profile
+    user = user_service.get_user(user_id)
+           │            │        └ 1398275867
+           │            └ <function UserService.get_user at 0x7f86844db740>
+           └ <bot.services.user_service.UserService object at 0x7f8686a32f10>
+
+  File "/home/goida/label/bot/services/user_service.py", line 38, in get_user
+    user = self.repository.get_by_telegram_id(telegram_id)
+           │    │          │                  └ 1398275867
+           │    │          └ <function UserRepository.get_by_telegram_id at 0x7f86844dba60>
+           │    └ <bot.repositories.user_repository.UserRepository object at 0x7f8686a3c990>
+           └ <bot.services.user_service.UserService object at 0x7f8686a32f10>
+
+  File "/home/goida/label/bot/repositories/user_repository.py", line 34, in get_by_telegram_id
+    row = self._execute_query(query, (telegram_id,), fetch_one=True)
+          │    │              │       └ 1398275867
+          │    │              └ '\n            SELECT telegram_id, username, name, kanal, fio, email, \n                   COALESCE(balance, 0), artist, refe...
+          │    └ <function BaseRepository._execute_query at 0x7f86844dbce0>
+          └ <bot.repositories.user_repository.UserRepository object at 0x7f8686a3c990>
+
+  File "/home/goida/label/bot/repositories/base_repository.py", line 44, in _execute_query
+    cursor.execute(query, params or ())
+    │      │       │      └ (1398275867,)
+    │      │       └ '\n            SELECT telegram_id, username, name, kanal, fio, email, \n                   COALESCE(balance, 0), artist, refe...
+    │      └ <method 'execute' of 'psycopg2.extensions.cursor' objects>
+    └ <cursor object at 0x7f86844f2110; closed: -1>
+
+psycopg2.errors.UndefinedColumn: column "username" does not exist
+LINE 2:             SELECT telegram_id, username, name, kanal, fio, ...
+                                        ^
+
+2026-01-13 17:11:09 | ERROR    | __main__:start_bot_with_retry:115 - ❌ Telegram API ошибка: A request to the Telegram API was unsuccessful. Error code: 409. Description: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-01-13 17:11:14 | ERROR    | __main__:start_bot_with_retry:115 - ❌ Telegram API ошибка: A request to the Telegram API was unsuccessful. Error code: 409. Description: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-01-13 17:11:19 | ERROR    | __main__:start_bot_with_retry:115 - ❌ Telegram API ошибка: A request to the Telegram API was unsuccessful. Error code: 409. Description: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-01-13 17:11:25 | ERROR    | __main__:start_bot_with_retry:115 - ❌ Telegram API ошибка: A request to the Telegram API was unsuccessful. Error code: 409. Description: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-01-13 17:11:30 | ERROR    | __main__:start_bot_with_retry:115 - ❌ Telegram API ошибка: A request to the Telegram API was unsuccessful. Error code: 409. Description: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-01-13 17:11:42 | ERROR    | __main__:start_bot_with_retry:115 - ❌ Telegram API ошибка: A request to the Telegram API was unsuccessful. Error code: 409. Description: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-01-13 17:12:02 | ERROR    | __main__:start_bot_with_retry:115 - ❌ Telegram API ошибка: A request to the Telegram API was unsuccessful. Error code: 409. Description: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-01-13 17:13:16 | ERROR    | bot.utils.decorators:wrapper:59 - Ошибка проверки подписки для пользователя 1398275867: 'Message' object has no attribute 'bot'
+2026-01-13 17:13:16 | ERROR    | bot.repositories.base_repository:_execute_query:59 - Database error: column "updated_at" does not exist
+LINE 5:                    created_date, updated_at
+                                         ^
+
+2026-01-13 17:13:16 | ERROR    | bot.utils.decorators:wrapper:83 - Ошибка в handle_profile: column "updated_at" does not exist
+LINE 5:                    created_date, updated_at
+                                         ^
+
+Traceback (most recent call last):
+
+  File "/usr/lib/python3.11/threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+    │    └ <function Thread._bootstrap_inner at 0x7fcc9e5e4900>
+    └ <WorkerThread(WorkerThread1, started daemon 140516750890752)>
+  File "/usr/lib/python3.11/threading.py", line 1045, in _bootstrap_inner
+    self.run()
+    │    └ <function WorkerThread.run at 0x7fcc9d1f7c40>
+    └ <WorkerThread(WorkerThread1, started daemon 140516750890752)>
+  File "/home/goida/label/main_bot/venv/lib/python3.11/site-packages/telebot/util.py", line 97, in run
+    task(*args, **kwargs)
+    │     │       └ {'handlers': [{'function': <function register_common_handlers.<locals>.handle_start at 0x7fcc9cb5bc40>, 'pass_bot': False, 'f...
+    │     └ (<telebot.types.Message object at 0x7fcc99de7210>,)
+    └ <bound method TeleBot._run_middlewares_and_handler of <telebot.TeleBot object at 0x7fcc9e81cd10>>
+  File "/home/goida/label/main_bot/venv/lib/python3.11/site-packages/telebot/__init__.py", line 10134, in _run_middlewares_and_handler
+    result = handler['function'](message)
+             │                   └ <telebot.types.Message object at 0x7fcc99de7210>
+             └ {'function': <function register_user_handlers.<locals>.handle_profile at 0x7fcc99e27e20>, 'pass_bot': False, 'filters': {'con...
+
+  File "/home/goida/label/bot/utils/decorators.py", line 63, in wrapper
+    return func(message, *args, **kwargs)
+           │    │         │       └ {}
+           │    │         └ ()
+           │    └ <telebot.types.Message object at 0x7fcc99de7210>
+           └ <function register_user_handlers.<locals>.handle_profile at 0x7fcc99e27d80>
+
+> File "/home/goida/label/bot/utils/decorators.py", line 81, in wrapper
+    return func(*args, **kwargs)
+           │     │       └ {}
+           │     └ (<telebot.types.Message object at 0x7fcc99de7210>,)
+           └ <function register_user_handlers.<locals>.handle_profile at 0x7fcc99e27ce0>
+
+  File "/home/goida/label/bot/handlers/user_handlers.py", line 32, in handle_profile
+    user = user_service.get_user(user_id)
+           │            │        └ 1398275867
+           │            └ <function UserService.get_user at 0x7fcc99e03740>
+           └ <bot.services.user_service.UserService object at 0x7fcc9dbb9a50>
+
+  File "/home/goida/label/bot/services/user_service.py", line 38, in get_user
+    user = self.repository.get_by_telegram_id(telegram_id)
+           │    │          │                  └ 1398275867
+           │    │          └ <function UserRepository.get_by_telegram_id at 0x7fcc99e03a60>
+           │    └ <bot.repositories.user_repository.UserRepository object at 0x7fcc9cb70410>
+           └ <bot.services.user_service.UserService object at 0x7fcc9dbb9a50>
+
+  File "/home/goida/label/bot/repositories/user_repository.py", line 34, in get_by_telegram_id
+    row = self._execute_query(query, (telegram_id,), fetch_one=True)
+          │    │              │       └ 1398275867
+          │    │              └ '\n            SELECT telegram_id, tg, name, kanal, fio, email, \n                   COALESCE(balance, 0), artist, referral_c...
+          │    └ <function BaseRepository._execute_query at 0x7fcc99e03ce0>
+          └ <bot.repositories.user_repository.UserRepository object at 0x7fcc9cb70410>
+
+  File "/home/goida/label/bot/repositories/base_repository.py", line 44, in _execute_query
+    cursor.execute(query, params or ())
+    │      │       │      └ (1398275867,)
+    │      │       └ '\n            SELECT telegram_id, tg, name, kanal, fio, email, \n                   COALESCE(balance, 0), artist, referral_c...
+    │      └ <method 'execute' of 'psycopg2.extensions.cursor' objects>
+    └ <cursor object at 0x7fcc99e1dc60; closed: -1>
+
+psycopg2.errors.UndefinedColumn: column "updated_at" does not exist
+LINE 5:                    created_date, updated_at
+                                         ^
+
+2026-01-13 18:02:37 | ERROR    | bot.utils.decorators:wrapper:59 - Ошибка проверки подписки для пользователя 1398275867: 'Message' object has no attribute 'bot'
+2026-01-13 18:02:37 | ERROR    | bot.repositories.base_repository:_execute_query:59 - Database error: column "updated_at" does not exist
+LINE 5:                    created_date, updated_at
+                                         ^
+
+2026-01-13 18:02:37 | ERROR    | bot.utils.decorators:wrapper:83 - Ошибка в handle_profile: column "updated_at" does not exist
+LINE 5:                    created_date, updated_at
+                                         ^
+
+Traceback (most recent call last):
+
+  File "/usr/lib/python3.11/threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+    │    └ <function Thread._bootstrap_inner at 0x7f9285d80900>
+    └ <WorkerThread(WorkerThread1, started daemon 140267231315712)>
+  File "/usr/lib/python3.11/threading.py", line 1045, in _bootstrap_inner
+    self.run()
+    │    └ <function WorkerThread.run at 0x7f928498fc40>
+    └ <WorkerThread(WorkerThread1, started daemon 140267231315712)>
+  File "/home/goida/label/main_bot/venv/lib/python3.11/site-packages/telebot/util.py", line 97, in run
+    task(*args, **kwargs)
+    │     │       └ {'handlers': [{'function': <function register_common_handlers.<locals>.handle_start at 0x7f92842f7c40>, 'pass_bot': False, 'f...
+    │     └ (<telebot.types.Message object at 0x7f9284adc690>,)
+    └ <bound method TeleBot._run_middlewares_and_handler of <telebot.TeleBot object at 0x7f928493b6d0>>
+  File "/home/goida/label/main_bot/venv/lib/python3.11/site-packages/telebot/__init__.py", line 10134, in _run_middlewares_and_handler
+    result = handler['function'](message)
+             │                   └ <telebot.types.Message object at 0x7f9284adc690>
+             └ {'function': <function register_user_handlers.<locals>.handle_profile at 0x7f92815cfe20>, 'pass_bot': False, 'filters': {'con...
+
+  File "/home/goida/label/bot/utils/decorators.py", line 63, in wrapper
+    return func(message, *args, **kwargs)
+           │    │         │       └ {}
+           │    │         └ ()
+           │    └ <telebot.types.Message object at 0x7f9284adc690>
+           └ <function register_user_handlers.<locals>.handle_profile at 0x7f92815cfd80>
+
+> File "/home/goida/label/bot/utils/decorators.py", line 81, in wrapper
+    return func(*args, **kwargs)
+           │     │       └ {}
+           │     └ (<telebot.types.Message object at 0x7f9284adc690>,)
+           └ <function register_user_handlers.<locals>.handle_profile at 0x7f92815cfce0>
+
+  File "/home/goida/label/bot/handlers/user_handlers.py", line 32, in handle_profile
+    user = user_service.get_user(user_id)
+           │            │        └ 1398275867
+           │            └ <function UserService.get_user at 0x7f92815ab740>
+           └ <bot.services.user_service.UserService object at 0x7f9284dcc8d0>
+
+  File "/home/goida/label/bot/services/user_service.py", line 38, in get_user
+    user = self.repository.get_by_telegram_id(telegram_id)
+           │    │          │                  └ 1398275867
+           │    │          └ <function UserRepository.get_by_telegram_id at 0x7f92815aba60>
+           │    └ <bot.repositories.user_repository.UserRepository object at 0x7f928430c0d0>
+           └ <bot.services.user_service.UserService object at 0x7f9284dcc8d0>
+
+  File "/home/goida/label/bot/repositories/user_repository.py", line 34, in get_by_telegram_id
+    row = self._execute_query(query, (telegram_id,), fetch_one=True)
+          │    │              │       └ 1398275867
+          │    │              └ '\n            SELECT telegram_id, tg, name, kanal, fio, email, \n                   COALESCE(balance, 0), artist, referral_c...
+          │    └ <function BaseRepository._execute_query at 0x7f92815abce0>
+          └ <bot.repositories.user_repository.UserRepository object at 0x7f928430c0d0>
+
+  File "/home/goida/label/bot/repositories/base_repository.py", line 44, in _execute_query
+    cursor.execute(query, params or ())
+    │      │       │      └ (1398275867,)
+    │      │       └ '\n            SELECT telegram_id, tg, name, kanal, fio, email, \n                   COALESCE(balance, 0), artist, referral_c...
+    │      └ <method 'execute' of 'psycopg2.extensions.cursor' objects>
+    └ <cursor object at 0x7f92815c55d0; closed: -1>
+
+psycopg2.errors.UndefinedColumn: column "updated_at" does not exist
+LINE 5:                    created_date, updated_at
+                                         ^
+
+2026-01-13 18:02:42 | ERROR    | bot.utils.decorators:wrapper:59 - Ошибка проверки подписки для пользователя 1398275867: 'Message' object has no attribute 'bot'
+2026-01-13 18:02:42 | ERROR    | bot.repositories.base_repository:_execute_query:59 - Database error: column "updated_at" does not exist
+LINE 5:                    created_date, updated_at
+                                         ^
+
+2026-01-13 18:02:42 | ERROR    | bot.utils.decorators:wrapper:83 - Ошибка в handle_profile: column "updated_at" does not exist
+LINE 5:                    created_date, updated_at
+                                         ^
+
+Traceback (most recent call last):
+
+  File "/usr/lib/python3.11/threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+    │    └ <function Thread._bootstrap_inner at 0x7f9285d80900>
+    └ <WorkerThread(WorkerThread2, started daemon 140267222923008)>
+  File "/usr/lib/python3.11/threading.py", line 1045, in _bootstrap_inner
+    self.run()
+    │    └ <function WorkerThread.run at 0x7f928498fc40>
+    └ <WorkerThread(WorkerThread2, started daemon 140267222923008)>
+  File "/home/goida/label/main_bot/venv/lib/python3.11/site-packages/telebot/util.py", line 97, in run
+    task(*args, **kwargs)
+    │     │       └ {'handlers': [{'function': <function register_common_handlers.<locals>.handle_start at 0x7f92842f7c40>, 'pass_bot': False, 'f...
+    │     └ (<telebot.types.Message object at 0x7f928430f490>,)
+    └ <bound method TeleBot._run_middlewares_and_handler of <telebot.TeleBot object at 0x7f928493b6d0>>
+  File "/home/goida/label/main_bot/venv/lib/python3.11/site-packages/telebot/__init__.py", line 10134, in _run_middlewares_and_handler
+    result = handler['function'](message)
+             │                   └ <telebot.types.Message object at 0x7f928430f490>
+             └ {'function': <function register_user_handlers.<locals>.handle_profile at 0x7f92815cfe20>, 'pass_bot': False, 'filters': {'con...
+
+  File "/home/goida/label/bot/utils/decorators.py", line 63, in wrapper
+    return func(message, *args, **kwargs)
+           │    │         │       └ {}
+           │    │         └ ()
+           │    └ <telebot.types.Message object at 0x7f928430f490>
+           └ <function register_user_handlers.<locals>.handle_profile at 0x7f92815cfd80>
+
+> File "/home/goida/label/bot/utils/decorators.py", line 81, in wrapper
+    return func(*args, **kwargs)
+           │     │       └ {}
+           │     └ (<telebot.types.Message object at 0x7f928430f490>,)
+           └ <function register_user_handlers.<locals>.handle_profile at 0x7f92815cfce0>
+
+  File "/home/goida/label/bot/handlers/user_handlers.py", line 32, in handle_profile
+    user = user_service.get_user(user_id)
+           │            │        └ 1398275867
+           │            └ <function UserService.get_user at 0x7f92815ab740>
+           └ <bot.services.user_service.UserService object at 0x7f9280bf0c10>
+
+  File "/home/goida/label/bot/services/user_service.py", line 38, in get_user
+    user = self.repository.get_by_telegram_id(telegram_id)
+           │    │          │                  └ 1398275867
+           │    │          └ <function UserRepository.get_by_telegram_id at 0x7f92815aba60>
+           │    └ <bot.repositories.user_repository.UserRepository object at 0x7f9280bf2d50>
+           └ <bot.services.user_service.UserService object at 0x7f9280bf0c10>
+
+  File "/home/goida/label/bot/repositories/user_repository.py", line 34, in get_by_telegram_id
+    row = self._execute_query(query, (telegram_id,), fetch_one=True)
+          │    │              │       └ 1398275867
+          │    │              └ '\n            SELECT telegram_id, tg, name, kanal, fio, email, \n                   COALESCE(balance, 0), artist, referral_c...
+          │    └ <function BaseRepository._execute_query at 0x7f92815abce0>
+          └ <bot.repositories.user_repository.UserRepository object at 0x7f9280bf2d50>
+
+  File "/home/goida/label/bot/repositories/base_repository.py", line 44, in _execute_query
+    cursor.execute(query, params or ())
+    │      │       │      └ (1398275867,)
+    │      │       └ '\n            SELECT telegram_id, tg, name, kanal, fio, email, \n                   COALESCE(balance, 0), artist, referral_c...
+    │      └ <method 'execute' of 'psycopg2.extensions.cursor' objects>
+    └ <cursor object at 0x7f92815c6e30; closed: -1>
+
+psycopg2.errors.UndefinedColumn: column "updated_at" does not exist
+LINE 5:                    created_date, updated_at
+                                         ^
+
+2026-01-13 18:24:09 | ERROR    | bot.utils.decorators:wrapper:59 - Ошибка проверки подписки для пользователя 1398275867: 'Message' object has no attribute 'bot'
+2026-01-13 18:24:09 | ERROR    | bot.repositories.base_repository:_execute_query:59 - Database error: column "updated_at" does not exist
+LINE 5:                    created_date, updated_at
+                                         ^
+
+2026-01-13 18:24:09 | ERROR    | bot.utils.decorators:wrapper:83 - Ошибка в handle_profile: column "updated_at" does not exist
+LINE 5:                    created_date, updated_at
+                                         ^
+
+Traceback (most recent call last):
+
+  File "/usr/lib/python3.11/threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+    │    └ <function Thread._bootstrap_inner at 0x7f9285d80900>
+    └ <WorkerThread(WorkerThread2, started daemon 140267222923008)>
+  File "/usr/lib/python3.11/threading.py", line 1045, in _bootstrap_inner
+    self.run()
+    │    └ <function WorkerThread.run at 0x7f928498fc40>
+    └ <WorkerThread(WorkerThread2, started daemon 140267222923008)>
+  File "/home/goida/label/main_bot/venv/lib/python3.11/site-packages/telebot/util.py", line 97, in run
+    task(*args, **kwargs)
+    │     │       └ {'handlers': [{'function': <function register_common_handlers.<locals>.handle_start at 0x7f92842f7c40>, 'pass_bot': False, 'f...
+    │     └ (<telebot.types.Message object at 0x7f9285b15010>,)
+    └ <bound method TeleBot._run_middlewares_and_handler of <telebot.TeleBot object at 0x7f928493b6d0>>
+  File "/home/goida/label/main_bot/venv/lib/python3.11/site-packages/telebot/__init__.py", line 10134, in _run_middlewares_and_handler
+    result = handler['function'](message)
+             │                   └ <telebot.types.Message object at 0x7f9285b15010>
+             └ {'function': <function register_user_handlers.<locals>.handle_profile at 0x7f92815cfe20>, 'pass_bot': False, 'filters': {'con...
+
+  File "/home/goida/label/bot/utils/decorators.py", line 63, in wrapper
+    return func(message, *args, **kwargs)
+           │    │         │       └ {}
+           │    │         └ ()
+           │    └ <telebot.types.Message object at 0x7f9285b15010>
+           └ <function register_user_handlers.<locals>.handle_profile at 0x7f92815cfd80>
+
+> File "/home/goida/label/bot/utils/decorators.py", line 81, in wrapper
+    return func(*args, **kwargs)
+           │     │       └ {}
+           │     └ (<telebot.types.Message object at 0x7f9285b15010>,)
+           └ <function register_user_handlers.<locals>.handle_profile at 0x7f92815cfce0>
+
+  File "/home/goida/label/bot/handlers/user_handlers.py", line 32, in handle_profile
+    user = user_service.get_user(user_id)
+           │            │        └ 1398275867
+           │            └ <function UserService.get_user at 0x7f92815ab740>
+           └ <bot.services.user_service.UserService object at 0x7f9285feec10>
+
+  File "/home/goida/label/bot/services/user_service.py", line 38, in get_user
+    user = self.repository.get_by_telegram_id(telegram_id)
+           │    │          │                  └ 1398275867
+           │    │          └ <function UserRepository.get_by_telegram_id at 0x7f92815aba60>
+           │    └ <bot.repositories.user_repository.UserRepository object at 0x7f92815dfb10>
+           └ <bot.services.user_service.UserService object at 0x7f9285feec10>
+
+  File "/home/goida/label/bot/repositories/user_repository.py", line 34, in get_by_telegram_id
+    row = self._execute_query(query, (telegram_id,), fetch_one=True)
+          │    │              │       └ 1398275867
+          │    │              └ '\n            SELECT telegram_id, tg, name, kanal, fio, email, \n                   COALESCE(balance, 0), artist, referral_c...
+          │    └ <function BaseRepository._execute_query at 0x7f92815abce0>
+          └ <bot.repositories.user_repository.UserRepository object at 0x7f92815dfb10>
+
+  File "/home/goida/label/bot/repositories/base_repository.py", line 44, in _execute_query
+    cursor.execute(query, params or ())
+    │      │       │      └ (1398275867,)
+    │      │       └ '\n            SELECT telegram_id, tg, name, kanal, fio, email, \n                   COALESCE(balance, 0), artist, referral_c...
+    │      └ <method 'execute' of 'psycopg2.extensions.cursor' objects>
+    └ <cursor object at 0x7f92815c72e0; closed: -1>
+
+psycopg2.errors.UndefinedColumn: column "updated_at" does not exist
+LINE 5:                    created_date, updated_at
+                                         ^
+
+2026-01-14 04:31:16 | ERROR    | __main__:start_bot_with_retry:131 - ❌ Неожиданная ошибка: HTTPSConnectionPool(host='api.telegram.org', port=443): Read timed out. (read timeout=15)

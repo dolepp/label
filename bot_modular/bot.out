@@ -1,0 +1,149 @@
+2026-02-05 13:48:04,201 - __main__ - INFO - 🤖 Модульный бот инициализирован
+2026-02-05 13:48:07,376 - utils.database - INFO - Initializing DB connection pool to localhost:5432/postgres
+2026-02-05 13:48:07,742 - utils.database - INFO - ✅ PostgreSQL connection pool initialized
+2026-02-05 13:48:07,742 - __main__ - INFO - ✅ База данных инициализирована
+2026-02-05 13:48:07,743 - __main__ - INFO - 📝 Загрузка обработчиков из handlers/...
+2026-02-05 13:48:25,715 - handlers.common - INFO - YooKassa configured with account_id: 1215507
+2026-02-05 13:48:26,642 - handlers.common - INFO - ✅ YooKassa configuration test successful with new credentials
+2026-02-05 13:48:26,746 - handlers.common - WARNING - openpyxl module not available. Excel report generation will be disabled.
+2026-02-05 13:48:26,806 - __main__ - INFO - ✅ Обработчики загружены
+2026-02-05 13:48:26,806 - __main__ - INFO - 🔧 Инициализация БД и таблиц...
+2026-02-05 13:48:26,807 - handlers.common - INFO - Starting database initialization...
+2026-02-05 13:48:26,807 - handlers.common - INFO - Creating label table...
+2026-02-05 13:48:26,950 - handlers.common - INFO - Creating reviews table...
+2026-02-05 13:48:26,951 - handlers.common - INFO - Creating releases table...
+2026-02-05 13:48:26,957 - handlers.common - INFO - Creating files table...
+2026-02-05 13:48:26,957 - handlers.common - INFO - Creating distribution_agreements table...
+2026-02-05 13:48:26,958 - handlers.common - INFO - Creating payments table...
+2026-02-05 13:48:26,958 - handlers.common - INFO - Creating user_sessions table...
+2026-02-05 13:48:26,958 - handlers.common - INFO - Creating admin_logs table...
+2026-02-05 13:48:26,959 - handlers.common - INFO - Creating orders table...
+2026-02-05 13:48:26,959 - handlers.common - INFO - Creating promo codes table...
+2026-02-05 13:48:26,959 - handlers.common - INFO - Creating report requests table...
+2026-02-05 13:48:26,960 - handlers.common - INFO - Creating contracts table...
+2026-02-05 13:48:27,593 - handlers.common - INFO - Adding missing columns to existing tables...
+2026-02-05 13:48:27,679 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+2026-02-05 13:48:27,804 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS balance NUMERIC(10, 2) DEFAULT 0
+2026-02-05 13:48:27,805 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS email TEXT
+2026-02-05 13:48:27,805 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS fio TEXT
+2026-02-05 13:48:27,977 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS phone VARCHAR(50)
+2026-02-05 13:48:27,977 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS owner INTEGER DEFAULT 0
+2026-02-05 13:48:27,979 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS steezy INTEGER DEFAULT 0
+2026-02-05 13:48:27,980 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS bibi INTEGER DEFAULT 0
+2026-02-05 13:48:27,980 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS shvepz INTEGER DEFAULT 0
+2026-02-05 13:48:27,980 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS creator INTEGER DEFAULT 0
+2026-02-05 13:48:28,347 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
+2026-02-05 13:48:28,348 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT
+2026-02-05 13:48:28,369 - handlers.common - INFO - ✅ Modified column in report_requests table: ALTER TABLE report_requests ALTER COLUMN release_type DROP NOT NULL
+2026-02-05 13:48:29,666 - handlers.common - WARNING - Could not verify role columns: column "owner" is of type boolean but expression is of type integer
+LINE 1: UPDATE label SET owner = 0 WHERE owner IS NULL
+                                 ^
+HINT:  You will need to rewrite or cast the expression.
+
+2026-02-05 13:48:29,666 - handlers.common - WARNING - Could not add column to releases table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,666 - handlers.common - WARNING - Could not add column to releases table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,667 - handlers.common - WARNING - Could not add column to releases table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,667 - handlers.common - WARNING - Could not add column to releases table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,667 - handlers.common - WARNING - Could not add column to releases table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,667 - handlers.common - WARNING - Could not add column to files table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,668 - handlers.common - WARNING - Could not add column to files table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,668 - handlers.common - WARNING - Could not add column to files table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,668 - handlers.common - WARNING - Could not add column to orders table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,669 - handlers.common - WARNING - Could not add column to orders table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,669 - handlers.common - WARNING - Could not add column to orders table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,669 - handlers.common - WARNING - Could not handle promo_codes table structure: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,670 - handlers.common - ERROR - Failed to recreate promo_codes table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,670 - handlers.common - INFO - Creating indexes...
+2026-02-05 13:48:29,670 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,670 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,671 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,671 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,671 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,671 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,672 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,672 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,672 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,673 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,673 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,673 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,673 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,674 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,674 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,674 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,674 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,675 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,675 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,675 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,676 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,676 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,676 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,676 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,676 - handlers.common - INFO - Setting up permanent admins...
+2026-02-05 13:48:29,677 - handlers.common - WARNING - Could not set up admin 464793425: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,677 - handlers.common - WARNING - Could not set up admin 1398275867: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,678 - handlers.common - INFO - ✅ Database initialization completed successfully - all tables created with indexes
+2026-02-05 13:48:29,678 - __main__ - INFO - ✅ init_database выполнен
+2026-02-05 13:48:29,713 - utils.db_init - INFO - ✅ All required label columns verified
+2026-02-05 13:48:29,713 - __main__ - INFO - ✅ ensure_label_columns выполнен
+2026-02-05 13:48:29,713 - utils.db_init - INFO - Adding platform_links column to releases table...
+2026-02-05 13:48:29,847 - utils.db_init - INFO - ✅ Added platform_links column to releases table
+2026-02-05 13:48:29,848 - __main__ - INFO - ✅ add_platform_links_column выполнен
+2026-02-05 13:48:29,865 - utils.db_init - INFO - ✅ referrals table created successfully
+2026-02-05 13:48:29,865 - __main__ - INFO - ✅ create_referrals_table выполнен
+2026-02-05 13:48:29,865 - __main__ - INFO - 🔧 Проверка бота и канала...
+2026-02-05 13:48:30,035 - __main__ - INFO - ✅ Бот подключён: @twaslabel_bot
+2026-02-05 13:48:30,085 - utils.db_init - INFO - ✅ Bot instance check passed: @twaslabel_bot
+2026-02-05 13:48:30,174 - handlers.subscription - INFO - ✅ Channel access test successful: talk with a star // label
+2026-02-05 13:48:30,273 - handlers.subscription - INFO - ✅ Bot member status: administrator
+2026-02-05 13:48:30,273 - handlers.subscription - INFO - ✅ Bot has admin rights in channel
+2026-02-05 13:48:30,274 - __main__ - INFO - ✅ Доступ к каналу проверен
+2026-02-05 13:48:30,274 - __main__ - INFO - ==================================================
+2026-02-05 13:48:30,274 - __main__ - INFO - TWAS Label Bot — Модульная версия (handlers/)
+2026-02-05 13:48:30,274 - __main__ - INFO - ==================================================
+2026-02-05 13:48:30,274 - __main__ - INFO - ✅ Таймауты API настроены
+2026-02-05 13:48:30,274 - __main__ - INFO - 🤖 Запуск polling...
+2026-02-05 14:07:57,814 - __main__ - ERROR - ❌ Ошибка: name '_clear_support_next_step_handlers' is not defined
+2026-02-05 14:08:02,814 - __main__ - INFO - 🔄 Повтор через 5 с...
+2026-02-05 14:08:07,815 - __main__ - INFO - 🤖 Запуск polling...
+2026-02-05 14:08:07,995 - __main__ - ERROR - ❌ Ошибка: name 'handle_main_menu' is not defined
+2026-02-05 14:08:12,996 - __main__ - INFO - 🔄 Повтор через 5 с...
+2026-02-05 14:08:17,996 - __main__ - INFO - 🤖 Запуск polling...

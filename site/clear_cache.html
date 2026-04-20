@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Обновление версии сайта</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      background: rgba(255,255,255,0.1);
+      backdrop-filter: blur(10px);
+      padding: 40px;
+      border-radius: 20px;
+      max-width: 600px;
+      text-align: center;
+      box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+    }
+    h1 {
+      font-size: 28px;
+      margin-bottom: 20px;
+    }
+    .instructions {
+      text-align: left;
+      background: rgba(0,0,0,0.2);
+      padding: 20px;
+      border-radius: 10px;
+      margin: 20px 0;
+    }
+    .instructions li {
+      margin: 10px 0;
+      line-height: 1.6;
+    }
+    .btn {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 15px 30px;
+      font-size: 18px;
+      border-radius: 10px;
+      cursor: pointer;
+      margin-top: 20px;
+      transition: all 0.3s;
+    }
+    .btn:hover {
+      background: #45a049;
+      transform: scale(1.05);
+    }
+    .keyboard-shortcut {
+      background: rgba(0,0,0,0.3);
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔄 Обновление сайта</h1>
+    <p>Обнаружена новая версия сайта. Для корректной работы необходимо очистить кеш браузера.</p>
+    
+    <div class="instructions">
+      <h3>📋 Инструкция:</h3>
+      <ol>
+        <li><strong>Способ 1 (Быстрый):</strong><br>
+          Нажмите <span class="keyboard-shortcut">Ctrl + Shift + R</span> или <span class="keyboard-shortcut">Ctrl + F5</span>
+        </li>
+        <li><strong>Способ 2 (Chrome/Edge):</strong><br>
+          Нажмите <span class="keyboard-shortcut">F12</span> → Правой кнопкой по значку обновления → "Очистить кеш и жестко перезагрузить"
+        </li>
+        <li><strong>Способ 3 (Универсальный):</strong><br>
+          Откройте настройки браузера → Очистить данные браузера → Выберите "Изображения и файлы в кеше" → Очистить
+        </li>
+      </ol>
+    </div>
+
+    <button class="btn" onclick="reloadPage()">✅ Я очистил кеш, перейти на сайт</button>
+    
+    <script>
+      function reloadPage() {
+        // Добавляем timestamp для гарантированной загрузки свежей версии
+        window.location.href = '/?' + new Date().getTime();
+      }
+      
+      // Автоматически пытаемся загрузить свежую версию через 2 секунды
+      setTimeout(function() {
+        if (confirm('Хотите автоматически загрузить обновленную версию?')) {
+          reloadPage();
+        }
+      }, 2000);
+    </script>
+  </div>
+</body>
+</html>

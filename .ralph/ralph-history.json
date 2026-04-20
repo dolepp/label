@@ -1,0 +1,27 @@
+{
+  "iterations": [
+    {
+      "iteration": 1,
+      "startedAt": "2026-04-20T16:26:29.742Z",
+      "endedAt": "2026-04-20T16:26:29.857Z",
+      "durationMs": 100,
+      "agent": "codex",
+      "model": "",
+      "toolsUsed": {},
+      "filesModified": [],
+      "exitCode": 2,
+      "completionDetected": false,
+      "errors": [
+        "error: the argument '--full-auto' cannot be used with '--dangerously-bypass-approvals-and-sandbox'"
+      ]
+    }
+  ],
+  "totalDurationMs": 100,
+  "struggleIndicators": {
+    "repeatedErrors": {
+      "error: the argument '--full-auto' cannot be used with '--dangerously-bypass-approvals-and-sandbox'": 1
+    },
+    "noProgressIterations": 1,
+    "shortIterations": 1
+  }
+}

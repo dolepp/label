@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Обновление</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #1a1a2e;
+      color: white;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: #16213e;
+      padding: 30px;
+      border-radius: 10px;
+    }
+    h1 { color: #0f3460; background: #e94560; padding: 15px; border-radius: 5px; }
+    .step { background: #0f3460; padding: 15px; margin: 10px 0; border-radius: 5px; }
+    code { background: #533483; padding: 2px 8px; border-radius: 3px; }
+    .btn { background: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; 
+           display: inline-block; border-radius: 5px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>⚠️ Требуется обновление страницы</h1>
+    <p><strong>Проблема:</strong> Ваш браузер использует устаревшую версию сайта из кеша.</p>
+    
+    <h3>🔧 Решение - выберите один из способов:</h3>
+    
+    <div class="step">
+      <strong>1. БЫСТРЫЙ СПОСОБ (рекомендуется):</strong><br>
+      Нажмите одновременно: <code>Ctrl + Shift + R</code> (Windows/Linux)<br>
+      Или: <code>Cmd + Shift + R</code> (Mac)
+    </div>
+    
+    <div class="step">
+      <strong>2. Для Chrome/Edge/Firefox:</strong><br>
+      1. Нажмите <code>F12</code> (откроется консоль разработчика)<br>
+      2. Правой кнопкой мыши на кнопку обновления в браузере<br>
+      3. Выберите "Очистить кеш и жестко перезагрузить"<br>
+      4. Закройте консоль <code>F12</code>
+    </div>
+    
+    <div class="step">
+      <strong>3. Полная очистка кеша:</strong><br>
+      • <strong>Chrome:</strong> Настройки → Конфиденциальность → Очистить данные → "Изображения и файлы" → Очистить<br>
+      • <strong>Firefox:</strong> Настройки → Приватность → Очистить данные → "Кеш" → Очистить<br>
+      • <strong>Edge:</strong> Настройки → Конфиденциальность → Очистить данные → "Кешированные данные" → Очистить
+    </div>
+
+    <h3>✅ После очистки кеша:</h3>
+    <p>Вернитесь на главную страницу и попробуйте создать дистрибуцию EP снова.</p>
+    
+    <a href="/" class="btn">🏠 Вернуться на главную</a>
+    
+    <hr style="margin: 30px 0; border-color: #0f3460;">
+    
+    <h3>🔍 Как проверить, что загружена новая версия:</h3>
+    <p>1. Откройте консоль браузера (<code>F12</code>)<br>
+    2. Перейдите на вкладку "Console"<br>
+    3. При выборе EP/ALBUM/Maxi Single вы должны увидеть переход на шаг <strong>"track-count"</strong><br>
+    4. POST запрос должен идти на <code>/api/albums/create</code>, а не <code>/api/distribution/create</code></p>
+  </div>
+</body>
+</html>

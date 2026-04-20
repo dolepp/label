@@ -1,0 +1,623 @@
+2026-01-31 22:20:15,549 - main - INFO - 🤖 Модульный бот инициализирован
+2026-01-31 22:20:15,571 - utils.database - INFO - Initializing DB connection pool to localhost:5432/postgres
+2026-01-31 22:20:15,680 - utils.database - INFO - ✅ PostgreSQL connection pool initialized
+2026-01-31 22:20:15,680 - main - ERROR - ❌ Ошибка инициализации БД
+2026-01-31 22:42:54,018 - main - INFO - 🤖 Модульный бот инициализирован
+2026-01-31 22:42:54,034 - utils.database - INFO - Initializing DB connection pool to localhost:5432/postgres
+2026-01-31 22:42:54,147 - utils.database - INFO - ✅ PostgreSQL connection pool initialized
+2026-01-31 22:42:54,148 - main - INFO - ✅ База данных инициализирована
+2026-01-31 22:42:54,148 - main - INFO - 📝 Загрузка обработчиков из handlers/...
+2026-01-31 22:42:55,679 - handlers.common - INFO - YooKassa configured with account_id: 1215507
+2026-01-31 22:42:56,473 - handlers.common - INFO - ✅ YooKassa configuration test successful with new credentials
+2026-01-31 22:44:57,553 - main - INFO - 🤖 Модульный бот инициализирован
+2026-01-31 22:44:57,567 - utils.database - INFO - Initializing DB connection pool to localhost:5432/postgres
+2026-01-31 22:44:57,687 - utils.database - INFO - ✅ PostgreSQL connection pool initialized
+2026-01-31 22:44:57,687 - main - INFO - ✅ База данных инициализирована
+2026-01-31 22:44:57,687 - main - INFO - 📝 Загрузка обработчиков из handlers/...
+2026-01-31 22:44:58,397 - handlers.common - INFO - YooKassa configured with account_id: 1215507
+2026-01-31 22:44:59,057 - handlers.common - INFO - ✅ YooKassa configuration test successful with new credentials
+2026-01-31 22:46:55,637 - main - INFO - 🤖 Модульный бот инициализирован
+2026-01-31 22:46:55,652 - utils.database - INFO - Initializing DB connection pool to localhost:5432/postgres
+2026-01-31 22:46:55,759 - utils.database - INFO - ✅ PostgreSQL connection pool initialized
+2026-01-31 22:46:55,759 - main - INFO - ✅ База данных инициализирована
+2026-01-31 22:46:55,759 - main - INFO - 📝 Загрузка обработчиков из handlers/...
+2026-01-31 22:46:56,389 - handlers.common - INFO - YooKassa configured with account_id: 1215507
+2026-01-31 22:46:57,213 - handlers.common - INFO - ✅ YooKassa configuration test successful with new credentials
+2026-01-31 22:46:57,848 - main - INFO - ✅ Обработчики загружены
+2026-01-31 22:46:57,848 - main - INFO - 🔧 Инициализация БД и таблиц...
+2026-01-31 22:46:57,848 - handlers.common - INFO - Starting database initialization...
+2026-01-31 22:46:57,848 - handlers.common - INFO - Creating label table...
+2026-01-31 22:46:57,850 - handlers.common - INFO - Creating reviews table...
+2026-01-31 22:46:57,851 - handlers.common - INFO - Creating releases table...
+2026-01-31 22:46:57,851 - handlers.common - INFO - Creating files table...
+2026-01-31 22:46:57,852 - handlers.common - INFO - Creating distribution_agreements table...
+2026-01-31 22:46:57,852 - handlers.common - INFO - Creating payments table...
+2026-01-31 22:46:57,853 - handlers.common - INFO - Creating user_sessions table...
+2026-01-31 22:46:57,853 - handlers.common - INFO - Creating admin_logs table...
+2026-01-31 22:46:57,853 - handlers.common - INFO - Creating orders table...
+2026-01-31 22:46:57,854 - handlers.common - INFO - Creating promo codes table...
+2026-01-31 22:46:57,854 - handlers.common - INFO - Creating report requests table...
+2026-01-31 22:46:57,855 - handlers.common - INFO - Creating contracts table...
+2026-01-31 22:46:57,857 - handlers.common - INFO - Adding missing columns to existing tables...
+2026-01-31 22:46:57,858 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+2026-01-31 22:46:57,859 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS balance NUMERIC(10, 2) DEFAULT 0
+2026-01-31 22:46:57,859 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS email TEXT
+2026-01-31 22:46:57,860 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS fio TEXT
+2026-01-31 22:46:57,860 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS phone VARCHAR(50)
+2026-01-31 22:46:57,861 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS owner INTEGER DEFAULT 0
+2026-01-31 22:46:57,861 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS steezy INTEGER DEFAULT 0
+2026-01-31 22:46:57,861 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS bibi INTEGER DEFAULT 0
+2026-01-31 22:46:57,862 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS shvepz INTEGER DEFAULT 0
+2026-01-31 22:46:57,862 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS creator INTEGER DEFAULT 0
+2026-01-31 22:46:57,863 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
+2026-01-31 22:46:57,863 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT
+2026-01-31 22:46:57,864 - handlers.common - INFO - ✅ Modified column in report_requests table: ALTER TABLE report_requests ALTER COLUMN release_type DROP NOT NULL
+2026-01-31 22:46:57,874 - handlers.common - INFO - ✅ Updated default values for column owner
+2026-01-31 22:46:57,877 - handlers.common - INFO - ✅ Updated default values for column creator
+2026-01-31 22:46:57,895 - handlers.common - INFO - ✅ Column amount already exists in promo_codes table
+2026-01-31 22:46:57,897 - handlers.common - INFO - ✅ Column discount already exists in promo_codes table
+2026-01-31 22:46:57,900 - handlers.common - INFO - ✅ Column is_used already exists in promo_codes table
+2026-01-31 22:46:57,902 - handlers.common - INFO - ✅ Column created_by already exists in promo_codes table
+2026-01-31 22:46:57,903 - handlers.common - INFO - Creating indexes...
+2026-01-31 22:46:57,909 - handlers.common - INFO - Setting up permanent admins...
+2026-01-31 22:46:57,912 - handlers.common - INFO - ✅ Database initialization completed successfully - all tables created with indexes
+2026-01-31 22:46:57,912 - main - INFO - ✅ init_database выполнен
+2026-01-31 22:46:57,914 - utils.db_init - INFO - ✅ All required label columns verified
+2026-01-31 22:46:57,915 - main - INFO - ✅ ensure_label_columns выполнен
+2026-01-31 22:46:57,915 - utils.db_init - INFO - Adding platform_links column to releases table...
+2026-01-31 22:46:57,916 - utils.db_init - INFO - ✅ Added platform_links column to releases table
+2026-01-31 22:46:57,916 - main - INFO - ✅ add_platform_links_column выполнен
+2026-01-31 22:46:57,917 - utils.db_init - INFO - ✅ referrals table created successfully
+2026-01-31 22:46:57,918 - main - INFO - ✅ create_referrals_table выполнен
+2026-01-31 22:46:57,918 - main - INFO - 🔧 Проверка бота и канала...
+2026-01-31 22:46:58,526 - main - INFO - ✅ Бот подключён: @twaslabel_bot
+2026-01-31 22:46:58,606 - utils.db_init - INFO - ✅ Bot instance check passed: @twaslabel_bot
+2026-01-31 22:46:58,721 - handlers.subscription - INFO - ✅ Channel access test successful: talk with a star // label
+2026-01-31 22:46:58,881 - handlers.subscription - INFO - ✅ Bot member status: administrator
+2026-01-31 22:46:58,882 - handlers.subscription - INFO - ✅ Bot has admin rights in channel
+2026-01-31 22:46:58,882 - main - INFO - ✅ Доступ к каналу проверен
+2026-01-31 22:46:58,882 - main - INFO - ✅ Таймауты API настроены
+2026-01-31 22:46:58,882 - main - INFO - 🤖 Запуск polling...
+2026-01-31 22:51:17,958 - handlers.common - ERROR - Error saving draft: ОШИБКА:  отношение "drafts" не существует
+LINE 1: INSERT INTO drafts (user_id, draft_type, data, current_step,...
+                    ^
+
+2026-02-01 11:51:29,133 - main - INFO - 🤖 Модульный бот инициализирован
+2026-02-01 11:51:29,177 - utils.database - INFO - Initializing DB connection pool to localhost:5432/postgres
+2026-02-01 11:51:29,335 - utils.database - INFO - ✅ PostgreSQL connection pool initialized
+2026-02-01 11:51:29,335 - main - INFO - ✅ База данных инициализирована
+2026-02-01 11:51:29,335 - main - INFO - 📝 Загрузка обработчиков из handlers/...
+2026-02-01 11:51:31,479 - handlers.common - INFO - YooKassa configured with account_id: 1215507
+2026-02-01 11:51:32,332 - handlers.common - INFO - ✅ YooKassa configuration test successful with new credentials
+2026-02-01 11:51:33,003 - main - INFO - ✅ Обработчики загружены
+2026-02-01 11:51:33,004 - main - INFO - 🔧 Инициализация БД и таблиц...
+2026-02-01 11:51:33,004 - handlers.common - INFO - Starting database initialization...
+2026-02-01 11:51:33,004 - handlers.common - INFO - Creating label table...
+2026-02-01 11:51:33,243 - handlers.common - INFO - Creating reviews table...
+2026-02-01 11:51:33,252 - handlers.common - INFO - Creating releases table...
+2026-02-01 11:51:33,253 - handlers.common - INFO - Creating files table...
+2026-02-01 11:51:33,254 - handlers.common - INFO - Creating distribution_agreements table...
+2026-02-01 11:51:33,254 - handlers.common - INFO - Creating payments table...
+2026-02-01 11:51:33,255 - handlers.common - INFO - Creating user_sessions table...
+2026-02-01 11:51:33,255 - handlers.common - INFO - Creating admin_logs table...
+2026-02-01 11:51:33,255 - handlers.common - INFO - Creating orders table...
+2026-02-01 11:51:33,256 - handlers.common - INFO - Creating promo codes table...
+2026-02-01 11:51:33,256 - handlers.common - INFO - Creating report requests table...
+2026-02-01 11:51:33,257 - handlers.common - INFO - Creating contracts table...
+2026-02-01 11:51:33,292 - handlers.common - INFO - Adding missing columns to existing tables...
+2026-02-01 11:51:33,355 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+2026-02-01 11:51:33,356 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS balance NUMERIC(10, 2) DEFAULT 0
+2026-02-01 11:51:33,356 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS email TEXT
+2026-02-01 11:51:33,357 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS fio TEXT
+2026-02-01 11:51:33,361 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS phone VARCHAR(50)
+2026-02-01 11:51:33,364 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS owner INTEGER DEFAULT 0
+2026-02-01 11:51:33,365 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS steezy INTEGER DEFAULT 0
+2026-02-01 11:51:33,365 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS bibi INTEGER DEFAULT 0
+2026-02-01 11:51:33,366 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS shvepz INTEGER DEFAULT 0
+2026-02-01 11:51:33,366 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS creator INTEGER DEFAULT 0
+2026-02-01 11:51:33,367 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
+2026-02-01 11:51:33,367 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT
+2026-02-01 11:51:33,376 - handlers.common - INFO - ✅ Modified column in report_requests table: ALTER TABLE report_requests ALTER COLUMN release_type DROP NOT NULL
+2026-02-01 11:51:33,684 - handlers.common - INFO - ✅ Updated default values for column owner
+2026-02-01 11:51:33,687 - handlers.common - INFO - ✅ Updated default values for column creator
+2026-02-01 11:51:33,702 - handlers.common - INFO - ✅ Column amount already exists in promo_codes table
+2026-02-01 11:51:33,705 - handlers.common - INFO - ✅ Column discount already exists in promo_codes table
+2026-02-01 11:51:33,707 - handlers.common - INFO - ✅ Column is_used already exists in promo_codes table
+2026-02-01 11:51:33,710 - handlers.common - INFO - ✅ Column created_by already exists in promo_codes table
+2026-02-01 11:51:33,710 - handlers.common - INFO - Creating indexes...
+2026-02-01 11:51:33,719 - handlers.common - INFO - Setting up permanent admins...
+2026-02-01 11:51:33,730 - handlers.common - INFO - ✅ Database initialization completed successfully - all tables created with indexes
+2026-02-01 11:51:33,730 - main - INFO - ✅ init_database выполнен
+2026-02-01 11:51:33,733 - utils.db_init - INFO - ✅ All required label columns verified
+2026-02-01 11:51:33,733 - main - INFO - ✅ ensure_label_columns выполнен
+2026-02-01 11:51:33,733 - utils.db_init - INFO - Adding platform_links column to releases table...
+2026-02-01 11:51:33,734 - utils.db_init - INFO - ✅ Added platform_links column to releases table
+2026-02-01 11:51:33,734 - main - INFO - ✅ add_platform_links_column выполнен
+2026-02-01 11:51:33,736 - utils.db_init - INFO - ✅ referrals table created successfully
+2026-02-01 11:51:33,736 - main - INFO - ✅ create_referrals_table выполнен
+2026-02-01 11:51:33,736 - main - INFO - 🔧 Проверка бота и канала...
+2026-02-01 11:51:34,332 - main - INFO - ✅ Бот подключён: @twaslabel_bot
+2026-02-01 11:51:34,409 - utils.db_init - INFO - ✅ Bot instance check passed: @twaslabel_bot
+2026-02-01 11:51:34,517 - handlers.subscription - INFO - ✅ Channel access test successful: talk with a star // label
+2026-02-01 11:51:34,668 - handlers.subscription - INFO - ✅ Bot member status: administrator
+2026-02-01 11:51:34,668 - handlers.subscription - INFO - ✅ Bot has admin rights in channel
+2026-02-01 11:51:34,669 - main - INFO - ✅ Доступ к каналу проверен
+2026-02-01 11:51:34,669 - main - INFO - ✅ Таймауты API настроены
+2026-02-01 11:51:34,669 - main - INFO - 🤖 Запуск polling...
+2026-02-01 11:51:37,985 - main - ERROR - ❌ Ошибка: A request to the Telegram API was unsuccessful. Error code: 409. Description: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-01 11:51:37,985 - main - ERROR - 🚨 Запущен другой экземпляр бота с тем же токеном
+2026-02-01 11:51:47,986 - main - INFO - 🔄 Повтор через 5 с...
+2026-02-01 11:51:52,986 - main - INFO - 🤖 Запуск polling...
+2026-02-01 11:51:56,362 - main - ERROR - ❌ Ошибка: A request to the Telegram API was unsuccessful. Error code: 409. Description: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-01 11:51:56,363 - main - ERROR - 🚨 Запущен другой экземпляр бота с тем же токеном
+2026-02-01 11:52:06,363 - main - INFO - 🔄 Повтор через 5 с...
+2026-02-01 11:52:11,364 - main - INFO - 🤖 Запуск polling...
+2026-02-01 11:52:14,990 - main - ERROR - ❌ Ошибка: A request to the Telegram API was unsuccessful. Error code: 409. Description: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-01 11:52:14,990 - main - ERROR - 🚨 Запущен другой экземпляр бота с тем же токеном
+2026-02-01 11:52:24,990 - main - INFO - 🔄 Повтор через 5 с...
+2026-02-01 11:52:29,991 - main - INFO - 🤖 Запуск polling...
+2026-02-01 11:52:33,378 - main - ERROR - ❌ Ошибка: A request to the Telegram API was unsuccessful. Error code: 409. Description: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-01 11:52:33,379 - main - ERROR - 🚨 Запущен другой экземпляр бота с тем же токеном
+2026-02-01 11:52:43,379 - main - INFO - 🔄 Повтор через 5 с...
+2026-02-01 11:52:48,380 - main - INFO - 🤖 Запуск polling...
+2026-02-01 11:52:51,757 - main - ERROR - ❌ Ошибка: A request to the Telegram API was unsuccessful. Error code: 409. Description: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-01 11:52:51,757 - main - ERROR - 🚨 Запущен другой экземпляр бота с тем же токеном
+2026-02-01 11:53:01,758 - main - INFO - 🔄 Повтор через 5 с...
+2026-02-01 11:53:06,758 - main - INFO - 🤖 Запуск polling...
+2026-02-01 11:53:10,390 - main - ERROR - ❌ Ошибка: A request to the Telegram API was unsuccessful. Error code: 409. Description: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-01 11:53:10,390 - main - ERROR - 🚨 Запущен другой экземпляр бота с тем же токеном
+2026-02-01 11:53:20,390 - main - INFO - 🔄 Повтор через 5 с...
+2026-02-01 11:53:25,391 - main - INFO - 🤖 Запуск polling...
+2026-02-01 11:54:10,446 - handlers.common - ERROR - Error editing distribution message: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message
+2026-02-01 11:58:38,857 - main - INFO - 🤖 Модульный бот инициализирован
+2026-02-01 11:58:38,872 - utils.database - INFO - Initializing DB connection pool to localhost:5432/postgres
+2026-02-01 11:58:38,980 - utils.database - INFO - ✅ PostgreSQL connection pool initialized
+2026-02-01 11:58:38,980 - main - INFO - ✅ База данных инициализирована
+2026-02-01 11:58:38,980 - main - INFO - 📝 Загрузка обработчиков из handlers/...
+2026-02-01 11:58:40,454 - handlers.common - INFO - YooKassa configured with account_id: 1215507
+2026-02-01 11:58:41,215 - handlers.common - INFO - ✅ YooKassa configuration test successful with new credentials
+2026-02-01 11:58:41,757 - main - INFO - ✅ Обработчики загружены
+2026-02-01 11:58:41,757 - main - INFO - 🔧 Инициализация БД и таблиц...
+2026-02-01 11:58:41,757 - handlers.common - INFO - Starting database initialization...
+2026-02-01 11:58:41,758 - handlers.common - INFO - Creating label table...
+2026-02-01 11:58:41,760 - handlers.common - INFO - Creating reviews table...
+2026-02-01 11:58:41,760 - handlers.common - INFO - Creating releases table...
+2026-02-01 11:58:41,761 - handlers.common - INFO - Creating files table...
+2026-02-01 11:58:41,761 - handlers.common - INFO - Creating distribution_agreements table...
+2026-02-01 11:58:41,762 - handlers.common - INFO - Creating payments table...
+2026-02-01 11:58:41,762 - handlers.common - INFO - Creating user_sessions table...
+2026-02-01 11:58:41,762 - handlers.common - INFO - Creating admin_logs table...
+2026-02-01 11:58:41,763 - handlers.common - INFO - Creating orders table...
+2026-02-01 11:58:41,763 - handlers.common - INFO - Creating promo codes table...
+2026-02-01 11:58:41,764 - handlers.common - INFO - Creating report requests table...
+2026-02-01 11:58:41,764 - handlers.common - INFO - Creating contracts table...
+2026-02-01 11:58:41,767 - handlers.common - INFO - Adding missing columns to existing tables...
+2026-02-01 11:58:41,768 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+2026-02-01 11:58:41,768 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS balance NUMERIC(10, 2) DEFAULT 0
+2026-02-01 11:58:41,769 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS email TEXT
+2026-02-01 11:58:41,770 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS fio TEXT
+2026-02-01 11:58:41,770 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS phone VARCHAR(50)
+2026-02-01 11:58:41,771 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS owner INTEGER DEFAULT 0
+2026-02-01 11:58:41,771 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS steezy INTEGER DEFAULT 0
+2026-02-01 11:58:41,772 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS bibi INTEGER DEFAULT 0
+2026-02-01 11:58:41,772 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS shvepz INTEGER DEFAULT 0
+2026-02-01 11:58:41,773 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS creator INTEGER DEFAULT 0
+2026-02-01 11:58:41,774 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
+2026-02-01 11:58:41,774 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT
+2026-02-01 11:58:41,775 - handlers.common - INFO - ✅ Modified column in report_requests table: ALTER TABLE report_requests ALTER COLUMN release_type DROP NOT NULL
+2026-02-01 11:58:41,788 - handlers.common - INFO - ✅ Updated default values for column owner
+2026-02-01 11:58:41,791 - handlers.common - INFO - ✅ Updated default values for column creator
+2026-02-01 11:58:41,808 - handlers.common - INFO - ✅ Column amount already exists in promo_codes table
+2026-02-01 11:58:41,811 - handlers.common - INFO - ✅ Column discount already exists in promo_codes table
+2026-02-01 11:58:41,814 - handlers.common - INFO - ✅ Column is_used already exists in promo_codes table
+2026-02-01 11:58:41,817 - handlers.common - INFO - ✅ Column created_by already exists in promo_codes table
+2026-02-01 11:58:41,817 - handlers.common - INFO - Creating indexes...
+2026-02-01 11:58:41,824 - handlers.common - INFO - Setting up permanent admins...
+2026-02-01 11:58:41,826 - handlers.common - INFO - ✅ Database initialization completed successfully - all tables created with indexes
+2026-02-01 11:58:41,827 - main - INFO - ✅ init_database выполнен
+2026-02-01 11:58:41,829 - utils.db_init - INFO - ✅ All required label columns verified
+2026-02-01 11:58:41,830 - main - INFO - ✅ ensure_label_columns выполнен
+2026-02-01 11:58:41,830 - utils.db_init - INFO - Adding platform_links column to releases table...
+2026-02-01 11:58:41,831 - utils.db_init - INFO - ✅ Added platform_links column to releases table
+2026-02-01 11:58:41,831 - main - INFO - ✅ add_platform_links_column выполнен
+2026-02-01 11:58:41,833 - utils.db_init - INFO - ✅ referrals table created successfully
+2026-02-01 11:58:41,834 - main - INFO - ✅ create_referrals_table выполнен
+2026-02-01 11:58:41,834 - main - INFO - 🔧 Проверка бота и канала...
+2026-02-01 11:58:42,468 - main - INFO - ✅ Бот подключён: @twaslabel_bot
+2026-02-01 11:58:42,547 - utils.db_init - INFO - ✅ Bot instance check passed: @twaslabel_bot
+2026-02-01 11:58:42,658 - handlers.subscription - INFO - ✅ Channel access test successful: talk with a star // label
+2026-02-01 11:58:42,818 - handlers.subscription - INFO - ✅ Bot member status: administrator
+2026-02-01 11:58:42,818 - handlers.subscription - INFO - ✅ Bot has admin rights in channel
+2026-02-01 11:58:42,819 - main - INFO - ✅ Доступ к каналу проверен
+2026-02-01 11:58:42,819 - main - INFO - ✅ Таймауты API настроены
+2026-02-01 11:58:42,819 - main - INFO - 🤖 Запуск polling...
+2026-02-01 11:59:38,831 - handlers.common - ERROR - Error editing distribution message: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message
+2026-02-01 11:59:46,902 - handlers.common - ERROR - Error saving draft: ОШИБКА:  отношение "drafts" не существует
+LINE 1: INSERT INTO drafts (user_id, draft_type, data, current_step,...
+                    ^
+
+2026-02-01 12:06:55,072 - main - INFO - 🤖 Модульный бот инициализирован
+2026-02-01 12:06:55,086 - utils.database - INFO - Initializing DB connection pool to localhost:5432/postgres
+2026-02-01 12:06:55,202 - utils.database - INFO - ✅ PostgreSQL connection pool initialized
+2026-02-01 12:06:55,202 - main - INFO - ✅ База данных инициализирована
+2026-02-01 12:06:55,203 - main - INFO - 📝 Загрузка обработчиков из handlers/...
+2026-02-01 12:06:55,841 - handlers.common - INFO - YooKassa configured with account_id: 1215507
+2026-02-01 12:06:56,626 - handlers.common - INFO - ✅ YooKassa configuration test successful with new credentials
+2026-02-01 12:06:57,206 - main - INFO - ✅ Обработчики загружены
+2026-02-01 12:06:57,207 - main - INFO - 🔧 Инициализация БД и таблиц...
+2026-02-01 12:06:57,207 - handlers.common - INFO - Starting database initialization...
+2026-02-01 12:06:57,207 - handlers.common - INFO - Creating label table...
+2026-02-01 12:06:57,209 - handlers.common - INFO - Creating reviews table...
+2026-02-01 12:06:57,209 - handlers.common - INFO - Creating releases table...
+2026-02-01 12:06:57,210 - handlers.common - INFO - Creating files table...
+2026-02-01 12:06:57,210 - handlers.common - INFO - Creating distribution_agreements table...
+2026-02-01 12:06:57,211 - handlers.common - INFO - Creating payments table...
+2026-02-01 12:06:57,211 - handlers.common - INFO - Creating user_sessions table...
+2026-02-01 12:06:57,211 - handlers.common - INFO - Creating admin_logs table...
+2026-02-01 12:06:57,212 - handlers.common - INFO - Creating orders table...
+2026-02-01 12:06:57,212 - handlers.common - INFO - Creating promo codes table...
+2026-02-01 12:06:57,212 - handlers.common - INFO - Creating report requests table...
+2026-02-01 12:06:57,213 - handlers.common - INFO - Creating contracts table...
+2026-02-01 12:06:57,215 - handlers.common - INFO - Adding missing columns to existing tables...
+2026-02-01 12:06:57,216 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+2026-02-01 12:06:57,217 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS balance NUMERIC(10, 2) DEFAULT 0
+2026-02-01 12:06:57,217 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS email TEXT
+2026-02-01 12:06:57,218 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS fio TEXT
+2026-02-01 12:06:57,219 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS phone VARCHAR(50)
+2026-02-01 12:06:57,219 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS owner INTEGER DEFAULT 0
+2026-02-01 12:06:57,220 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS steezy INTEGER DEFAULT 0
+2026-02-01 12:06:57,221 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS bibi INTEGER DEFAULT 0
+2026-02-01 12:06:57,221 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS shvepz INTEGER DEFAULT 0
+2026-02-01 12:06:57,222 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS creator INTEGER DEFAULT 0
+2026-02-01 12:06:57,222 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
+2026-02-01 12:06:57,223 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT
+2026-02-01 12:06:57,223 - handlers.common - INFO - ✅ Modified column in report_requests table: ALTER TABLE report_requests ALTER COLUMN release_type DROP NOT NULL
+2026-02-01 12:06:57,234 - handlers.common - INFO - ✅ Updated default values for column owner
+2026-02-01 12:06:57,237 - handlers.common - INFO - ✅ Updated default values for column creator
+2026-02-01 12:06:57,255 - handlers.common - INFO - ✅ Column amount already exists in promo_codes table
+2026-02-01 12:06:57,257 - handlers.common - INFO - ✅ Column discount already exists in promo_codes table
+2026-02-01 12:06:57,260 - handlers.common - INFO - ✅ Column is_used already exists in promo_codes table
+2026-02-01 12:06:57,263 - handlers.common - INFO - ✅ Column created_by already exists in promo_codes table
+2026-02-01 12:06:57,263 - handlers.common - INFO - Creating indexes...
+2026-02-01 12:06:57,271 - handlers.common - INFO - Setting up permanent admins...
+2026-02-01 12:06:57,274 - handlers.common - INFO - ✅ Database initialization completed successfully - all tables created with indexes
+2026-02-01 12:06:57,274 - main - INFO - ✅ init_database выполнен
+2026-02-01 12:06:57,277 - utils.db_init - INFO - ✅ All required label columns verified
+2026-02-01 12:06:57,278 - main - INFO - ✅ ensure_label_columns выполнен
+2026-02-01 12:06:57,278 - utils.db_init - INFO - Adding platform_links column to releases table...
+2026-02-01 12:06:57,279 - utils.db_init - INFO - ✅ Added platform_links column to releases table
+2026-02-01 12:06:57,280 - main - INFO - ✅ add_platform_links_column выполнен
+2026-02-01 12:06:57,281 - utils.db_init - INFO - ✅ referrals table created successfully
+2026-02-01 12:06:57,282 - main - INFO - ✅ create_referrals_table выполнен
+2026-02-01 12:06:57,282 - main - INFO - 🔧 Проверка бота и канала...
+2026-02-01 12:06:57,892 - main - INFO - ✅ Бот подключён: @twaslabel_bot
+2026-02-01 12:06:57,971 - utils.db_init - INFO - ✅ Bot instance check passed: @twaslabel_bot
+2026-02-01 12:06:58,082 - handlers.subscription - INFO - ✅ Channel access test successful: talk with a star // label
+2026-02-01 12:06:58,239 - handlers.subscription - INFO - ✅ Bot member status: administrator
+2026-02-01 12:06:58,239 - handlers.subscription - INFO - ✅ Bot has admin rights in channel
+2026-02-01 12:06:58,240 - main - INFO - ✅ Доступ к каналу проверен
+2026-02-01 12:06:58,240 - main - INFO - ✅ Таймауты API настроены
+2026-02-01 12:06:58,240 - main - INFO - 🤖 Запуск polling...
+2026-02-01 12:08:12,807 - main - INFO - 🤖 Модульный бот инициализирован
+2026-02-01 12:08:12,820 - utils.database - INFO - Initializing DB connection pool to localhost:5432/postgres
+2026-02-01 12:08:12,942 - utils.database - INFO - ✅ PostgreSQL connection pool initialized
+2026-02-01 12:08:12,943 - main - INFO - ✅ База данных инициализирована
+2026-02-01 12:08:12,943 - main - INFO - 📝 Загрузка обработчиков из handlers/...
+2026-02-01 12:08:13,612 - handlers.common - INFO - YooKassa configured with account_id: 1215507
+2026-02-01 12:08:14,355 - handlers.common - INFO - ✅ YooKassa configuration test successful with new credentials
+2026-02-01 12:08:14,943 - main - INFO - ✅ Обработчики загружены
+2026-02-01 12:08:14,944 - main - INFO - 🔧 Инициализация БД и таблиц...
+2026-02-01 12:08:14,944 - handlers.common - INFO - Starting database initialization...
+2026-02-01 12:08:14,944 - handlers.common - INFO - Creating label table...
+2026-02-01 12:08:14,946 - handlers.common - INFO - Creating reviews table...
+2026-02-01 12:08:14,947 - handlers.common - INFO - Creating releases table...
+2026-02-01 12:08:14,948 - handlers.common - INFO - Creating files table...
+2026-02-01 12:08:14,948 - handlers.common - INFO - Creating distribution_agreements table...
+2026-02-01 12:08:14,948 - handlers.common - INFO - Creating payments table...
+2026-02-01 12:08:14,949 - handlers.common - INFO - Creating user_sessions table...
+2026-02-01 12:08:14,949 - handlers.common - INFO - Creating admin_logs table...
+2026-02-01 12:08:14,950 - handlers.common - INFO - Creating orders table...
+2026-02-01 12:08:14,950 - handlers.common - INFO - Creating promo codes table...
+2026-02-01 12:08:14,951 - handlers.common - INFO - Creating report requests table...
+2026-02-01 12:08:14,951 - handlers.common - INFO - Creating contracts table...
+2026-02-01 12:08:14,954 - handlers.common - INFO - Adding missing columns to existing tables...
+2026-02-01 12:08:14,955 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+2026-02-01 12:08:14,955 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS balance NUMERIC(10, 2) DEFAULT 0
+2026-02-01 12:08:14,956 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS email TEXT
+2026-02-01 12:08:14,956 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS fio TEXT
+2026-02-01 12:08:14,957 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS phone VARCHAR(50)
+2026-02-01 12:08:14,957 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS owner INTEGER DEFAULT 0
+2026-02-01 12:08:14,958 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS steezy INTEGER DEFAULT 0
+2026-02-01 12:08:14,958 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS bibi INTEGER DEFAULT 0
+2026-02-01 12:08:14,959 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS shvepz INTEGER DEFAULT 0
+2026-02-01 12:08:14,960 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS creator INTEGER DEFAULT 0
+2026-02-01 12:08:14,960 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
+2026-02-01 12:08:14,962 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT
+2026-02-01 12:08:14,962 - handlers.common - INFO - ✅ Modified column in report_requests table: ALTER TABLE report_requests ALTER COLUMN release_type DROP NOT NULL
+2026-02-01 12:08:14,972 - handlers.common - INFO - ✅ Updated default values for column owner
+2026-02-01 12:08:14,976 - handlers.common - INFO - ✅ Updated default values for column creator
+2026-02-01 12:08:14,993 - handlers.common - INFO - ✅ Column amount already exists in promo_codes table
+2026-02-01 12:08:14,996 - handlers.common - INFO - ✅ Column discount already exists in promo_codes table
+2026-02-01 12:08:14,998 - handlers.common - INFO - ✅ Column is_used already exists in promo_codes table
+2026-02-01 12:08:15,001 - handlers.common - INFO - ✅ Column created_by already exists in promo_codes table
+2026-02-01 12:08:15,001 - handlers.common - INFO - Creating indexes...
+2026-02-01 12:08:15,008 - handlers.common - INFO - Setting up permanent admins...
+2026-02-01 12:08:15,015 - handlers.common - INFO - ✅ Database initialization completed successfully - all tables created with indexes
+2026-02-01 12:08:15,016 - main - INFO - ✅ init_database выполнен
+2026-02-01 12:08:15,019 - utils.db_init - INFO - ✅ All required label columns verified
+2026-02-01 12:08:15,019 - main - INFO - ✅ ensure_label_columns выполнен
+2026-02-01 12:08:15,019 - utils.db_init - INFO - Adding platform_links column to releases table...
+2026-02-01 12:08:15,021 - utils.db_init - INFO - ✅ Added platform_links column to releases table
+2026-02-01 12:08:15,021 - main - INFO - ✅ add_platform_links_column выполнен
+2026-02-01 12:08:15,024 - utils.db_init - INFO - ✅ referrals table created successfully
+2026-02-01 12:08:15,024 - main - INFO - ✅ create_referrals_table выполнен
+2026-02-01 12:08:15,024 - main - INFO - 🔧 Проверка бота и канала...
+2026-02-01 12:08:15,678 - main - INFO - ✅ Бот подключён: @twaslabel_bot
+2026-02-01 12:08:15,755 - utils.db_init - INFO - ✅ Bot instance check passed: @twaslabel_bot
+2026-02-01 12:08:15,873 - handlers.subscription - INFO - ✅ Channel access test successful: talk with a star // label
+2026-02-01 12:08:16,026 - handlers.subscription - INFO - ✅ Bot member status: administrator
+2026-02-01 12:08:16,026 - handlers.subscription - INFO - ✅ Bot has admin rights in channel
+2026-02-01 12:08:16,027 - main - INFO - ✅ Доступ к каналу проверен
+2026-02-01 12:08:16,027 - main - INFO - ✅ Таймауты API настроены
+2026-02-01 12:08:16,027 - main - INFO - 🤖 Запуск polling...
+2026-02-01 12:08:20,915 - handlers.common - INFO - handle_my_releases called with user_id=None, admin_mode=False
+2026-02-01 12:08:24,017 - handlers.common - INFO - send_media_safely attempt photo failed: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: wrong file identifier/HTTP URL specified
+2026-02-01 12:08:24,096 - handlers.common - INFO - send_media_safely attempt document failed: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: can't use file of type Photo as Document
+2026-02-01 12:08:24,186 - handlers.common - INFO - send_media_safely get_file failed: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: wrong file_id or the file is temporarily unavailable
+2026-02-01 12:08:24,292 - handlers.common - INFO - send_media_safely attempt audio failed: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: wrong file identifier/HTTP URL specified
+2026-02-01 12:08:24,385 - handlers.common - INFO - send_media_safely attempt document failed: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: wrong file identifier/HTTP URL specified
+2026-02-01 12:08:24,940 - handlers.common - INFO - send_media_safely get_file failed: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: wrong file_id or the file is temporarily unavailable
+2026-02-01 12:08:25,031 - handlers.common - ERROR - Failed to send audio file CQACAgIAAxkBAAICS2kd-rEa2rzYysHDsvwkrsQGjD4NAAI2lwACdUfxSF-a-Y679acxNgQ: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: wrong file identifier/HTTP URL specified
+2026-02-01 12:08:25,222 - handlers.common - INFO - send_media_safely attempt document failed: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: wrong file identifier/HTTP URL specified
+2026-02-01 12:08:25,309 - handlers.common - INFO - send_media_safely get_file failed: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: wrong file_id or the file is temporarily unavailable
+2026-02-01 12:08:25,406 - handlers.common - ERROR - Failed to send contract file BQACAgIAAxkBAAICVWkd-soAAQkmHwYysXhyGHyYVXMluQACOZcAAnVH8UjAQ0TKoDaw3TYE: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: wrong file identifier/HTTP URL specified
+2026-02-01 12:08:25,609 - handlers.common - INFO - send_media_safely attempt document failed: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: wrong file identifier/HTTP URL specified
+2026-02-01 12:08:25,701 - handlers.common - INFO - send_media_safely get_file failed: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: wrong file_id or the file is temporarily unavailable
+2026-02-01 12:08:25,789 - handlers.common - ERROR - Failed to send lyrics file BQACAgIAAxkBAAICW2kd-tT7iMmQYMr7FZZ-yISRU-24AAI7lwACdUfxSA9v9SKH5loyNgQ: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: wrong file identifier/HTTP URL specified
+2026-02-01 12:08:32,843 - handlers.common - INFO - handle_my_releases called with user_id=1398275867, admin_mode=False
+2026-02-01 12:08:56,143 - handlers.common - INFO - User 1398275867 (dolepp) is a permanent admin
+2026-02-01 12:08:57,651 - handlers.common - INFO - admin_panel_handler called with data: admin_finance
+2026-02-01 12:08:57,652 - handlers.common - INFO - Starting access level check for user_id: 1398275867
+2026-02-01 12:08:57,653 - handlers.common - INFO - User 1398275867 is a permanent admin
+2026-02-01 12:08:57,675 - main - ERROR - ❌ Ошибка: name 'handle_admin_users' is not defined
+2026-02-01 12:09:02,676 - main - INFO - 🔄 Повтор через 5 с...
+2026-02-01 12:09:03,980 - handlers.common - INFO - admin_panel_handler called with data: admin_users
+2026-02-01 12:09:03,983 - handlers.common - INFO - Starting access level check for user_id: 1398275867
+2026-02-01 12:09:03,983 - handlers.common - INFO - User 1398275867 is a permanent admin
+2026-02-01 12:09:07,677 - main - INFO - 🤖 Запуск polling...
+2026-02-01 12:09:07,756 - main - ERROR - ❌ Ошибка: name 'handle_admin_users' is not defined
+2026-02-01 12:09:08,486 - handlers.common - INFO - User 1398275867 (dolepp) is a permanent admin
+2026-02-01 12:09:12,756 - main - INFO - 🔄 Повтор через 5 с...
+2026-02-01 12:09:17,757 - main - INFO - 🤖 Запуск polling...
+2026-02-01 12:09:32,033 - handlers.common - INFO - admin_panel_handler called with data: admin_stats
+2026-02-01 12:09:32,034 - handlers.common - INFO - Starting access level check for user_id: 1398275867
+2026-02-01 12:09:32,034 - handlers.common - INFO - User 1398275867 is a permanent admin
+2026-02-01 12:09:32,046 - main - ERROR - ❌ Ошибка: name 'handle_admin_users' is not defined
+2026-02-01 12:09:32,771 - handlers.common - INFO - admin_panel_handler called with data: admin_releases
+2026-02-01 12:09:32,773 - handlers.common - INFO - Starting access level check for user_id: 1398275867
+2026-02-01 12:09:32,773 - handlers.common - INFO - User 1398275867 is a permanent admin
+2026-02-01 12:09:37,046 - main - INFO - 🔄 Повтор через 5 с...
+2026-02-01 12:09:42,047 - main - INFO - 🤖 Запуск polling...
+2026-02-01 12:09:42,125 - main - ERROR - ❌ Ошибка: name 'handle_admin_users' is not defined
+2026-02-01 12:09:42,833 - handlers.common - INFO - admin_panel_handler called with data: admin_reviews
+2026-02-01 12:09:42,836 - handlers.common - INFO - Starting access level check for user_id: 1398275867
+2026-02-01 12:09:42,836 - handlers.common - INFO - User 1398275867 is a permanent admin
+2026-02-01 12:09:47,127 - main - INFO - 🔄 Повтор через 5 с...
+2026-02-01 12:09:51,423 - main - INFO - 🤖 Модульный бот инициализирован
+2026-02-01 12:09:51,437 - utils.database - INFO - Initializing DB connection pool to localhost:5432/postgres
+2026-02-01 12:09:51,650 - utils.database - INFO - ✅ PostgreSQL connection pool initialized
+2026-02-01 12:09:51,650 - main - INFO - ✅ База данных инициализирована
+2026-02-01 12:09:51,650 - main - INFO - 📝 Загрузка обработчиков из handlers/...
+2026-02-01 12:09:53,275 - handlers.common - INFO - YooKassa configured with account_id: 1215507
+2026-02-01 12:09:54,009 - handlers.common - INFO - ✅ YooKassa configuration test successful with new credentials
+2026-02-01 12:09:54,592 - main - INFO - ✅ Обработчики загружены
+2026-02-01 12:09:54,592 - main - INFO - 🔧 Инициализация БД и таблиц...
+2026-02-01 12:09:54,593 - handlers.common - INFO - Starting database initialization...
+2026-02-01 12:09:54,593 - handlers.common - INFO - Creating label table...
+2026-02-01 12:09:54,595 - handlers.common - INFO - Creating reviews table...
+2026-02-01 12:09:54,595 - handlers.common - INFO - Creating releases table...
+2026-02-01 12:09:54,596 - handlers.common - INFO - Creating files table...
+2026-02-01 12:09:54,596 - handlers.common - INFO - Creating distribution_agreements table...
+2026-02-01 12:09:54,596 - handlers.common - INFO - Creating payments table...
+2026-02-01 12:09:54,597 - handlers.common - INFO - Creating user_sessions table...
+2026-02-01 12:09:54,597 - handlers.common - INFO - Creating admin_logs table...
+2026-02-01 12:09:54,597 - handlers.common - INFO - Creating orders table...
+2026-02-01 12:09:54,598 - handlers.common - INFO - Creating promo codes table...
+2026-02-01 12:09:54,599 - handlers.common - INFO - Creating report requests table...
+2026-02-01 12:09:54,600 - handlers.common - INFO - Creating contracts table...
+2026-02-01 12:09:54,602 - handlers.common - INFO - Adding missing columns to existing tables...
+2026-02-01 12:09:54,603 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+2026-02-01 12:09:54,604 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS balance NUMERIC(10, 2) DEFAULT 0
+2026-02-01 12:09:54,604 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS email TEXT
+2026-02-01 12:09:54,605 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS fio TEXT
+2026-02-01 12:09:54,605 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS phone VARCHAR(50)
+2026-02-01 12:09:54,606 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS owner INTEGER DEFAULT 0
+2026-02-01 12:09:54,606 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS steezy INTEGER DEFAULT 0
+2026-02-01 12:09:54,606 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS bibi INTEGER DEFAULT 0
+2026-02-01 12:09:54,607 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS shvepz INTEGER DEFAULT 0
+2026-02-01 12:09:54,607 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS creator INTEGER DEFAULT 0
+2026-02-01 12:09:54,608 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
+2026-02-01 12:09:54,609 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT
+2026-02-01 12:09:54,609 - handlers.common - INFO - ✅ Modified column in report_requests table: ALTER TABLE report_requests ALTER COLUMN release_type DROP NOT NULL
+2026-02-01 12:09:54,620 - handlers.common - INFO - ✅ Updated default values for column owner
+2026-02-01 12:09:54,623 - handlers.common - INFO - ✅ Updated default values for column creator
+2026-02-01 12:09:54,643 - handlers.common - INFO - ✅ Column amount already exists in promo_codes table
+2026-02-01 12:09:54,647 - handlers.common - INFO - ✅ Column discount already exists in promo_codes table
+2026-02-01 12:09:54,650 - handlers.common - INFO - ✅ Column is_used already exists in promo_codes table
+2026-02-01 12:09:54,653 - handlers.common - INFO - ✅ Column created_by already exists in promo_codes table
+2026-02-01 12:09:54,654 - handlers.common - INFO - Creating indexes...
+2026-02-01 12:09:54,661 - handlers.common - INFO - Setting up permanent admins...
+2026-02-01 12:09:54,664 - handlers.common - INFO - ✅ Database initialization completed successfully - all tables created with indexes
+2026-02-01 12:09:54,665 - main - INFO - ✅ init_database выполнен
+2026-02-01 12:09:54,668 - utils.db_init - INFO - ✅ All required label columns verified
+2026-02-01 12:09:54,669 - main - INFO - ✅ ensure_label_columns выполнен
+2026-02-01 12:09:54,669 - utils.db_init - INFO - Adding platform_links column to releases table...
+2026-02-01 12:09:54,671 - utils.db_init - INFO - ✅ Added platform_links column to releases table
+2026-02-01 12:09:54,671 - main - INFO - ✅ add_platform_links_column выполнен
+2026-02-01 12:09:54,673 - utils.db_init - INFO - ✅ referrals table created successfully
+2026-02-01 12:09:54,673 - main - INFO - ✅ create_referrals_table выполнен
+2026-02-01 12:09:54,673 - main - INFO - 🔧 Проверка бота и канала...
+2026-02-01 12:09:55,301 - main - INFO - ✅ Бот подключён: @twaslabel_bot
+2026-02-01 12:09:55,384 - utils.db_init - INFO - ✅ Bot instance check passed: @twaslabel_bot
+2026-02-01 12:09:55,501 - handlers.subscription - INFO - ✅ Channel access test successful: talk with a star // label
+2026-02-01 12:09:55,668 - handlers.subscription - INFO - ✅ Bot member status: administrator
+2026-02-01 12:09:55,668 - handlers.subscription - INFO - ✅ Bot has admin rights in channel
+2026-02-01 12:09:55,668 - main - INFO - ✅ Доступ к каналу проверен
+2026-02-01 12:09:55,669 - main - INFO - ✅ Таймауты API настроены
+2026-02-01 12:09:55,669 - main - INFO - 🤖 Запуск polling...
+2026-02-01 12:09:56,472 - handlers.common - INFO - admin_panel_handler called with data: admin_reviews
+2026-02-01 12:09:56,473 - handlers.common - INFO - Starting access level check for user_id: 1398275867
+2026-02-01 12:09:56,473 - handlers.common - INFO - User 1398275867 is a permanent admin
+2026-02-01 12:09:56,488 - main - ERROR - ❌ Ошибка: name 'handle_admin_users' is not defined
+2026-02-01 12:10:00,556 - handlers.common - INFO - User 1398275867 (dolepp) is a permanent admin
+2026-02-01 12:10:01,488 - main - INFO - 🔄 Повтор через 5 с...
+2026-02-01 12:10:06,489 - main - INFO - 🤖 Запуск polling...
+2026-02-05 13:48:04,201 - __main__ - INFO - 🤖 Модульный бот инициализирован
+2026-02-05 13:48:07,376 - utils.database - INFO - Initializing DB connection pool to localhost:5432/postgres
+2026-02-05 13:48:07,742 - utils.database - INFO - ✅ PostgreSQL connection pool initialized
+2026-02-05 13:48:07,742 - __main__ - INFO - ✅ База данных инициализирована
+2026-02-05 13:48:07,743 - __main__ - INFO - 📝 Загрузка обработчиков из handlers/...
+2026-02-05 13:48:25,715 - handlers.common - INFO - YooKassa configured with account_id: 1215507
+2026-02-05 13:48:26,642 - handlers.common - INFO - ✅ YooKassa configuration test successful with new credentials
+2026-02-05 13:48:26,746 - handlers.common - WARNING - openpyxl module not available. Excel report generation will be disabled.
+2026-02-05 13:48:26,806 - __main__ - INFO - ✅ Обработчики загружены
+2026-02-05 13:48:26,806 - __main__ - INFO - 🔧 Инициализация БД и таблиц...
+2026-02-05 13:48:26,807 - handlers.common - INFO - Starting database initialization...
+2026-02-05 13:48:26,807 - handlers.common - INFO - Creating label table...
+2026-02-05 13:48:26,950 - handlers.common - INFO - Creating reviews table...
+2026-02-05 13:48:26,951 - handlers.common - INFO - Creating releases table...
+2026-02-05 13:48:26,957 - handlers.common - INFO - Creating files table...
+2026-02-05 13:48:26,957 - handlers.common - INFO - Creating distribution_agreements table...
+2026-02-05 13:48:26,958 - handlers.common - INFO - Creating payments table...
+2026-02-05 13:48:26,958 - handlers.common - INFO - Creating user_sessions table...
+2026-02-05 13:48:26,958 - handlers.common - INFO - Creating admin_logs table...
+2026-02-05 13:48:26,959 - handlers.common - INFO - Creating orders table...
+2026-02-05 13:48:26,959 - handlers.common - INFO - Creating promo codes table...
+2026-02-05 13:48:26,959 - handlers.common - INFO - Creating report requests table...
+2026-02-05 13:48:26,960 - handlers.common - INFO - Creating contracts table...
+2026-02-05 13:48:27,593 - handlers.common - INFO - Adding missing columns to existing tables...
+2026-02-05 13:48:27,679 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+2026-02-05 13:48:27,804 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS balance NUMERIC(10, 2) DEFAULT 0
+2026-02-05 13:48:27,805 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS email TEXT
+2026-02-05 13:48:27,805 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS fio TEXT
+2026-02-05 13:48:27,977 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS phone VARCHAR(50)
+2026-02-05 13:48:27,977 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS owner INTEGER DEFAULT 0
+2026-02-05 13:48:27,979 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS steezy INTEGER DEFAULT 0
+2026-02-05 13:48:27,980 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS bibi INTEGER DEFAULT 0
+2026-02-05 13:48:27,980 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS shvepz INTEGER DEFAULT 0
+2026-02-05 13:48:27,980 - handlers.common - INFO - ✅ Added column to label table: ALTER TABLE label ADD COLUMN IF NOT EXISTS creator INTEGER DEFAULT 0
+2026-02-05 13:48:28,347 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
+2026-02-05 13:48:28,348 - handlers.common - INFO - ✅ Added column to report_requests table: ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT
+2026-02-05 13:48:28,369 - handlers.common - INFO - ✅ Modified column in report_requests table: ALTER TABLE report_requests ALTER COLUMN release_type DROP NOT NULL
+2026-02-05 13:48:29,666 - handlers.common - WARNING - Could not verify role columns: column "owner" is of type boolean but expression is of type integer
+LINE 1: UPDATE label SET owner = 0 WHERE owner IS NULL
+                                 ^
+HINT:  You will need to rewrite or cast the expression.
+
+2026-02-05 13:48:29,666 - handlers.common - WARNING - Could not add column to releases table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,666 - handlers.common - WARNING - Could not add column to releases table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,667 - handlers.common - WARNING - Could not add column to releases table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,667 - handlers.common - WARNING - Could not add column to releases table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,667 - handlers.common - WARNING - Could not add column to releases table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,667 - handlers.common - WARNING - Could not add column to files table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,668 - handlers.common - WARNING - Could not add column to files table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,668 - handlers.common - WARNING - Could not add column to files table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,668 - handlers.common - WARNING - Could not add column to orders table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,669 - handlers.common - WARNING - Could not add column to orders table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,669 - handlers.common - WARNING - Could not add column to orders table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,669 - handlers.common - WARNING - Could not handle promo_codes table structure: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,670 - handlers.common - ERROR - Failed to recreate promo_codes table: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,670 - handlers.common - INFO - Creating indexes...
+2026-02-05 13:48:29,670 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,670 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,671 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,671 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,671 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,671 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,672 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,672 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,672 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,673 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,673 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,673 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,673 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,674 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,674 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,674 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,674 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,675 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,675 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,675 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,676 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,676 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,676 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,676 - handlers.common - WARNING - Could not create index: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,676 - handlers.common - INFO - Setting up permanent admins...
+2026-02-05 13:48:29,677 - handlers.common - WARNING - Could not set up admin 464793425: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,677 - handlers.common - WARNING - Could not set up admin 1398275867: current transaction is aborted, commands ignored until end of transaction block
+
+2026-02-05 13:48:29,678 - handlers.common - INFO - ✅ Database initialization completed successfully - all tables created with indexes
+2026-02-05 13:48:29,678 - __main__ - INFO - ✅ init_database выполнен
+2026-02-05 13:48:29,713 - utils.db_init - INFO - ✅ All required label columns verified
+2026-02-05 13:48:29,713 - __main__ - INFO - ✅ ensure_label_columns выполнен
+2026-02-05 13:48:29,713 - utils.db_init - INFO - Adding platform_links column to releases table...
+2026-02-05 13:48:29,847 - utils.db_init - INFO - ✅ Added platform_links column to releases table
+2026-02-05 13:48:29,848 - __main__ - INFO - ✅ add_platform_links_column выполнен
+2026-02-05 13:48:29,865 - utils.db_init - INFO - ✅ referrals table created successfully
+2026-02-05 13:48:29,865 - __main__ - INFO - ✅ create_referrals_table выполнен
+2026-02-05 13:48:29,865 - __main__ - INFO - 🔧 Проверка бота и канала...
+2026-02-05 13:48:30,035 - __main__ - INFO - ✅ Бот подключён: @twaslabel_bot
+2026-02-05 13:48:30,085 - utils.db_init - INFO - ✅ Bot instance check passed: @twaslabel_bot
+2026-02-05 13:48:30,174 - handlers.subscription - INFO - ✅ Channel access test successful: talk with a star // label
+2026-02-05 13:48:30,273 - handlers.subscription - INFO - ✅ Bot member status: administrator
+2026-02-05 13:48:30,273 - handlers.subscription - INFO - ✅ Bot has admin rights in channel
+2026-02-05 13:48:30,274 - __main__ - INFO - ✅ Доступ к каналу проверен
+2026-02-05 13:48:30,274 - __main__ - INFO - ==================================================
+2026-02-05 13:48:30,274 - __main__ - INFO - TWAS Label Bot — Модульная версия (handlers/)
+2026-02-05 13:48:30,274 - __main__ - INFO - ==================================================
+2026-02-05 13:48:30,274 - __main__ - INFO - ✅ Таймауты API настроены
+2026-02-05 13:48:30,274 - __main__ - INFO - 🤖 Запуск polling...
+2026-02-05 14:07:57,814 - __main__ - ERROR - ❌ Ошибка: name '_clear_support_next_step_handlers' is not defined
+2026-02-05 14:08:02,814 - __main__ - INFO - 🔄 Повтор через 5 с...
+2026-02-05 14:08:07,815 - __main__ - INFO - 🤖 Запуск polling...
+2026-02-05 14:08:07,995 - __main__ - ERROR - ❌ Ошибка: name 'handle_main_menu' is not defined
+2026-02-05 14:08:12,996 - __main__ - INFO - 🔄 Повтор через 5 с...
+2026-02-05 14:08:17,996 - __main__ - INFO - 🤖 Запуск polling...
