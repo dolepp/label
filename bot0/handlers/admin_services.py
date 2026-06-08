@@ -6,7 +6,9 @@ import logging
 from telebot import types
 
 from core.config import ADMIN_IDS, PERMANENT_ADMINS
+from db.repositories.service_files import save_beat_contract_file
 from db.repositories.users import list_admin_ids
+from utils.security import validate_file_upload
 
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,27 @@ def _service_settings_markup():
     return markup
 
 
+
+def _save_contract_file_message(bot, message) -> None:
+    is_valid, error_message, file_id = validate_file_upload(
+        message,
+        allowed_extensions=[".pdf", ".doc", ".docx"],
+        max_size_mb=10,
+        required_type="document",
+    )
+    if not is_valid:
+        bot.reply_to(message, error_message)
+        return
+    if not _is_admin(message.from_user.id):
+        bot.reply_to(message, "❌ У вас нет прав для загрузки файла")
+        return
+    try:
+        save_beat_contract_file(file_id, message.from_user.id)
+        bot.reply_to(message, "✅ Файл договора успешно загружен и доступен пользователям")
+    except Exception as exc:
+        logger.error("PostgreSQL error in save beat contract file: %s", exc)
+        bot.reply_to(message, "❌ Произошла ошибка при сохранении файла.")
+
 def _require_admin(bot, call) -> bool:
     if _is_admin(call.from_user.id):
         return True
@@ -96,3 +119,11 @@ def register_admin_service_handlers(bot) -> None:
             call.message.message_id,
             reply_markup=_service_settings_markup(),
         )
+
+    @bot.callback_query_handler(func=lambda call: call.data == "admin_upload_contract")
+    def request_contract_file(call):
+        if not _require_admin(bot, call):
+            return
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, "📤 Отправьте файл договора для битмейкеров")
+        bot.register_next_step_handler(call.message, lambda message: _save_contract_file_message(bot, message))

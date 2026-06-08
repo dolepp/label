@@ -89,3 +89,61 @@ def get_or_create_referral_summary(user_id: int) -> dict[str, Any] | None:
             raise
         finally:
             cur.close()
+
+
+def get_referrer_id_by_code(referral_code: str) -> int | None:
+    with connection() as conn:
+        if conn is None:
+            return None
+        cur = conn.cursor()
+        try:
+            ensure_referral_columns(cur)
+            cur.execute("SELECT telegram_id FROM label WHERE referral_code = %s", (referral_code,))
+            row = cur.fetchone()
+            conn.commit()
+            return int(row[0]) if row and row[0] is not None else None
+        finally:
+            cur.close()
+
+
+def handle_referral_registration(cursor, user_id: int, referral_code: str, conn) -> bool:
+    """Register referral inside an existing onboarding transaction."""
+    ensure_referral_columns(cursor)
+    ensure_referrals_table(cursor)
+    cursor.execute(
+        """
+        SELECT telegram_id, name, referral_count
+        FROM label
+        WHERE referral_code = %s
+        """,
+        (referral_code,),
+    )
+    referrer_info = cursor.fetchone()
+    if not referrer_info or referrer_info[0] == user_id:
+        return False
+
+    referrer_id, referrer_name, referral_count = referrer_info
+    cursor.execute(
+        """
+        INSERT INTO referrals (referrer_id, referred_id, referral_code, status, bonus_paid, bonus_amount)
+        VALUES (%s, %s, %s, 'active', FALSE, 100.00)
+        """,
+        (referrer_id, user_id, referral_code),
+    )
+    cursor.execute(
+        """
+        UPDATE label
+        SET referral_count = COALESCE(referral_count, 0) + 1
+        WHERE telegram_id = %s
+        """,
+        (referrer_id,),
+    )
+    cursor.execute(
+        """
+        UPDATE label
+        SET balance = COALESCE(balance, 0) + 50.00
+        WHERE telegram_id = %s
+        """,
+        (user_id,),
+    )
+    return True

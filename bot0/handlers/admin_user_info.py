@@ -56,7 +56,7 @@ def _admin_user_info_markup(user_id: int):
 
 
 def register_admin_user_info_handlers(bot) -> None:
-    @bot.callback_query_handler(func=lambda call: call.data.startswith("user_info_"))
+    @bot.callback_query_handler(func=lambda call: call.data.startswith(("user_info_", "user_detail_")))
     def handle_user_info(call):
         if not _is_admin(call.from_user.id):
             bot.answer_callback_query(call.id, "У вас нет доступа к этой функции.", show_alert=True)

@@ -1,0 +1,2992 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>talk with a star // label</title>
+  <link rel="icon" type="image/png" href="/assets/logo.png?v=4">
+  <link rel="shortcut icon" type="image/png" href="/assets/logo.png?v=4">
+  <link rel="apple-touch-icon" href="/assets/logo.png?v=4">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #070a14;
+      --panel: rgba(15, 23, 42, .86);
+      --panel-2: rgba(30, 41, 59, .82);
+      --line: rgba(148, 163, 184, .16);
+      --text: #eef3ff;
+      --muted: #94a3b8;
+      --accent: #7c3aed;
+      --accent-2: #38bdf8;
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --danger: #fb7185;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 12% 4%, rgba(124, 58, 237, .34), transparent 32rem),
+        radial-gradient(circle at 88% 20%, rgba(56, 189, 248, .20), transparent 28rem),
+        radial-gradient(circle at 50% 100%, rgba(16, 185, 129, .10), transparent 28rem),
+        var(--bg);
+      color: var(--text);
+      padding-bottom: 92px;
+      position: relative;
+    }
+    body:before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .08;
+      z-index: -1;
+      background-image:
+        repeating-radial-gradient(circle at 0 0, rgba(255,255,255,.75) 0 1px, transparent 1px 4px),
+        linear-gradient(115deg, rgba(124,58,237,.18), transparent 40%, rgba(56,189,248,.12));
+      mix-blend-mode: screen;
+    }
+
+    .shell { width: min(1120px, calc(100% - 28px)); margin: 0 auto; padding: 22px 0; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 18px; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 900; letter-spacing: .03em; }
+    .logo {
+      width: 42px; height: 42px; border-radius: 15px;
+      display: grid; place-items: center;
+      background: #ffffff;
+      border: 1px solid rgba(148, 163, 184, .22);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, .24);
+      padding: 6px;
+      overflow: hidden;
+    }
+    .logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    .top-actions { display: flex; gap: 10px; align-items: center; }
+
+    .section { display: none; animation: fade .18s ease-out; }
+    .section.active { display: block; }
+    @keyframes fade { from { opacity: .35; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    @keyframes shinyText { to { background-position: 220% center; } }
+    @keyframes starBorder { to { background-position: 220% 0; } }
+    @keyframes sparkPop { from { opacity: .9; transform: translate(-50%, -50%) scale(.25); } to { opacity: 0; transform: translate(-50%, -50%) scale(1.8); } }
+    @keyframes marquee { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
+
+    .hero {
+      min-height: 250px;
+      border: 1px solid var(--line);
+      border-radius: 30px;
+      padding: clamp(24px, 5vw, 44px);
+      background:
+        linear-gradient(135deg, rgba(124, 58, 237, .24), rgba(56, 189, 248, .10)),
+        rgba(15, 23, 42, .78);
+      overflow: hidden;
+      position: relative;
+      isolation: isolate;
+    }
+    .hero h1 {
+      background: linear-gradient(90deg, #fff, #bae6fd, #c4b5fd, #fff);
+      background-size: 220% auto;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: shinyText 6s linear infinite;
+    }
+    .hero:before {
+      content: "";
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      padding: 1px;
+      background: linear-gradient(120deg, rgba(124,58,237,0), rgba(56,189,248,.9), rgba(124,58,237,0));
+      background-size: 220% 100%;
+      animation: starBorder 4s linear infinite;
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+      z-index: -1;
+    }
+    .hero:after {
+      content: "";
+      position: absolute;
+      inset: auto -60px -90px auto;
+      width: 240px; height: 240px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(56, 189, 248, .36), transparent 68%);
+      filter: blur(4px);
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: clamp(34px, 7vw, 64px); line-height: .95; margin-bottom: 14px; max-width: 780px; }
+    h2 { font-size: clamp(24px, 4vw, 34px); margin-bottom: 16px; }
+    h3 { margin-bottom: 8px; }
+    .muted { color: var(--muted); }
+    .hint { font-size: 13px; line-height: 1.5; }
+
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card, .release, .service-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 18px;
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .18);
+      backdrop-filter: blur(10px);
+      position: relative;
+      overflow: hidden;
+    }
+    .card:before, .release:before, .service-card:before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      pointer-events: none;
+      background: radial-gradient(360px circle at var(--mx, 50%) var(--my, 0%), rgba(56,189,248,.16), transparent 42%);
+      transition: opacity .18s ease;
+    }
+    .card:hover:before, .release:hover:before, .service-card:hover:before { opacity: 1; }
+    .card:after, .service-card:after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.10) 50%, transparent 65%);
+      transform: translateX(-120%);
+      transition: transform .65s ease;
+    }
+    .card:hover:after, .service-card:hover:after { transform: translateX(120%); }
+    .tilt-card { transform-style: preserve-3d; transition: transform .18s ease, border-color .18s ease; }
+    .tilt-card:hover { transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-3px); border-color: rgba(56,189,248,.34); }
+    .pixel-card {
+      background-image:
+        linear-gradient(135deg, rgba(124,58,237,.18), rgba(56,189,248,.08)),
+        linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+      background-size: auto, 14px 14px, 14px 14px;
+    }
+    .glass-icon-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .glass-icon {
+      min-height: 78px;
+      display: grid;
+      place-items: center;
+      gap: 4px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.13);
+      background: linear-gradient(135deg, rgba(255,255,255,.11), rgba(255,255,255,.03));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 14px 34px rgba(0,0,0,.18);
+    }
+    .glass-icon b { font-size: 24px; }
+    .glass-icon span { color: var(--muted); font-size: 12px; }
+    .amount-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .topup-status { min-height: 22px; }
+    .topup-result {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .scroll-velocity {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(15,23,42,.55);
+      margin-top: 16px;
+    }
+    .scroll-velocity span {
+      display: inline-block;
+      white-space: nowrap;
+      padding: 10px 0;
+      animation: marquee 22s linear infinite;
+      color: #bae6fd;
+      font-weight: 850;
+    }
+    .spark {
+      position: fixed;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 9999;
+      border: 2px solid rgba(56,189,248,.9);
+      box-shadow: 0 0 24px rgba(124,58,237,.45);
+      animation: sparkPop .48s ease-out forwards;
+    }
+    .stack { display: grid; gap: 16px; }
+    .spaced { margin-top: 18px; }
+
+    button, .button-link {
+      border: 0;
+      color: white;
+      background: linear-gradient(135deg, var(--accent), #2563eb);
+      padding: 12px 15px;
+      border-radius: 15px;
+      font-weight: 850;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    button.secondary, .button-link.secondary { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+    button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+    button svg, .button-link svg, .service-icon svg, .glass-icon svg, .mini-row svg, .cover-placeholder svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      stroke-width: 1.9;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex: 0 0 auto;
+    }
+    .service-icon svg, .glass-icon svg {
+      width: 30px;
+      height: 30px;
+    }
+    .cover-placeholder svg {
+      width: 64px;
+      height: 64px;
+    }
+    input, textarea, select {
+      width: 100%;
+      border: 1px solid rgba(148, 163, 184, .22);
+      background: #0b1120;
+      color: var(--text);
+      padding: 13px 14px;
+      border-radius: 15px;
+      outline: none;
+      font-size: 16px;
+      font-family: inherit;
+    }
+    textarea { min-height: 112px; resize: vertical; }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 7px; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    .row > * { flex: 1; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    .status { min-height: 20px; }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .error { color: var(--danger); white-space: pre-wrap; }
+    .hidden { display: none !important; }
+
+    .stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 18px; padding: 15px; }
+    .stat strong { display: block; min-height: 28px; font-size: 24px; }
+    .counter-container {
+      position: relative;
+      display: inline-block;
+    }
+    .counter-counter {
+      display: flex;
+      overflow: hidden;
+      line-height: 1;
+      direction: ltr;
+      font-variant-numeric: tabular-nums;
+    }
+    .counter-digit {
+      position: relative;
+      width: 1ch;
+      font-variant-numeric: tabular-nums;
+      overflow: hidden;
+    }
+    .counter-number {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .counter-char {
+      display: inline-flex;
+      width: fit-content;
+      align-items: center;
+      justify-content: center;
+    }
+    .gradient-container {
+      pointer-events: none;
+      position: absolute;
+      inset: 0;
+    }
+    .top-gradient {
+      position: absolute;
+      top: 0;
+      width: 100%;
+    }
+    .bottom-gradient {
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+    }
+
+    .release-list { display: grid; gap: 12px; }
+    .release-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+    .release-title { font-weight: 900; font-size: 18px; margin: 0 0 6px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pill, .badge {
+      width: fit-content;
+      display: inline-flex;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, .13);
+      color: #bae6fd;
+      border: 1px solid rgba(56, 189, 248, .16);
+      font-size: 12px;
+    }
+    .badge.draft { background: rgba(168, 85, 247, .14); color: #e9d5ff; border-color: rgba(168, 85, 247, .22); }
+    .badge.pending { background: rgba(251, 191, 36, .13); color: #fde68a; border-color: rgba(251, 191, 36, .18); }
+    .badge.accepted, .badge.sent, .badge.delivered, .badge.released { background: rgba(52, 211, 153, .13); color: #bbf7d0; border-color: rgba(52, 211, 153, .18); }
+    .badge.withdrawn, .badge.rejected { background: rgba(251, 113, 133, .13); color: #fecdd3; border-color: rgba(251, 113, 133, .18); }
+    .details { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-top: 12px; }
+    .detail { background: rgba(2, 6, 23, .35); border: 1px solid rgba(148, 163, 184, .10); border-radius: 14px; padding: 10px; }
+    .detail span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+    .detail b { font-size: 14px; }
+    .release {
+      transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    }
+    .release-with-cover {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr);
+      gap: 14px;
+      align-items: stretch;
+    }
+    .release-cover-thumb {
+      width: 96px;
+      height: 96px;
+      min-height: 96px;
+      aspect-ratio: 1 / 1;
+      border-radius: 18px;
+      border: 1px solid rgba(148, 163, 184, .18);
+      background: linear-gradient(135deg, rgba(124,58,237,.28), rgba(56,189,248,.12)), rgba(2,6,23,.38);
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      align-self: stretch;
+    }
+    .release-cover-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .release-cover-thumb .cover-placeholder { font-size: 34px; }
+    .release-content { min-width: 0; }
+    .release[data-release-id] { cursor: pointer; }
+    .release:hover {
+      transform: translateY(-2px);
+      border-color: rgba(56, 189, 248, .34);
+      background: rgba(30, 41, 59, .9);
+    }
+    .detail-view { display: grid; gap: 14px; }
+    .cover-box {
+      min-height: 260px;
+      border-radius: 24px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, rgba(124,58,237,.28), rgba(56,189,248,.12)),
+        rgba(2, 6, 23, .35);
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    .cover-box img {
+      width: 100%;
+      height: 100%;
+      max-height: 420px;
+      object-fit: cover;
+      display: block;
+    }
+    .cover-placeholder { font-size: 64px; opacity: .86; }
+    audio {
+      width: 100%;
+      accent-color: var(--accent-2);
+    }
+    .audio-error { margin: 0; color: #fecdd3; font-size: 13px; }
+    .upload-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin-top: 10px;
+    }
+    .upload-row input[type="file"] {
+      min-width: 0;
+      width: 100%;
+      padding: 10px;
+      border: 1px dashed rgba(148, 163, 184, .28);
+      border-radius: 14px;
+      background: rgba(15, 23, 42, .5);
+      color: var(--muted);
+    }
+    .track-list { display: grid; gap: 10px; }
+    .track-item {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(2, 6, 23, .26);
+      display: grid;
+      gap: 8px;
+    }
+
+    .service-card { display: grid; gap: 12px; min-height: 190px; }
+    .service-icon { font-size: 28px; }
+    .price { font-weight: 900; color: #bae6fd; }
+
+    .dock-host {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 118px;
+      z-index: 50;
+      pointer-events: none;
+    }
+    .dock-outer {
+      margin: 0 auto;
+      display: flex;
+      max-width: 100%;
+      height: 100%;
+      align-items: flex-end;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .dock-panel {
+      position: absolute;
+      bottom: .85rem;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: flex-end;
+      width: fit-content;
+      max-width: calc(100vw - 18px);
+      gap: .62rem;
+      border-radius: 1.4rem;
+      background: rgba(15, 23, 42, .92);
+      border: 1px solid rgba(148, 163, 184, .22);
+      padding: 0 .55rem .55rem;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .35);
+      pointer-events: auto;
+    }
+    .dock-item {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 2px;
+      border-radius: 17px;
+      background: rgba(2, 6, 23, .58);
+      border: 1px solid rgba(148, 163, 184, .16);
+      box-shadow: 0 8px 22px rgba(0, 0, 0, .24);
+      cursor: pointer;
+      outline: none;
+      color: var(--muted);
+      overflow: visible;
+      transition: width .18s ease, height .18s ease, transform .18s ease, border-color .18s ease, background .18s ease;
+    }
+    .dock-panel:hover .dock-item:hover,
+    .dock-item:focus-visible {
+      width: 70px !important;
+      height: 70px !important;
+      transform: translateY(-8px);
+      color: var(--text);
+      border-color: rgba(56, 189, 248, .48);
+      background: linear-gradient(135deg, rgba(124,58,237,.52), rgba(37,99,235,.38));
+    }
+    .dock-item.active {
+      color: var(--text);
+      border-color: rgba(56, 189, 248, .42);
+      background: linear-gradient(135deg, rgba(124,58,237,.50), rgba(37,99,235,.36));
+    }
+    .dock-item:focus-visible {
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, .26), 0 8px 22px rgba(0, 0, 0, .24);
+    }
+    .dock-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      filter: drop-shadow(0 6px 10px rgba(0,0,0,.22));
+      pointer-events: none;
+    }
+    .dock-icon svg {
+      width: 22px;
+      height: 22px;
+      stroke: currentColor;
+      stroke-width: 1.9;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .dock-label {
+      position: static;
+      width: fit-content;
+      white-space: pre;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      font-size: .61rem;
+      color: currentColor;
+      transform: none;
+      box-shadow: none;
+      opacity: .86;
+      pointer-events: none;
+      transition: opacity .18s ease, transform .18s ease;
+    }
+    .dock-item:hover .dock-label,
+    .dock-item:focus-visible .dock-label {
+      opacity: 1;
+      transform: translateY(-1px);
+    }
+
+    .auth-box { max-width: 560px; }
+    .profile-form { display: grid; gap: 12px; }
+    .profile-shell {
+      display: grid;
+      grid-template-columns: minmax(260px, .9fr) minmax(320px, 1.3fr);
+      gap: 14px;
+    }
+    .profile-side { display: grid; gap: 14px; align-content: start; }
+    .profile-main {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: minmax(300px, .95fr) minmax(360px, 1.25fr);
+      gap: 14px;
+      align-content: start;
+    }
+    #topupCard { grid-column: 1 / -1; }
+    .profile-main > .grid.two { grid-column: 1 / -1; }
+    .profile-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .profile-form.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .profile-form .full { grid-column: 1 / -1; }
+    .profile-field { min-width: 0; }
+    .profile-copy-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+    .profile-copy-row input { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .profile-copy-row input:disabled { color: var(--text); -webkit-text-fill-color: var(--text); opacity: .92; }
+    .profile-copy-btn { padding: 10px 12px; min-height: 42px; white-space: nowrap; }
+    .release-builder { grid-column: 1 / -1; }
+    .release-builder textarea { min-height: 76px; }
+    .release-builder .form-section-title { margin: 10px 0 0; color: var(--text); }
+    .release-builder .field-note { margin-top: 6px; font-size: 12px; color: var(--muted); }
+
+    .release-type-field { grid-column: 1 / -1; }
+    .release-type-select-native { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
+    .release-type-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+    .release-type-card {
+      position: relative;
+      display: grid;
+      gap: 8px;
+      min-height: 154px;
+      padding: 14px;
+      border-radius: 22px;
+      border: 1px solid rgba(148,163,184,.16);
+      background:
+        radial-gradient(circle at 18% 18%, rgba(56,189,248,.18), transparent 34%),
+        linear-gradient(145deg, rgba(15,23,42,.88), rgba(2,6,23,.72));
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+      overflow: hidden;
+      transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background .18s ease;
+    }
+    .release-type-card::after {
+      content: "";
+      position: absolute;
+      inset: auto -30% -38% 28%;
+      height: 76px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent);
+      transform: rotate(-12deg);
+      opacity: 0;
+      transition: opacity .18s ease;
+    }
+    .release-type-card:hover { transform: translateY(-2px); border-color: rgba(56,189,248,.42); box-shadow: 0 18px 46px rgba(2,6,23,.28); }
+    .release-type-card:hover::after { opacity: 1; }
+    .release-type-card.active {
+      border-color: rgba(34,211,238,.72);
+      background:
+        radial-gradient(circle at 22% 16%, rgba(34,211,238,.28), transparent 34%),
+        linear-gradient(145deg, rgba(14,165,233,.20), rgba(124,58,237,.13)),
+        rgba(2,6,23,.82);
+      box-shadow: 0 0 0 1px rgba(34,211,238,.18), 0 22px 58px rgba(14,165,233,.14);
+    }
+    .release-type-icon { width: 42px; height: 42px; border-radius: 16px; display: grid; place-items: center; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.10); }
+    .release-type-icon svg { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .release-type-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 900; font-size: 15px; }
+    .release-type-price { color: #bae6fd; font-size: 13px; font-weight: 800; white-space: nowrap; }
+    .release-type-desc { color: var(--muted); font-size: 12px; line-height: 1.35; }
+    .release-type-limits { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+    .release-type-limits span { border-radius: 999px; padding: 5px 8px; color: #dbeafe; background: rgba(148,163,184,.10); border: 1px solid rgba(148,163,184,.12); font-size: 11px; }
+    .release-stepper { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+    .release-step-pill { border: 1px solid rgba(148,163,184,.18); color: var(--muted); background: rgba(2,6,23,.28); border-radius: 999px; padding: 7px 11px; font-size: 12px; }
+    .release-step-pill.active { color: #fff; border-color: rgba(56,189,248,.42); background: rgba(56,189,248,.16); }
+    .release-step-nav { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 8px; border-top: 1px solid rgba(148,163,184,.12); }
+    .release-track-limit { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
+    .payment-summary { grid-column: 1 / -1; display: grid; gap: 10px; padding: 14px; border: 1px solid rgba(56,189,248,.22); border-radius: 18px; background: rgba(14,165,233,.08); }
+    .payment-summary.error { border-color: rgba(248,113,113,.35); background: rgba(248,113,113,.08); }
+    .promo-activate { display: grid; grid-template-columns: minmax(220px, 1fr) auto; gap: 10px; align-items: end; }
+    .promo-list { display: grid; gap: 8px; }
+    .promo-code-pill { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+    .pagination-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .pagination-bar .actions { margin: 0; }
+    .pagination-bar select { width: auto; min-width: 88px; }
+    body.release-page .topbar, body.release-page .dock-host, body.release-page #releaseListView > .release-head, body.release-page #releaseListView > .row, body.release-page #releaseListView > .actions, body.release-page #releases, body.release-page #releaseDetailView { display: none !important; }
+    body.release-page .shell { max-width: 1120px; padding-top: 24px; }
+    body.release-page #releaseBuilder { display: block; }
+    .release-builder-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .track-editor { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 18px; background: rgba(2, 6, 23, .26); }
+    .mini-list { display: grid; gap: 8px; }
+    .mini-row { padding: 10px; border: 1px solid rgba(148, 163, 184, .12); border-radius: 14px; background: rgba(2, 6, 23, .28); }
+    .count-number {
+      display: inline-block;
+      min-width: max-content;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -.01em;
+    }
+    .pretty-player {
+      display: grid;
+      grid-template-columns: 54px 1fr;
+      gap: 12px;
+      align-items: center;
+      padding: 14px;
+      border-radius: 22px;
+      background:
+        linear-gradient(135deg, rgba(124,58,237,.24), rgba(56,189,248,.12)),
+        rgba(2, 6, 23, .42);
+      border: 1px solid rgba(148, 163, 184, .16);
+    }
+    .player-disc {
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle, rgba(255,255,255,.9) 0 7%, rgba(56,189,248,.22) 8% 34%, rgba(15,23,42,.95) 35% 100%);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), 0 12px 30px rgba(0,0,0,.26);
+    }
+    .pretty-player audio {
+      height: 38px;
+      border-radius: 999px;
+    }
+    .pretty-player h3 { margin: 0 0 7px; }
+    code { background: rgba(148, 163, 184, .14); padding: 2px 6px; border-radius: 8px; }
+
+    @media (max-width: 860px) {
+      .grid, .grid.two, .details, .stat-grid, .profile-shell { grid-template-columns: 1fr; }
+      .topbar, .release-head { align-items: stretch; flex-direction: column; }
+      .row { flex-direction: column; align-items: stretch; }
+      .shell { padding: 16px 0; }
+    }
+    @media (max-width: 640px) {
+      .profile-main, .profile-form.compact, .profile-action-grid { grid-template-columns: 1fr; }
+      .promo-activate { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><div class="logo"><img src="/assets/logo.png?v=3" alt="talk with a star // label"></div><div>talk with a star // label</div></div>
+      <div class="top-actions">
+        <span id="topUser" class="muted">Гость</span>
+        <a class="button-link secondary hidden" id="adminPanelBtn" href="/admin">Админ панель</a>
+        <button class="secondary" id="logoutBtn">Выйти</button>
+      </div>
+    </header>
+
+    <section class="section active" id="homeSection">
+      <div class="hero">
+        <h1>Кабинет артиста talk with a star // label</h1>
+        <p class="muted">Релизы, услуги, бесплатные инструменты и профиль артиста в одном месте.</p>
+        <div class="actions">
+          <button id="homeLoginBtn" data-go="auth">Получить код для входа</button>
+          <button class="secondary" data-go="services">Наши услуги</button>
+        </div>
+      </div>
+      <div class="scroll-velocity"><span>TALK WITH A STAR // LABEL • DISTRIBUTION • RELEASES • SERVICES • PROMO • ANALYTICS • ARTIST CABINET • </span></div>
+
+      <div class="card pixel-card spaced">
+        <div class="release-head">
+          <div></div>
+          <button class="ghost" id="refreshRecentBtn">Обновить</button>
+        </div>
+        <div id="recentReleases" class="release-list muted">Загружаю релизы...</div>
+      </div>
+    </section>
+
+    <section class="section" id="releasesSection">
+      <div class="card">
+        <div id="releaseListView">
+        <div class="release-head">
+          <div>
+            <h2>Мои релизы</h2>
+            <p class="muted">Карточки релизов из аккаунта после входа.</p>
+          </div>
+          <button class="ghost" id="refreshBtn">Обновить</button>
+        </div>
+        <div class="row spaced">
+          <input id="releaseSearch" placeholder="Поиск по названию, артисту, UPC, статусу">
+        </div>
+        <div class="row spaced">
+          <select id="releaseStageFilter">
+            <option value="all">Все этапы + черновики</option>
+            <option value="draft">Черновики</option>
+            <option value="pending">На рассмотрении</option>
+            <option value="accepted">Принят</option>
+            <option value="sent">Отправлен на площадки</option>
+            <option value="delivered">Отгружен на площадки</option>
+            <option value="released">Релиз</option>
+            <option value="withdrawn">Отозван с площадок</option>
+            <option value="rejected">Отклонён</option>
+          </select>
+          <select id="releaseSortSelect">
+            <option value="updated_desc">Сначала новые</option>
+            <option value="date_desc">По дате релиза ↓</option>
+            <option value="date_asc">По дате релиза ↑</option>
+            <option value="title_asc">По названию А–Я</option>
+            <option value="stage_asc">По этапу</option>
+          </select>
+        </div>
+        <div class="actions spaced">
+          <button id="newReleaseBtn">Создать релиз</button>
+        </div>
+        <div class="card release-builder hidden spaced" id="releaseBuilder">
+          <div class="release-head">
+            <div>
+              <h3>Новый релиз</h3>
+              <p class="muted">Форма повторяет вопросы из бота. Файлы загружаются после создания релиза и синхронизируются с Telegram-хранилищем.</p>
+            </div>
+            <button class="ghost" id="closeReleaseBuilderBtn">Скрыть</button>
+          </div>
+          <div class="release-stepper" id="releaseStepper"></div>
+          <form id="releaseForm" class="profile-form compact">
+            <div class="release-type-field">
+              <label>Тип релиза</label>
+              <select id="releaseTypeInput" class="release-type-select-native" aria-label="Тип релиза">
+                <option value="Single">Single — одна композиция (1299₽)</option>
+                <option value="Maxi Single">Maxi Single — 1-3 композиции (1799₽)</option>
+                <option value="EP">EP — мини-альбом 2-5 треков (2399₽)</option>
+                <option value="ALBUM">ALBUM — полноценный альбом 6+ треков (2899₽)</option>
+              </select>
+              <div class="release-type-grid" id="releaseTypeCards" role="radiogroup" aria-label="Тип релиза"></div>
+              <p class="field-note" id="releaseTypeLimitNote">Single: ровно 1 композиция.</p>
+            </div>
+            <div class="full"><h4 class="form-section-title">Шаг 1 — Релиз как в дистрибуции</h4></div>
+            <div><label>Язык метаданных</label><select id="distributionMetaMetadataLanguageInput"><option value="ru">Русский</option><option value="en">English</option><option value="mixed">Несколько языков</option></select></div>
+            <div><label>Подзаголовок релиза</label><input id="distributionMetaReleaseSubtitleInput" placeholder="Deluxe Edition / Acoustic Version"></div>
+            <div><label>Вид релиза</label><select id="distributionMetaReleaseKindInput"><option value="">Обычный релиз</option><option value="SingleMaxi">Single Maxi</option><option value="Mixtape">Mixtape</option><option value="Audiobook">Аудиокнига</option></select></div>
+            <div><label>UPC</label><input id="distributionMetaUpcInput" placeholder="Оставьте пустым — присвоится автоматически"></div>
+            <div><label>Код партнёра релиза</label><input id="distributionMetaPartnerCodeInput" placeholder="Внутренний ID партнёра"></div>
+            <div><label>Название лейбла</label><input id="distributionMetaLabelNameInput" placeholder="talk with a star // label"></div>
+            <div><label>Поджанр</label><input id="distributionMetaSubgenreInput" placeholder="Поджанр к основному жанру"></div>
+            <div><label>Дата старта на площадках</label><input id="distributionMetaStartDateInput" type="date"></div>
+            <div><label>Дата предзаказа / Pre-Add</label><input id="distributionMetaPreorderDateInput" type="date"></div>
+            <div><label>Год получения прав</label><input id="distributionMetaRightsYearInput" inputmode="numeric" maxlength="4" placeholder="2026"></div>
+            <div><label>Площадки</label><select id="distributionMetaPlatformsModeInput"><option value="all">На всех площадках</option><option value="selected">Только на некоторых площадках</option></select></div>
+            <div><label>Территории</label><select id="distributionMetaTerritoriesModeInput"><option value="all">Во всех странах</option><option value="selected">Только в определённых странах</option><option value="except">Во всех кроме</option><option value="cis">СНГ</option></select></div>
+            <div><label>Выбранные площадки / исключения</label><textarea id="distributionMetaPlatformsNoteInput" placeholder="Если не все площадки — перечислите выбор или исключения"></textarea></div>
+            <div><label>Выбранные территории / исключения</label><textarea id="distributionMetaTerritoriesNoteInput" placeholder="Если не все страны — перечислите выбор или исключения"></textarea></div>
+            <div><label>Ранний старт в России</label><select id="distributionMetaEarlyRussiaInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
+            <div><label>Доставка в реальном времени</label><select id="distributionMetaRealtimeDeliveryInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
+            <div><label>Apple Music — дата старта</label><input id="distributionMetaAppleStartInput" type="date"></div>
+            <div><label>VK / Одноклассники — дата и час</label><input id="distributionMetaVkStartInput" placeholder="2026-06-01 12:00"></div>
+            <div><label>Spotify — дата и час</label><input id="distributionMetaSpotifyStartInput" placeholder="2026-06-01 00:00"></div>
+            <div><label>TikTok — дата и час</label><input id="distributionMetaTiktokStartInput" placeholder="2026-06-01 00:00"></div>
+            <div><label>YouTube Music — дата старта</label><input id="distributionMetaYoutubeStartInput" type="date"></div>
+            <div><label>iTunes — дата старта</label><input id="distributionMetaItunesStartInput" type="date"></div>
+            <div><label>iTunes ценовая категория релиза</label><input id="distributionMetaItunesReleasePriceInput" placeholder="Digital45 / EP / FrontOne..."></div>
+            <div><label>iTunes ценовая категория трека</label><input id="distributionMetaItunesTrackPriceInput" placeholder="Back / Mid / Front"></div>
+            <div><label>Минимальная цена iTunes СНГ</label><select id="distributionMetaItunesMinPriceInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
+            <div><label>Apple Digital Masters</label><select id="distributionMetaAdmInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
+            <div><label>ADM: студия</label><input id="distributionMetaAdmStudioInput" placeholder="Название студии"></div>
+            <div><label>ADM: e-mail студии</label><input id="distributionMetaAdmEmailInput" placeholder="studio@example.com"></div>
+            <div><label>ADM: страна / город</label><input id="distributionMetaAdmLocationInput" placeholder="Россия, Москва"></div>
+            <div><label>Буклет / сопроводительные материалы</label><textarea id="distributionMetaBookletNoteInput" placeholder="Ссылка/комментарий по PDF буклету, если нужен"></textarea></div>
+            <div><label>Аннотация к аудиокниге</label><textarea id="distributionMetaAudiobookAnnotationInput" placeholder="Только для вида релиза Аудиокнига"></textarea></div>
+            <div class="full"><h4 class="form-section-title">Шаг 2 — Данные трека Single как в дистрибуции</h4></div>
+            <div class="single-release-only"><label>Подзаголовок трека</label><input id="distributionMetaTrackSubtitleInput" placeholder="Remix / Acoustic Version"></div>
+            <div class="single-release-only"><label>ISRC</label><input id="distributionMetaTrackIsrcInput" placeholder="Оставьте пустым — присвоится автоматически"></div>
+            <div class="single-release-only"><label>Код партнёра трека</label><input id="distributionMetaTrackPartnerCodeInput" placeholder="Внутренний ID трека"></div>
+            <div class="single-release-only"><label>Соисполнители feat.</label><input id="distributionMetaTrackCoPerformersInput" placeholder="Не через запятую; лучше через ;"></div>
+            <div class="single-release-only"><label>Авторы слов</label><input id="distributionMetaLyricsAuthorsInput" placeholder="ФИО авторов слов"></div>
+            <div class="single-release-only"><label>Доля авторских прав, %</label><input id="distributionMetaAuthorShareInput" inputmode="numeric" placeholder="100"></div>
+            <div class="single-release-only"><label>Язык трека</label><input id="distributionMetaTrackLanguageInput" placeholder="Русский / English / Без слов"></div>
+            <div class="single-release-only"><label>Версия трека</label><input id="distributionMetaTrackVersionInput" placeholder="Explicit, Live, Cover, Remix, Instrumental"></div>
+            <div class="single-release-only"><label>Instant Gratification</label><select id="distributionMetaInstantInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
+            <div class="single-release-only"><label>Focus track</label><select id="distributionMetaFocusTrackInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
+            <div class="single-release-only full"><label>Текст трека как на площадках</label><textarea id="distributionMetaLyricsTextInput" placeholder="Введите текст точно так, как произносит исполнитель"></textarea></div>
+            <div class="single-release-only"><label>Синхронизированный текст .ttml</label><input id="distributionMetaSyncedLyricsNoteInput" placeholder="Ссылка/комментарий"></div>
+            <div class="single-release-only"><label>Рингтон iTunes</label><input id="distributionMetaRingtoneNoteInput" placeholder="Ссылка/комментарий к WAV/FLAC 5–29.99 сек"></div>
+            <div class="single-release-only full"><label>Комментарий модератору</label><textarea id="distributionMetaModeratorCommentInput" placeholder="Профили артистов, особенности написания, видео в Apple Music и т.д."></textarea></div>
+            <div><label>Исполнитель(-и)</label><input id="releaseArtistInput" placeholder="Singer feat. Rapper"></div>
+            <div><label>Название релиза</label><input id="releaseNameInput" placeholder="Название трека или альбома"></div>
+            <div><label>prod. by</label><input id="releaseProducerInput" placeholder="ProducerName"></div>
+            <div><label>Жанр</label><input id="releaseGenreInput" placeholder="Hip-Hop, Pop, Electronic"></div>
+            <div><label>Дата релиза</label><input id="releaseDateInput" type="date"></div>
+            <div><label>ФИО исполнителя(-ей)</label><input id="releasePerformerInput" placeholder="ФИО как в документах"></div>
+            <div><label>ФИО автора(-ов) музыки</label><input id="releaseAuthorInput" placeholder="Автор музыки"></div>
+            <div><label>Обложка PNG/JPG 3000x3000</label><input id="releaseCoverInput" type="file" accept="image/png,image/jpeg,image/webp"></div>
+            <div class="single-release-only"><label>Файл трека WAV/MP3/FLAC</label><input id="releaseAudioInput" type="file" accept="audio/*,.wav,.mp3,.flac"></div>
+            <div class="single-release-only"><label>Договор на бит</label><input id="releaseContractInput" type="file" accept=".pdf,.doc,.docx,image/png,image/jpeg"></div>
+            <div class="single-release-only"><label>Текст трека TXT</label><input id="releaseLyricsInput" type="file" accept=".txt,text/plain"></div>
+            <div><label>Ссылка на видеошот</label><input id="releaseVideoInput" placeholder="https://... или нет"></div>
+            <div><label>Начало предпрослушивания, секунда</label><input id="releasePreviewInput" inputmode="numeric" type="number" min="0" placeholder="90"></div>
+            <div><label>Нецензурная лексика</label><select id="releaseExplicitInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
+            <div><label>Плашка “скоро новый релиз” на Яндекс.Музыке</label><select id="releaseYandexInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
+            <div><label>Ссылка на все площадки</label><select id="releaseLinksInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
+            <div><label>TikTok коммерческое использование</label><select id="releaseTikTokCommercialInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
+            <div><label>TikTok полная версия трека</label><select id="releaseTikTokFullInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
+            <div class="full hidden" id="albumTracksBox">
+              <h4 class="form-section-title">Треки альбома</h4>
+              <div id="albumTracksList" class="mini-list spaced"></div>
+              <button class="secondary spaced" type="button" id="addAlbumTrackBtn">Добавить трек</button>
+            </div>
+            <div class="payment-summary" id="distributionPaymentBox">
+              <div class="release-head">
+                <div>
+                  <h4 class="form-section-title">Оплата дистрибуции</h4>
+                  <p class="muted">Сумма спишется с баланса после нажатия “Отправить релиз”. Черновики бесплатные.</p>
+                </div>
+                <button class="secondary" type="button" id="refreshDistributionPriceBtn">Обновить стоимость</button>
+              </div>
+              <div class="details" id="distributionPaymentSummary">
+                <div class="detail"><span>Стоимость</span><b>—</b></div>
+                <div class="detail"><span>Баланс</span><b>—</b></div>
+              </div>
+            </div>
+            <div class="release-step-nav">
+              <button class="secondary" type="button" id="releasePrevStepBtn">Назад</button>
+              <button type="button" id="releaseNextStepBtn">Далее</button>
+              <span class="muted" id="releaseStepStatus"></span>
+            </div>
+            <div class="release-builder-actions full">
+              <button type="submit" id="submitReleaseBtn">Отправить релиз</button>
+              <button class="secondary" type="button" id="saveReleaseDraftBtnForm">Сохранить черновик</button>
+              <span class="muted" id="releaseBuilderStatus"></span>
+            </div>
+          </form>
+        </div>
+        <div id="releases" class="release-list spaced muted">Войдите, чтобы увидеть релизы.</div>
+        <div class="pagination-bar hidden" id="releasePagination">
+          <span class="muted" id="releasePageInfo">—</span>
+          <div class="actions spaced">
+            <button class="secondary" type="button" id="releasePrevPageBtn">Назад</button>
+            <button class="secondary" type="button" id="releaseNextPageBtn">Далее</button>
+            <select id="releasePageSizeSelect" aria-label="Релизов на странице">
+              <option value="12">12</option>
+              <option value="24">24</option>
+              <option value="48">48</option>
+            </select>
+          </div>
+        </div>
+        </div>
+        <div id="releaseDetailView" class="hidden"></div>
+      </div>
+    </section>
+
+    <section class="section" id="servicesSection">
+      <h2>Наши услуги</h2>
+      <div class="grid">
+        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><path d="M9 18V5l10-2v13"/><circle cx="7" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></div><h3>Дистрибуция</h3><p class="muted">Размещение релиза на площадках.</p><div class="price">от 1299 ₽</div><button id="distributionServiceBtn">Создать заявку</button></div>
+        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18h1.5a2 2 0 0 0 1.4-3.4l-.4-.4a2 2 0 0 1 1.4-3.4H17a4 4 0 0 0 0-8.8A8.9 8.9 0 0 0 12 3Z"/><circle cx="7.5" cy="11" r=".8"/><circle cx="10" cy="7.5" r=".8"/><circle cx="14" cy="7.5" r=".8"/></svg></div><h3>Обложка</h3><p class="muted">Дизайн обложки для сингла или альбома.</p><div class="price">от 500 ₽</div><button>Заказать</button></div>
+        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 5l2 4M14 5l2 4M4 9h16"/></svg></div><h3>Motion</h3><p class="muted">Анимированная обложка для промо.</p><div class="price">от 800 ₽</div><button>Заказать</button></div>
+        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><rect x="4" y="7" width="11" height="10" rx="2"/><path d="m15 10 5-3v10l-5-3z"/></svg></div><h3>Видеошот</h3><p class="muted">Короткий вертикальный клип.</p><div class="price">от 1000 ₽</div><button>Заказать</button></div>
+        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/></svg></div><h3>Отчёты</h3><p class="muted">Запрос статистики и отчётности по релизам.</p><div class="price">в разработке</div><button class="secondary">Скоро</button></div>
+        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg></div><h3>Договоры</h3><p class="muted">Работа с договорами и документами.</p><div class="price">в разработке</div><button class="secondary">Скоро</button></div>
+      </div>
+    </section>
+
+    <section class="section" id="toolsSection">
+      <h2>Бесплатные сервисы</h2>
+      <div class="glass-icon-grid spaced">
+        <div class="glass-icon"><b><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="2"/><path d="m4 8 8 6 8-6"/></svg></b><span>Email</span></div>
+        <div class="glass-icon"><b><svg viewBox="0 0 24 24"><path d="M5 15v-3a7 7 0 0 1 14 0v3"/><rect x="3" y="14" width="4" height="6" rx="2"/><rect x="17" y="14" width="4" height="6" rx="2"/></svg></b><span>Preview</span></div>
+        <div class="glass-icon"><b><svg viewBox="0 0 24 24"><path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/></svg></b><span>Reports</span></div>
+        <div class="glass-icon"><b><svg viewBox="0 0 24 24"><path d="m13 2-8 12h6l-1 8 8-12h-6z"/></svg></b><span>Tools</span></div>
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <h3>Email-генератор</h3>
+          <p class="muted">Быстро собрать письмо для площадки, менеджера или партнёра.</p>
+          <div class="profile-form">
+            <div><label>Кому пишем</label><input id="emailTo" placeholder="Например: редактору плейлиста"></div>
+            <div><label>Артист / проект</label><input id="emailArtist" placeholder="Имя артиста"></div>
+            <div><label>Повод</label><input id="emailReason" placeholder="Например: новый релиз, питчинг, запрос отчёта"></div>
+            <button id="generateEmailBtn">Сгенерировать письмо</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Готовый текст</h3>
+          <textarea id="emailOutput" placeholder="Здесь появится письмо"></textarea>
+          <div class="actions spaced">
+            <button class="secondary" id="copyEmailBtn">Скопировать</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="promosSection">
+      <div class="card">
+        <div class="release-head">
+          <div>
+            <h2>Промокоды</h2>
+            <p class="muted">Зачисление на баланс или скидка на следующую отправку релиза.</p>
+          </div>
+        </div>
+        <div class="promo-activate spaced">
+          <div>
+            <label>Промокод</label>
+            <input id="promoCodeInput" placeholder="Введите код" autocomplete="off">
+          </div>
+          <button id="activatePromoBtn">Активировать</button>
+        </div>
+        <p class="status muted" id="promoStatus"></p>
+      </div>
+      <div class="grid two spaced">
+        <div class="card">
+          <h3>Активные скидки</h3>
+          <div id="activePromoList" class="promo-list muted">Войдите, чтобы увидеть скидки.</div>
+        </div>
+        <div class="card">
+          <h3>История промокодов</h3>
+          <div id="promoHistoryList" class="promo-list muted">Войдите, чтобы увидеть историю.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="profileSection">
+      <div class="profile-shell">
+        <div class="card auth-box" id="authCard">
+          <h2>Вход</h2>
+          <p class="muted">Получите код в Telegram-боте и вставьте его сюда.</p>
+          <div class="actions">
+            <a class="button-link" id="telegramBotLink" href="https://t.me/twaslabel_bot?start=webauth" target="_blank" rel="noopener">Получить код для входа</a>
+          </div>
+          <form id="loginForm" class="profile-form spaced">
+            <div><label>Код из Telegram</label><input id="authCode" inputmode="numeric" placeholder="123456" maxlength="8" autocomplete="one-time-code"></div>
+            <button type="submit">Войти</button>
+          </form>
+          <p id="status" class="status muted"></p>
+        </div>
+
+        <div class="profile-main" id="profileCard">
+          <div class="card">
+            <h2>Мой профиль</h2>
+            <div class="stat-grid">
+              <div class="stat"><span class="muted">Артист</span><strong id="artistName">—</strong></div>
+              <div class="stat"><span class="muted">Баланс</span><strong id="balance">0 ₽</strong></div>
+              <div class="stat"><span class="muted">Релизы</span><strong id="releaseCount">0</strong></div>
+            </div>
+            <div class="profile-action-grid spaced">
+              <button class="secondary" id="profileReleasesBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/></svg> Мои релизы</button>
+              <button class="secondary" id="profileDraftsBtn"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4.5h6M9 10h6M9 14h6M9 18h4"/></svg> Черновики</button>
+              <button class="secondary" id="profileReportsBtn"><svg viewBox="0 0 24 24"><path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/></svg> Мои отчёты</button>
+              <button class="secondary" id="profileOrdersBtn"><svg viewBox="0 0 24 24"><path d="M5 6h16l-2 8H7L5 3H2"/><circle cx="8" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/></svg> Мои заказы</button>
+              <button class="secondary" id="profileTopupBtn"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18M7 15h4"/></svg> Пополнить баланс</button>
+              <button class="secondary" id="profilePromoBtn"><svg viewBox="0 0 24 24"><path d="M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z"/><path d="M9 8v8"/></svg> Ввести промокод</button>
+            </div>
+          </div>
+          <div class="card profile-form compact">
+            <div class="profile-field"><label>Имя артиста</label><div class="profile-copy-row"><input id="profileArtist" placeholder="Не указано"><button class="secondary profile-copy-btn" type="button" data-copy-profile="profileArtist">Копировать</button></div></div>
+            <div class="profile-field"><label>ФИО</label><div class="profile-copy-row"><input id="profileFio" placeholder="Не указано"><button class="secondary profile-copy-btn" type="button" data-copy-profile="profileFio">Копировать</button></div></div>
+            <div class="profile-field"><label>Email</label><div class="profile-copy-row"><input id="profileEmail" placeholder="Не указан"><button class="secondary profile-copy-btn" type="button" data-copy-profile="profileEmail">Копировать</button></div></div>
+            <div class="profile-field"><label>Телефон</label><div class="profile-copy-row"><input id="profilePhone" placeholder="Не указан"><button class="secondary profile-copy-btn" type="button" data-copy-profile="profilePhone">Копировать</button></div></div>
+            <div class="profile-field"><label>Привязанные карты</label><input placeholder="Раздел в разработке" disabled></div>
+            <div class="actions full">
+              <button class="secondary" id="editProfileBtn" type="button">Изменить данные</button>
+              <button class="secondary hidden" id="cancelProfileEditBtn" type="button">Отмена</button>
+              <button class="secondary hidden" id="saveProfileBtn" type="button">Сохранить профиль</button>
+            </div>
+          </div>
+          <div class="card hidden" id="topupCard">
+            <h3>Пополнение баланса</h3>
+            <p class="muted">Оплата через ЮKassa. После оплаты нажмите “Проверить оплату”, чтобы зачислить баланс.</p>
+            <div class="amount-grid spaced">
+              <button class="secondary" data-topup-amount="300">300 ₽</button>
+              <button class="secondary" data-topup-amount="500">500 ₽</button>
+              <button class="secondary" data-topup-amount="1000">1000 ₽</button>
+              <button class="secondary" data-topup-amount="2000">2000 ₽</button>
+            </div>
+            <div class="row spaced">
+              <div><label>Другая сумма</label><input id="topupAmount" inputmode="numeric" type="number" min="50" max="100000" step="1" value="500"></div>
+              <button id="topupCreateBtn">Создать оплату</button>
+            </div>
+            <p class="topup-status muted" id="topupStatus"></p>
+            <div class="topup-result hidden" id="topupResult">
+              <a class="button-link" id="topupPayLink" href="#" target="_blank" rel="noopener">Перейти к оплате</a>
+              <button class="secondary" id="topupCheckBtn">Проверить оплату</button>
+            </div>
+          </div>
+          <div class="grid two spaced">
+            <div class="card">
+              <h3>Финансы</h3>
+              <div id="financeSummary" class="mini-list muted">Войдите, чтобы увидеть финансы.</div>
+            </div>
+            <div class="card">
+              <h3>Сводка</h3>
+              <div id="profileCounts" class="mini-list muted">Войдите, чтобы увидеть сводку.</div>
+            </div>
+          </div>
+          <div class="grid two spaced">
+            <div class="card"><h3>Последние заказы</h3><div id="profileOrders" class="mini-list muted">—</div></div>
+            <div class="card"><h3>Черновики</h3><div id="profileDrafts" class="mini-list muted">—</div></div>
+            <div class="card"><h3>Отчёты</h3><div id="profileReports" class="mini-list muted">—</div></div>
+            <div class="card"><h3>Реферал</h3><div id="profileReferral" class="mini-list muted">Ссылку приглашения подключим после проверки реферальной таблицы.</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="dockRoot" class="dock-host" aria-label="Главная навигация">
+    <div class="dock-outer">
+      <div class="dock-panel" style="height:68px">
+        <button class="dock-item active" style="width:62px;height:54px" data-fallback-tab="home" aria-label="Главная"><span class="dock-icon"><svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-6h5v6"/></svg></span><span class="dock-label">Главная</span></button>
+        <button class="dock-item" style="width:62px;height:54px" data-fallback-tab="releases" aria-label="Мои релизы"><span class="dock-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M15.5 8.5h.01"/></svg></span><span class="dock-label">Релизы</span></button>
+        <button class="dock-item" style="width:62px;height:54px" data-fallback-tab="services" aria-label="Услуги"><span class="dock-icon"><svg viewBox="0 0 24 24"><path d="M5 6h16l-2 8H7L5 3H2"/><circle cx="8" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/></svg></span><span class="dock-label">Услуги</span></button>
+        <button class="dock-item" style="width:62px;height:54px" data-fallback-tab="tools" aria-label="Сервисы"><span class="dock-icon"><svg viewBox="0 0 24 24"><path d="M8 7V5h8v2"/><rect x="4" y="7" width="16" height="12" rx="2"/><path d="M4 12h16"/><path d="M10 12v2h4v-2"/></svg></span><span class="dock-label">Сервисы</span></button>
+        <button class="dock-item" style="width:62px;height:54px" data-fallback-tab="profile" aria-label="Профиль"><span class="dock-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></span><span class="dock-label">Профиль</span></button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import React, { Children, cloneElement, useEffect, useMemo, useRef, useState } from "https://esm.sh/react@18.3.1";
+    import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
+    import { AnimatePresence, motion, useMotionValue, useSpring, useTransform } from "https://esm.sh/motion@12.23.24/react";
+
+    const h = React.createElement;
+    const counterRoots = new Map();
+    let dockRoot = null;
+
+    function CounterNumber({ mv, number, height }) {
+      const y = useTransform(mv, latest => {
+        const placeValue = latest % 10;
+        let offset = (10 + number - placeValue) % 10;
+        let memo = offset * height;
+        if (offset > 5) memo -= 10 * height;
+        return memo;
+      });
+      return h(motion.span, { className: "counter-number", style: { y } }, number);
+    }
+
+    function normalizeNearInteger(num) {
+      const nearest = Math.round(num);
+      const tolerance = 1e-9 * Math.max(1, Math.abs(num));
+      return Math.abs(num - nearest) < tolerance ? nearest : num;
+    }
+
+    function getValueRoundedToPlace(value, place) {
+      const scaled = value / place;
+      return Math.floor(normalizeNearInteger(scaled));
+    }
+
+    function CounterDigit({ place, value, height, digitStyle }) {
+      if (place === "char") {
+        return h("span", { className: "counter-char", style: { height, ...digitStyle, width: "fit-content" } }, value);
+      }
+
+      const valueRoundedToPlace = getValueRoundedToPlace(value, place);
+      const animatedValue = useSpring(valueRoundedToPlace, { stiffness: 120, damping: 22, mass: .65 });
+
+      useEffect(() => {
+        animatedValue.set(valueRoundedToPlace);
+      }, [animatedValue, valueRoundedToPlace]);
+
+      return h(
+        "span",
+        { className: "counter-digit", style: { height, ...digitStyle } },
+        Array.from({ length: 10 }, (_, i) =>
+          h(CounterNumber, { key: i, mv: animatedValue, number: i, height })
+        )
+      );
+    }
+
+    function getPlacesForInteger(value) {
+      const digits = String(Math.max(0, Math.floor(Number(value) || 0))).length;
+      return Array.from({ length: digits }, (_, index) => 10 ** (digits - index - 1));
+    }
+
+    function Counter({
+      value,
+      suffix = "",
+      fontSize = 24,
+      padding = 3,
+      gap = 1,
+      textColor = "inherit",
+      fontWeight = 900,
+      gradientHeight = 7,
+      gradientFrom = "rgba(30, 41, 59, .95)",
+      gradientTo = "rgba(30, 41, 59, 0)"
+    }) {
+      const numericValue = Math.max(0, Math.floor(Number(value) || 0));
+      const places = getPlacesForInteger(numericValue);
+      const height = fontSize + padding;
+      const counterStyle = {
+        fontSize,
+        gap,
+        color: textColor,
+        fontWeight,
+        paddingLeft: 0,
+        paddingRight: 0
+      };
+      const topGradientStyle = {
+        height: gradientHeight,
+        background: `linear-gradient(to bottom, ${gradientFrom}, ${gradientTo})`
+      };
+      const bottomGradientStyle = {
+        height: gradientHeight,
+        background: `linear-gradient(to top, ${gradientFrom}, ${gradientTo})`
+      };
+
+      return h(
+        "span",
+        { className: "counter-container" },
+        h(
+          "span",
+          { className: "counter-counter", style: counterStyle },
+          ...places.map((place, index) => h(CounterDigit, { key: `${place}-${index}`, place, value: numericValue, height })),
+          suffix ? h(CounterDigit, { key: "suffix", place: "char", value: suffix, height }) : null
+        ),
+        h(
+          "span",
+          { className: "gradient-container" },
+          h("span", { className: "top-gradient", style: topGradientStyle }),
+          h("span", { className: "bottom-gradient", style: bottomGradientStyle })
+        )
+      );
+    }
+
+    function renderReactCounter(element, value, options = {}) {
+      if (!element) return;
+      let root = counterRoots.get(element);
+      if (!root) {
+        root = createRoot(element);
+        counterRoots.set(element, root);
+      }
+      root.render(h(Counter, { value, ...options }));
+    }
+
+    function DockItem({ children, className = "", onClick, mouseX, spring, distance, magnification, baseItemSize }) {
+      const ref = useRef(null);
+      const isHovered = useMotionValue(0);
+      const mouseDistance = useTransform(mouseX, (value) => {
+        const rect = ref.current?.getBoundingClientRect() ?? { x: 0, width: baseItemSize };
+        return value - rect.x - baseItemSize / 2;
+      });
+      const targetSize = useTransform(mouseDistance, [-distance, 0, distance], [baseItemSize, magnification, baseItemSize]);
+      const size = useSpring(targetSize, spring);
+
+      return h(motion.div, {
+        ref,
+        style: { width: size, height: size },
+        onHoverStart: () => isHovered.set(1),
+        onHoverEnd: () => isHovered.set(0),
+        onFocus: () => isHovered.set(1),
+        onBlur: () => isHovered.set(0),
+        onClick,
+        onKeyDown: (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          onClick?.();
+        },
+        className: `dock-item ${className}`,
+        tabIndex: 0,
+        role: "button",
+        "aria-haspopup": "false"
+      }, Children.map(children, (child) => cloneElement(child, { isHovered })));
+    }
+
+    function DockLabel({ children, className = "", isHovered }) {
+      const [isVisible, setIsVisible] = useState(false);
+      useEffect(() => {
+        const unsubscribe = isHovered.on("change", (latest) => setIsVisible(latest === 1));
+        return () => unsubscribe();
+      }, [isHovered]);
+
+      return h(AnimatePresence, null, isVisible
+        ? h(motion.div, {
+            initial: { opacity: 0, y: 0 },
+            animate: { opacity: 1, y: -10 },
+            exit: { opacity: 0, y: 0 },
+            transition: { duration: 0.2 },
+            className: `dock-label ${className}`,
+            role: "tooltip",
+            style: { x: "-50%" }
+          }, children)
+        : null
+      );
+    }
+
+    function DockIcon({ children, className = "" }) {
+      return h("div", { className: `dock-icon ${className}` }, children);
+    }
+
+    function Dock({
+      items,
+      className = "",
+      spring = { mass: 0.1, stiffness: 150, damping: 12 },
+      magnification = 70,
+      distance = 190,
+      panelHeight = 68,
+      dockHeight = 118,
+      baseItemSize = 48
+    }) {
+      const mouseX = useMotionValue(Infinity);
+      const isHovered = useMotionValue(0);
+      const maxHeight = useMemo(
+        () => Math.max(dockHeight, magnification + magnification / 2 + 4),
+        [magnification, dockHeight]
+      );
+      const heightRow = useTransform(isHovered, [0, 1], [panelHeight, maxHeight]);
+      const height = useSpring(heightRow, spring);
+
+      return h(motion.div, { style: { height, scrollbarWidth: "none" }, className: "dock-outer" },
+        h(motion.div, {
+          onMouseMove: ({ pageX }) => {
+            isHovered.set(1);
+            mouseX.set(pageX);
+          },
+          onMouseLeave: () => {
+            isHovered.set(0);
+            mouseX.set(Infinity);
+          },
+          className: `dock-panel ${className}`,
+          style: { height: panelHeight },
+          role: "toolbar",
+          "aria-label": "Главная навигация"
+        }, items.map((item, index) =>
+          h(DockItem, {
+            key: item.key || index,
+            onClick: item.onClick,
+            className: item.className,
+            mouseX,
+            spring,
+            distance,
+            magnification,
+            baseItemSize
+          }, h(DockIcon, null, item.icon), h(DockLabel, null, item.label))
+        ))
+      );
+    }
+
+    function renderDock() {
+      return;
+    }
+
+
+    const apiBase = window.location.origin;
+    const $ = (id) => document.getElementById(id);
+    const state = { user: null, releases: [], drafts: [], filteredReleases: [], recentReleases: [], selectedRelease: null, profileDashboard: null, promoHistory: [], activeDiscounts: [], distributionPayment: null, activeTab: "home", editingDraftId: null, albumTracks: [], releaseStep: 0, releasePage: 1, releasePageSize: 12 };
+
+    function setStatus(message, kind = "muted") {
+      const status = $("status");
+      status.className = `status ${kind}`;
+      status.textContent = message || "";
+    }
+    function money(value) { return `${Number(value || 0).toLocaleString("ru-RU")} ₽`; }
+    function escapeAttr(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    }
+    function formatCounterValue(value, decimals = 0) {
+      return Number(value || 0).toLocaleString("ru-RU", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+      });
+    }
+    function counterHtml(value, options = {}) {
+      const numericValue = Number(value || 0);
+      const decimals = Number(options.decimals ?? 0);
+      const prefix = options.prefix || "";
+      const suffix = options.suffix || "";
+      const fallback = `${prefix}${formatCounterValue(numericValue, decimals)}${suffix}`;
+      return `<span class="count-number" data-counter data-value="${numericValue}" data-decimals="${decimals}" data-prefix="${escapeAttr(prefix)}" data-suffix="${escapeAttr(suffix)}">${fallback}</span>`;
+    }
+    function moneyCounter(value) {
+      return counterHtml(value, { suffix: " ₽", decimals: 0 });
+    }
+    function counterOrDash(value) {
+      return value === null || value === undefined || value === "" ? "—" : counterHtml(value);
+    }
+    function setCounter(element, value, options = {}) {
+      if (!element) return;
+      element.innerHTML = counterHtml(value, options);
+      animateCounters(element);
+    }
+    function animateCounterElement(element) {
+      const target = Number(element.dataset.value || 0);
+      const decimals = Number(element.dataset.decimals || 0);
+      const prefix = element.dataset.prefix || "";
+      const suffix = element.dataset.suffix || "";
+      const start = Number(element.dataset.current || 0);
+      const duration = 1450;
+      const startedAt = performance.now();
+      const render = (value) => {
+        element.textContent = `${prefix}${formatCounterValue(value, decimals)}${suffix}`;
+      };
+
+      if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+        render(target);
+        element.dataset.current = String(target);
+        return;
+      }
+
+      const step = (now) => {
+        const progress = Math.min(1, (now - startedAt) / duration);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const value = start + (target - start) * eased;
+        render(value);
+        if (progress < 1) {
+          requestAnimationFrame(step);
+        } else {
+          render(target);
+          element.dataset.current = String(target);
+        }
+      };
+      requestAnimationFrame(step);
+    }
+    function animateCounters(root = document) {
+      root.querySelectorAll("[data-counter]").forEach(animateCounterElement);
+    }
+    function dateText(value) {
+      if (!value) return "дата не указана";
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("ru-RU");
+    }
+    function normalizeStage(status) {
+      const raw = String(status || "pending").trim().toLowerCase();
+      if (["draft", "черновик", "drafts"].includes(raw)) return "draft";
+      if (["pending", "на рассмотрении", "в обработке", "на проверке", "модерация"].includes(raw)) return "pending";
+      if (["accepted", "принят", "принято"].includes(raw)) return "accepted";
+      if (["sent", "отправлен", "отправлен на площадки"].includes(raw)) return "sent";
+      if (["delivered", "отгружен", "отгружен на площадки"].includes(raw)) return "delivered";
+      if (["released", "релиз", "опубликован", "вышел"].includes(raw)) return "released";
+      if (["withdrawn", "отозван", "отозван с площадок"].includes(raw)) return "withdrawn";
+      if (["rejected", "отклонён", "отклонен"].includes(raw)) return "rejected";
+      return raw || "pending";
+    }
+    function statusInfo(status) {
+      const value = normalizeStage(status);
+      const map = {
+        draft: "Черновик",
+        pending: "На рассмотрении",
+        accepted: "Принят",
+        sent: "Отправлен на площадки",
+        delivered: "Отгружен на площадки",
+        released: "Релиз",
+        withdrawn: "Отозван с площадок",
+        rejected: "Отклонён"
+      };
+      return { value, text: map[value] || status || "На рассмотрении" };
+    }
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      })[char]);
+    }
+    async function fetchJson(url, options = {}) {
+      const requestOptions = { credentials: "include", cache: "no-store", ...options };
+      let requestUrl = url;
+      const method = (requestOptions.method || "GET").toUpperCase();
+      if (method === "GET") {
+        const separator = requestUrl.includes("?") ? "&" : "?";
+        requestUrl = `${requestUrl}${separator}_=${Date.now()}`;
+      }
+      const response = await fetch(requestUrl, requestOptions);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || data.message || `HTTP ${response.status}`);
+      return data;
+    }
+    async function uploadReleaseFile(releaseId, kind, file) {
+      if (!file) return null;
+      const userId = state.user.telegram_id || state.user.id;
+      const formData = new FormData();
+      formData.append("user_id", userId);
+      formData.append("file", file);
+      return fetchJson(`${apiBase}/api/releases/${releaseId}/media/${kind}`, {
+        method: "POST",
+        body: formData
+      });
+    }
+
+    function setTab(tab) {
+      document.querySelectorAll(".section").forEach((node) => node.classList.remove("active"));
+      $(`${tab}Section`).classList.add("active");
+      state.activeTab = tab;
+      document.querySelectorAll("[data-fallback-tab]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.fallbackTab === tab);
+      });
+      renderDock();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    async function configureBotLink() {
+      try {
+        const data = await fetchJson(`${apiBase}/api/auth/bot-link`);
+        $("telegramBotLink").href = data.url;
+      } catch (error) {
+        console.warn("Не удалось получить ссылку на бот:", error);
+      }
+    }
+
+    async function loginByCode(code) {
+      setStatus("Проверяю код...");
+      const data = await fetchJson(`${apiBase}/api/auth/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code })
+      });
+      await applyUser(data.user);
+      localStorage.setItem("cabinet_user", JSON.stringify(data.user));
+      setStatus("Вход выполнен.", "ok");
+      setTab("releases");
+    }
+
+    async function loginByTelegramId(telegramId) {
+      const profile = await fetchJson(`${apiBase}/api/me?tgid=${encodeURIComponent(telegramId)}`);
+      await applyUser(profile.user);
+      localStorage.setItem("cabinet_user", JSON.stringify(profile.user));
+      setStatus("Вход выполнен.", "ok");
+    }
+
+    async function applyUser(user) {
+      state.user = user;
+      await Promise.all([loadUserReleases(), loadProfileDashboard(), loadPromoHistory()]);
+      renderProfile();
+      renderUserReleases();
+      renderPromoSection();
+    }
+
+    async function loadProfileDashboard() {
+      if (!state.user) return;
+      const userId = state.user.telegram_id || state.user.id;
+      const data = await fetchJson(`${apiBase}/api/profile/dashboard?user_id=${encodeURIComponent(userId)}`);
+      state.profileDashboard = data;
+      state.drafts = data.drafts || [];
+      state.user = data.user || state.user;
+      localStorage.setItem("cabinet_user", JSON.stringify(state.user));
+      filterUserReleases();
+    }
+
+    async function loadUserReleases() {
+      if (!state.user) return;
+      const userId = state.user.telegram_id || state.user.id;
+      const data = await fetchJson(`${apiBase}/api/user_releases?user_id=${encodeURIComponent(userId)}`);
+      state.releases = data.releases || [];
+      filterUserReleases();
+    }
+
+    async function loadRecentReleases() {
+      try {
+        const data = await fetchJson(`${apiBase}/api/releases/recent?limit=8`);
+        state.recentReleases = data.releases || [];
+        renderRecentReleases();
+      } catch (error) {
+        $("recentReleases").className = "muted";
+        $("recentReleases").textContent = `Не удалось загрузить релизы: ${error.message}`;
+      }
+    }
+
+    async function loadPromoHistory() {
+      if (!state.user) return;
+      const userId = state.user.telegram_id || state.user.id;
+      const data = await fetchJson(`${apiBase}/api/promo/history?user_id=${encodeURIComponent(userId)}`);
+      state.promoHistory = data.history || [];
+      state.activeDiscounts = data.active_discounts || [];
+    }
+
+    function setPromoStatus(message, kind = "muted") {
+      const box = $("promoStatus");
+      if (!box) return;
+      box.className = `status ${kind}`;
+      box.textContent = message || "";
+    }
+
+    function renderPromoSection() {
+      const activeBox = $("activePromoList");
+      const historyBox = $("promoHistoryList");
+      if (!activeBox || !historyBox) return;
+      if (!state.user) {
+        activeBox.className = "promo-list muted";
+        historyBox.className = "promo-list muted";
+        activeBox.textContent = "Войдите, чтобы увидеть скидки.";
+        historyBox.textContent = "Войдите, чтобы увидеть историю.";
+        return;
+      }
+      if (!state.activeDiscounts.length) {
+        activeBox.className = "promo-list muted";
+        activeBox.textContent = "Активных скидок нет.";
+      } else {
+        activeBox.className = "promo-list";
+        activeBox.innerHTML = state.activeDiscounts.map((promo) => `
+          <div class="mini-row">
+            <span class="pill promo-code-pill">${escapeHtml(promo.code)}</span>
+            <b>${counterHtml(promo.discount)}%</b>
+            <p class="muted">Применится автоматически при следующей отправке релиза.</p>
+          </div>
+        `).join("");
+        animateCounters(activeBox);
+      }
+      if (!state.promoHistory.length) {
+        historyBox.className = "promo-list muted";
+        historyBox.textContent = "Промокоды ещё не использовались.";
+      } else {
+        historyBox.className = "promo-list";
+        historyBox.innerHTML = state.promoHistory.map((promo) => `
+          <div class="mini-row">
+            <span class="pill promo-code-pill">${escapeHtml(promo.code)}</span>
+            <p>${promo.type === "balance" ? `Баланс +${moneyCounter(promo.amount)}` : `Скидка ${counterHtml(promo.discount)}%`}</p>
+            <p class="muted">${dateText(promo.used_at)}</p>
+          </div>
+        `).join("");
+        animateCounters(historyBox);
+      }
+    }
+
+    async function activatePromoFromSite() {
+      if (!state.user) {
+        setTab("profile");
+        return setStatus("Сначала войдите через Telegram.", "warn");
+      }
+      const code = $("promoCodeInput").value.trim();
+      if (!code) return setPromoStatus("Введите промокод.", "error");
+      const userId = state.user.telegram_id || state.user.id;
+      setPromoStatus("Проверяю промокод...");
+      const data = await fetchJson(`${apiBase}/api/promo/activate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, code })
+      });
+      $("promoCodeInput").value = "";
+      setPromoStatus(data.message || "Промокод активирован.", "ok");
+      await Promise.all([loadProfileDashboard(), loadPromoHistory(), loadDistributionPrice().catch(() => null)]);
+      renderProfile();
+      renderPromoSection();
+    }
+
+    function draftTitle(draft) {
+      const data = draft.data || {};
+      return data.releaseName || data.albumName || data.release_name || data.album_name || `Черновик #${draft.id}`;
+    }
+
+    function combinedReleaseItems() {
+      const releaseItems = (state.releases || []).map((release) => ({
+        itemType: "release",
+        stage: normalizeStage(release.status),
+        searchable: [release.release_name, release.artist_name, release.release_type, release.status, release.genre, release.upc_code].join(" ").toLowerCase(),
+        updatedAt: release.created_at || release.release_date || "",
+        releaseDate: release.release_date || "",
+        title: release.release_name || "",
+        data: release,
+      }));
+      const draftItems = (state.drafts || []).map((draft) => {
+        const data = draft.data || {};
+        return {
+          itemType: "draft",
+          stage: "draft",
+          searchable: [draft.id, draft.draft_type, draftTitle(draft), data.artistName, data.releaseType, data.genre].join(" ").toLowerCase(),
+          updatedAt: draft.updated_at || draft.created_at || "",
+          releaseDate: data.releaseDate || "",
+          title: draftTitle(draft),
+          data: draft,
+        };
+      });
+      return [...draftItems, ...releaseItems];
+    }
+
+    function filterUserReleases({ resetPage = true } = {}) {
+      const query = $("releaseSearch").value.trim().toLowerCase();
+      const stage = $("releaseStageFilter")?.value || "all";
+      const sort = $("releaseSortSelect")?.value || "updated_desc";
+      const stageRank = { draft: 0, pending: 1, accepted: 2, sent: 3, delivered: 4, released: 5, withdrawn: 6, rejected: 7 };
+      state.filteredReleases = combinedReleaseItems()
+        .filter((item) => stage === "all" || item.stage === stage)
+        .filter((item) => !query || item.searchable.includes(query))
+        .sort((a, b) => {
+          if (sort === "date_desc") return String(b.releaseDate).localeCompare(String(a.releaseDate));
+          if (sort === "date_asc") return String(a.releaseDate).localeCompare(String(b.releaseDate));
+          if (sort === "title_asc") return String(a.title).localeCompare(String(b.title), "ru");
+          if (sort === "stage_asc") return (stageRank[a.stage] ?? 99) - (stageRank[b.stage] ?? 99) || String(b.updatedAt).localeCompare(String(a.updatedAt));
+          return String(b.updatedAt).localeCompare(String(a.updatedAt));
+        });
+      if (resetPage) state.releasePage = 1;
+      clampReleasePage();
+    }
+
+    function totalReleasePages() {
+      return Math.max(1, Math.ceil((state.filteredReleases.length || 0) / state.releasePageSize));
+    }
+
+    function clampReleasePage() {
+      state.releasePage = Math.min(Math.max(1, state.releasePage || 1), totalReleasePages());
+    }
+
+    function pagedReleaseItems() {
+      clampReleasePage();
+      const start = (state.releasePage - 1) * state.releasePageSize;
+      return state.filteredReleases.slice(start, start + state.releasePageSize);
+    }
+
+    function renderReleasePagination() {
+      const bar = $("releasePagination");
+      if (!bar) return;
+      const total = state.filteredReleases.length;
+      const show = !!state.user && total > state.releasePageSize;
+      bar.classList.toggle("hidden", !show);
+      if (!show) return;
+      const pages = totalReleasePages();
+      const start = (state.releasePage - 1) * state.releasePageSize + 1;
+      const end = Math.min(total, state.releasePage * state.releasePageSize);
+      $("releasePageInfo").textContent = `${start}–${end} из ${total} · страница ${state.releasePage}/${pages}`;
+      $("releasePrevPageBtn").disabled = state.releasePage <= 1;
+      $("releaseNextPageBtn").disabled = state.releasePage >= pages;
+      $("releasePageSizeSelect").value = String(state.releasePageSize);
+    }
+
+    function debounce(fn, delay = 180) {
+      let timer = null;
+      return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), delay);
+      };
+    }
+
+    function releaseCard(release, clickable = true) {
+      const status = statusInfo(release.status);
+      const cover = release.cover_url
+        ? `<img src="${escapeHtml(release.cover_url)}" alt="Обложка ${escapeHtml(release.release_name || "")}" loading="lazy">`
+        : '<div class="cover-placeholder"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M15.5 8.5h.01"/></svg></div>';
+      return `
+        <article class="release release-with-cover" ${clickable ? `data-release-id="${release.id}" role="button" tabindex="0"` : ""}>
+          <div class="release-cover-thumb">${cover}</div>
+          <div class="release-content">
+            <div class="release-head">
+              <div>
+                <p class="release-title">${escapeHtml(release.release_name || "Без названия")}</p>
+                <div class="meta">
+                  <span class="pill">${escapeHtml(release.artist_name || "Артист не указан")}</span>
+                  <span class="pill">${escapeHtml(release.release_type || "релиз")}</span>
+                  ${release.genre ? `<span class="pill">${escapeHtml(release.genre)}</span>` : ""}
+                </div>
+              </div>
+              <span class="badge ${escapeHtml(status.value)}">${escapeHtml(status.text)}</span>
+            </div>
+            <div class="details">
+              <div class="detail"><span>Дата</span><b>${dateText(release.release_date)}</b></div>
+              <div class="detail"><span>Автор</span><b>${escapeHtml(release.music_author || "—")}</b></div>
+              <div class="detail"><span>Исполнитель</span><b>${escapeHtml(release.performer_name || release.artist_name || "—")}</b></div>
+            </div>
+          </div>
+        </article>
+      `;
+    }
+
+    function renderRecentReleases() {
+      const box = $("recentReleases");
+      if (!state.recentReleases.length) {
+        box.className = "muted";
+        box.textContent = "Пока нет релизов для отображения.";
+        return;
+      }
+      box.className = "release-list";
+      box.innerHTML = state.recentReleases.map((release) => releaseCard(release, false)).join("");
+    }
+
+    function draftCard(draft) {
+      const data = draft.data || {};
+      const title = draftTitle(draft);
+      const type = data.releaseType || draft.draft_type || "черновик";
+      return `
+        <article class="release release-with-cover" data-draft-id="${draft.id}" role="button" tabindex="0">
+          <div class="release-cover-thumb"><div class="cover-placeholder"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 10h6M9 14h6M9 18h4"/></svg></div></div>
+          <div class="release-content">
+            <div class="release-head">
+              <div>
+                <p class="release-title">${escapeHtml(title)}</p>
+                <div class="meta">
+                  <span class="pill">${escapeHtml(data.artistName || "Артист не указан")}</span>
+                  <span class="pill">${escapeHtml(type)}</span>
+                  ${data.genre ? `<span class="pill">${escapeHtml(data.genre)}</span>` : ""}
+                </div>
+              </div>
+              <span class="badge draft">Черновик</span>
+            </div>
+            <div class="details">
+              <div class="detail"><span>Обновлён</span><b>${dateText(draft.updated_at || draft.created_at)}</b></div>
+              <div class="detail"><span>Шаг</span><b>${escapeHtml(draft.current_step ?? 0)}</b></div>
+              <div class="detail"><span>Дата релиза</span><b>${dateText(data.releaseDate)}</b></div>
+              <div class="detail"><span>Действие</span><b>Открыть</b></div>
+            </div>
+            <div class="actions spaced">
+              <button class="secondary" type="button" data-load-draft="${draft.id}">Продолжить</button>
+              <button class="ghost" type="button" data-delete-draft="${draft.id}">Удалить</button>
+            </div>
+          </div>
+        </article>
+      `;
+    }
+
+    function renderUserReleases() {
+      const box = $("releases");
+      if (!state.user) {
+        box.className = "release-list muted";
+        box.textContent = "Войдите, чтобы увидеть релизы.";
+        $("releasePagination")?.classList.add("hidden");
+        return;
+      }
+      if (!state.releases.length && !state.drafts.length) {
+        box.className = "release-list muted";
+        box.textContent = "Релизов и черновиков пока нет.";
+        $("releasePagination")?.classList.add("hidden");
+        return;
+      }
+      if (!state.filteredReleases.length) {
+        box.className = "release-list muted";
+        box.textContent = "По текущему фильтру ничего не найдено.";
+        $("releasePagination")?.classList.add("hidden");
+        return;
+      }
+      box.className = "release-list";
+      box.innerHTML = pagedReleaseItems().map((item) => item.itemType === "draft" ? draftCard(item.data) : releaseCard(item.data)).join("");
+      renderReleasePagination();
+    }
+
+    function setReleaseBuilderStatus(message, kind = "muted") {
+      const box = $("releaseBuilderStatus");
+      box.className = kind;
+      box.textContent = message || "";
+    }
+
+    function boolFromSelect(id) {
+      return $(id).value === "true";
+    }
+
+    function inputValue(id) {
+      const node = document.getElementById(id);
+      return node ? node.value.trim() : "";
+    }
+    const RELEASE_TYPE_LIMITS = {
+      "Single": { min: 1, max: 1, note: "Single: ровно 1 композиция." },
+      "Maxi Single": { min: 1, max: 3, note: "Maxi Single: можно добавить от 1 до 3 композиций." },
+      "EP": { min: 2, max: 5, note: "EP: можно добавить от 2 до 5 треков." },
+      "ALBUM": { min: 6, max: Infinity, note: "ALBUM: минимум 6 треков, верхнего ограничения в форме нет." }
+    };
+    const DISTRIBUTION_PRICES = { "Single": 1299, "Maxi Single": 1799, "EP": 2399, "ALBUM": 2899 };
+    const RELEASE_TYPE_CARDS = [
+      {
+        value: "Single",
+        title: "Single",
+        price: "1299 ₽",
+        desc: "Один основной трек. Быстрая подача для отдельной композиции.",
+        chips: ["1 трек", "быстрый старт"],
+        icon: '<svg viewBox="0 0 24 24"><path d="M9 18V5l10-2v13"/><circle cx="7" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>'
+      },
+      {
+        value: "Maxi Single",
+        title: "Maxi Single",
+        price: "1799 ₽",
+        desc: "Небольшой релиз: основной трек, ремикс или версии.",
+        chips: ["1–3 трека", "для версий"],
+        icon: '<svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/><path d="M17 15l3 2-3 2v-4z"/></svg>'
+      },
+      {
+        value: "EP",
+        title: "EP",
+        price: "2399 ₽",
+        desc: "Мини-альбом для плотного релиза без формата большого альбома.",
+        chips: ["2–5 треков", "мини-альбом"],
+        icon: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/></svg>'
+      },
+      {
+        value: "ALBUM",
+        title: "ALBUM",
+        price: "2899 ₽",
+        desc: "Полноценный альбом с расширенным количеством композиций.",
+        chips: ["6+ треков", "полный релиз"],
+        icon: '<svg viewBox="0 0 24 24"><path d="M6 3h12v18H6z"/><path d="M9 7h6M9 11h6M9 15h4"/></svg>'
+      }
+    ];
+    const RELEASE_STEPS = [
+      "Тип и релиз",
+      "Метаданные",
+      "Треки и файлы",
+      "Площадки и отправка"
+    ];
+
+    function renderReleaseTypeCards() {
+      const box = $("releaseTypeCards");
+      if (!box) return;
+      const selected = $("releaseTypeInput").value || "Single";
+      box.innerHTML = RELEASE_TYPE_CARDS.map((item) => `
+        <button type="button" class="release-type-card ${item.value === selected ? "active" : ""}" data-release-type-card="${escapeHtml(item.value)}" role="radio" aria-checked="${item.value === selected}">
+          <span class="release-type-icon">${item.icon}</span>
+          <span class="release-type-title"><span>${escapeHtml(item.title)}</span><span class="release-type-price">${escapeHtml(item.price)}</span></span>
+          <span class="release-type-desc">${escapeHtml(item.desc)}</span>
+          <span class="release-type-limits">${item.chips.map((chip) => `<span>${escapeHtml(chip)}</span>`).join("")}</span>
+        </button>
+      `).join("");
+    }
+
+    function setReleaseType(type, refreshPrice = true) {
+      $("releaseTypeInput").value = type;
+      state.distributionPayment = null;
+      renderReleaseTypeCards();
+      toggleAlbumFields();
+      if (refreshPrice) loadDistributionPrice().catch((error) => setReleaseBuilderStatus(`Не удалось обновить стоимость: ${error.message}`, "warn"));
+    }
+
+    function releaseLimits(type = $("releaseTypeInput").value) {
+      return RELEASE_TYPE_LIMITS[type] || RELEASE_TYPE_LIMITS.Single;
+    }
+
+    function releaseTypeTrackCount(type = $("releaseTypeInput").value) {
+      return type === "Single" ? 1 : state.albumTracks.length;
+    }
+
+    function updateReleaseLimitNote() {
+      const limits = releaseLimits();
+      const count = releaseTypeTrackCount();
+      const maxText = Number.isFinite(limits.max) ? ` / максимум ${limits.max}` : " / без верхнего лимита";
+      $("releaseTypeLimitNote").textContent = `${limits.note} Сейчас: ${count}${maxText}.`;
+      const addBtn = $("addAlbumTrackBtn");
+      if (addBtn) {
+        const isSingle = $("releaseTypeInput").value === "Single";
+        addBtn.disabled = isSingle || (Number.isFinite(limits.max) && state.albumTracks.length >= limits.max);
+        addBtn.textContent = addBtn.disabled && !isSingle ? "Лимит треков достигнут" : "Добавить трек";
+      }
+    }
+
+    function renderDistributionPayment(payment = state.distributionPayment) {
+      const box = $("distributionPaymentBox");
+      const summary = $("distributionPaymentSummary");
+      if (!summary) return;
+      const releaseType = $("releaseTypeInput").value;
+      const fallbackPrice = DISTRIBUTION_PRICES[releaseType] || DISTRIBUTION_PRICES.Single;
+      const data = payment || {
+        base_price: fallbackPrice,
+        discount_percent: 0,
+        discount_amount: 0,
+        final_price: fallbackPrice,
+        balance: state.user?.balance || 0,
+        balance_after: (state.user?.balance || 0) - fallbackPrice,
+        affordable: Number(state.user?.balance || 0) >= fallbackPrice,
+        active_discount: null
+      };
+      const discountText = data.is_free
+        ? "бесплатно по роли artist"
+        : data.active_discount
+          ? `${formatCounterValue(data.discount_percent)}% (${escapeHtml(data.active_discount.code)})`
+          : "нет";
+      box?.classList.toggle("error", !data.affordable);
+      summary.innerHTML = `
+        <div class="detail"><span>Тип релиза</span><b>${escapeHtml(releaseType)}</b></div>
+        <div class="detail"><span>Базовая цена</span><b>${moneyCounter(data.base_price)}</b></div>
+        <div class="detail"><span>Скидка</span><b>${discountText}</b></div>
+        <div class="detail"><span>К списанию</span><b>${moneyCounter(data.final_price)}</b></div>
+        <div class="detail"><span>Баланс сейчас</span><b>${moneyCounter(data.balance)}</b></div>
+        <div class="detail"><span>После отправки</span><b>${moneyCounter(data.balance_after)}</b></div>
+      `;
+      animateCounters(summary);
+      if (!data.affordable) {
+        setReleaseBuilderStatus(`Недостаточно средств. Пополните баланс минимум на ${formatCounterValue(Math.max(0, Number(data.final_price || 0) - Number(data.balance || 0)))} ₽.`, "error");
+      }
+    }
+
+    async function loadDistributionPrice() {
+      if (!state.user) {
+        state.distributionPayment = null;
+        renderDistributionPayment();
+        return null;
+      }
+      const userId = state.user.telegram_id || state.user.id;
+      const releaseType = $("releaseTypeInput").value;
+      const data = await fetchJson(`${apiBase}/api/distribution/price?user_id=${encodeURIComponent(userId)}&release_type=${encodeURIComponent(releaseType)}`);
+      state.distributionPayment = data.payment;
+      renderDistributionPayment(data.payment);
+      return data.payment;
+    }
+
+    function normalizeTrackCountForType() {
+      const type = $("releaseTypeInput").value;
+      const limits = releaseLimits(type);
+      if (type === "Single") {
+        state.albumTracks = [];
+        updateReleaseLimitNote();
+        return;
+      }
+      while (state.albumTracks.length < limits.min) {
+        state.albumTracks.push({ track_name: "", producer: "", genre: "" });
+      }
+      if (Number.isFinite(limits.max) && state.albumTracks.length > limits.max) {
+        state.albumTracks = state.albumTracks.slice(0, limits.max);
+      }
+      updateReleaseLimitNote();
+    }
+
+    function assignReleaseStep(node) {
+      if (!node || !node.querySelector) return 0;
+      if (node.classList.contains("release-step-nav") || node.classList.contains("release-builder-actions")) return null;
+      if (node.id === "distributionPaymentBox") return 3;
+      if (node.id === "albumTracksBox" || node.classList.contains("single-release-only") || node.querySelector("#releaseAudioInput, #releaseContractInput, #releaseLyricsInput, #releaseVideoInput, #releasePreviewInput, #releaseExplicitInput")) return 2;
+      if (node.querySelector("#releaseYandexInput, #releaseLinksInput, #releaseTikTokCommercialInput, #releaseTikTokFullInput")) return 3;
+      const id = node.querySelector("[id]")?.id || "";
+      if (id.startsWith("distributionMeta")) {
+        if (/Apple|Vk|Spotify|Tiktok|Youtube|Itunes|Platforms|Territories|EarlyRussia|Realtime|Moderator/.test(id)) return 3;
+        if (/Track|LyricsAuthors|AuthorShare|Instant|Focus|LyricsText|Synced|Ringtone/.test(id)) return 2;
+        return 1;
+      }
+      return 0;
+    }
+
+    function setupReleaseWizard() {
+      Array.from($("releaseForm").children).forEach((node) => {
+        const step = assignReleaseStep(node);
+        if (step !== null) node.dataset.releaseStep = String(step);
+      });
+      $("releaseStepper").innerHTML = RELEASE_STEPS.map((label, index) => `<span class="release-step-pill" data-step-pill="${index}">${index + 1}. ${label}</span>`).join("");
+      renderReleaseWizard();
+    }
+
+    function renderReleaseWizard() {
+      const isAlbum = $("releaseTypeInput").value !== "Single";
+      document.querySelectorAll("[data-release-step]").forEach((node) => {
+        const stepHidden = Number(node.dataset.releaseStep) !== state.releaseStep;
+        const typeHidden = (node.classList.contains("single-release-only") && isAlbum) || (node.id === "albumTracksBox" && !isAlbum);
+        node.classList.toggle("hidden", stepHidden || typeHidden);
+      });
+      document.querySelectorAll("[data-step-pill]").forEach((node) => {
+        node.classList.toggle("active", Number(node.dataset.stepPill) === state.releaseStep);
+      });
+      $("releasePrevStepBtn").disabled = state.releaseStep === 0;
+      $("releaseNextStepBtn").classList.toggle("hidden", state.releaseStep >= RELEASE_STEPS.length - 1);
+      $("submitReleaseBtn").classList.toggle("hidden", state.releaseStep < RELEASE_STEPS.length - 1);
+      $("releaseStepStatus").textContent = `Шаг ${state.releaseStep + 1} из ${RELEASE_STEPS.length}`;
+      updateReleaseLimitNote();
+      renderDistributionPayment();
+      if (state.releaseStep === RELEASE_STEPS.length - 1 && state.user) {
+        loadDistributionPrice().catch((error) => setReleaseBuilderStatus(`Не удалось обновить стоимость: ${error.message}`, "warn"));
+      }
+    }
+
+    function setReleaseStep(step) {
+      state.releaseStep = Math.max(0, Math.min(RELEASE_STEPS.length - 1, step));
+      renderReleaseWizard();
+      $("releaseBuilder").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+
+    function openReleaseBuilder(source = "releases") {
+      if (!state.user) {
+        setTab("profile");
+        setStatus("Сначала войдите через Telegram.", "warn");
+        return;
+      }
+      closeReleaseDetail();
+      setTab("releases");
+      $("releaseBuilder").classList.remove("hidden");
+      normalizeTrackCountForType();
+      renderAlbumTracks();
+      renderReleaseWizard();
+      setReleaseBuilderStatus(source === "services" ? "Заявка дистрибуции открыта из раздела услуг." : "");
+      $("releaseBuilder").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function resetReleaseForm() {
+      state.editingDraftId = null;
+      state.releaseStep = 0;
+      state.albumTracks = [];
+      $("releaseForm").reset();
+      setReleaseType("Single", false);
+      normalizeTrackCountForType();
+      renderAlbumTracks();
+      toggleAlbumFields();
+      renderReleaseWizard();
+      setReleaseBuilderStatus("");
+    }
+
+    function releaseFormData() {
+      const distributionMeta = {
+        metadataLanguage: inputValue("distributionMetaMetadataLanguageInput"),
+        releaseSubtitle: inputValue("distributionMetaReleaseSubtitleInput"),
+        releaseKind: inputValue("distributionMetaReleaseKindInput"),
+        upc: inputValue("distributionMetaUpcInput"),
+        partnerCode: inputValue("distributionMetaPartnerCodeInput"),
+        labelName: inputValue("distributionMetaLabelNameInput"),
+        subgenre: inputValue("distributionMetaSubgenreInput"),
+        startDate: inputValue("distributionMetaStartDateInput"),
+        preorderDate: inputValue("distributionMetaPreorderDateInput"),
+        rightsYear: inputValue("distributionMetaRightsYearInput"),
+        platformsMode: inputValue("distributionMetaPlatformsModeInput"),
+        territoriesMode: inputValue("distributionMetaTerritoriesModeInput"),
+        platformsNote: inputValue("distributionMetaPlatformsNoteInput"),
+        territoriesNote: inputValue("distributionMetaTerritoriesNoteInput"),
+        earlyStartRussia: boolFromSelect("distributionMetaEarlyRussiaInput"),
+        realtimeDelivery: boolFromSelect("distributionMetaRealtimeDeliveryInput"),
+        appleStart: inputValue("distributionMetaAppleStartInput"),
+        vkStart: inputValue("distributionMetaVkStartInput"),
+        spotifyStart: inputValue("distributionMetaSpotifyStartInput"),
+        tiktokStart: inputValue("distributionMetaTiktokStartInput"),
+        youtubeStart: inputValue("distributionMetaYoutubeStartInput"),
+        itunesStart: inputValue("distributionMetaItunesStartInput"),
+        itunesReleasePrice: inputValue("distributionMetaItunesReleasePriceInput"),
+        itunesTrackPrice: inputValue("distributionMetaItunesTrackPriceInput"),
+        itunesMinPrice: boolFromSelect("distributionMetaItunesMinPriceInput"),
+        appleDigitalMasters: boolFromSelect("distributionMetaAdmInput"),
+        admStudio: inputValue("distributionMetaAdmStudioInput"),
+        admEmail: inputValue("distributionMetaAdmEmailInput"),
+        admLocation: inputValue("distributionMetaAdmLocationInput"),
+        bookletNote: inputValue("distributionMetaBookletNoteInput"),
+        audiobookAnnotation: inputValue("distributionMetaAudiobookAnnotationInput"),
+        trackSubtitle: inputValue("distributionMetaTrackSubtitleInput"),
+        trackIsrc: inputValue("distributionMetaTrackIsrcInput"),
+        trackPartnerCode: inputValue("distributionMetaTrackPartnerCodeInput"),
+        trackCoPerformers: inputValue("distributionMetaTrackCoPerformersInput"),
+        lyricsAuthors: inputValue("distributionMetaLyricsAuthorsInput"),
+        authorShare: inputValue("distributionMetaAuthorShareInput"),
+        trackLanguage: inputValue("distributionMetaTrackLanguageInput"),
+        trackVersion: inputValue("distributionMetaTrackVersionInput"),
+        instantGratification: boolFromSelect("distributionMetaInstantInput"),
+        focusTrack: boolFromSelect("distributionMetaFocusTrackInput"),
+        lyricsText: inputValue("distributionMetaLyricsTextInput"),
+        syncedLyricsNote: inputValue("distributionMetaSyncedLyricsNoteInput"),
+        ringtoneNote: inputValue("distributionMetaRingtoneNoteInput"),
+        moderatorComment: inputValue("distributionMetaModeratorCommentInput")
+      };
+      const releaseType = $("releaseTypeInput").value;
+      const artistName = $("releaseArtistInput").value.trim();
+      const releaseName = $("releaseNameInput").value.trim();
+      const releaseDate = $("releaseDateInput").value;
+      const performerName = $("releasePerformerInput").value.trim();
+      const musicAuthor = $("releaseAuthorInput").value.trim();
+      const videoshotUrl = $("releaseVideoInput").value.trim();
+      const previewStart = $("releasePreviewInput").value;
+      const explicitContent = boolFromSelect("releaseExplicitInput");
+      const yandexSoon = boolFromSelect("releaseYandexInput");
+      const createLinks = boolFromSelect("releaseLinksInput");
+      const tiktokCommercial = boolFromSelect("releaseTikTokCommercialInput");
+      const tiktokFullVersion = boolFromSelect("releaseTikTokFullInput");
+      return {
+        releaseType,
+        release_type: releaseType,
+        artistName,
+        artist_name: artistName,
+        releaseName,
+        release_name: releaseName,
+        producer: $("releaseProducerInput").value.trim(),
+        genre: $("releaseGenreInput").value.trim(),
+        releaseDate,
+        release_date: releaseDate,
+        performerName,
+        performer_name: performerName,
+        musicAuthor,
+        music_author: musicAuthor,
+        videoshotUrl,
+        videoshot_url: videoshotUrl,
+        previewStart,
+        preview_start: previewStart,
+        explicitContent,
+        explicit_content: explicitContent,
+        yandexSoon,
+        yandex_soon: yandexSoon,
+        createLinks,
+        create_links: createLinks,
+        tiktokCommercial,
+        tiktok_commercial: tiktokCommercial,
+        tiktokFullVersion,
+        tiktok_full_version: tiktokFullVersion,
+        upc: distributionMeta.upc,
+        distributionMeta,
+        tracks: state.albumTracks.map((track, index) => ({
+          track_name: track.track_name || `Трек ${index + 1}`,
+          producer: track.producer || $("releaseProducerInput").value.trim(),
+          genre: track.genre || $("releaseGenreInput").value.trim(),
+          isrc: track.isrc || "",
+          distributionMeta: {
+            subtitle: track.subtitle || "",
+            isrc: track.isrc || "",
+            partnerCode: track.partnerCode || "",
+            performers: track.performers || $("releaseArtistInput").value.trim(),
+            coPerformers: track.coPerformers || "",
+            musicAuthors: track.musicAuthors || $("releaseAuthorInput").value.trim(),
+            lyricsAuthors: track.lyricsAuthors || "",
+            authorShare: track.authorShare || "",
+            previewStart: track.previewStart || "",
+            instantGratification: Boolean(track.instantGratification),
+            focusTrack: Boolean(track.focusTrack),
+            version: track.version || "",
+            language: track.language || "",
+            lyricsText: track.lyricsText || "",
+            syncedLyricsNote: track.syncedLyricsNote || "",
+            ringtoneNote: track.ringtoneNote || "",
+            videoNote: track.videoNote || ""
+          }
+        }))
+      };
+    }
+
+    function setInputValue(id, value) {
+      const node = document.getElementById(id);
+      if (node) node.value = value ?? "";
+    }
+
+    function normalizeDraftData(data = {}) {
+      const normalized = { ...data };
+      const aliases = {
+        releaseType: "release_type",
+        artistName: "artist_name",
+        releaseName: "release_name",
+        releaseDate: "release_date",
+        performerName: "performer_name",
+        musicAuthor: "music_author",
+        videoshotUrl: "videoshot_url",
+        previewStart: "preview_start",
+        explicitContent: "explicit_content",
+        yandexSoon: "yandex_soon",
+        createLinks: "create_links",
+        tiktokCommercial: "tiktok_commercial",
+        tiktokFullVersion: "tiktok_full_version"
+      };
+      Object.entries(aliases).forEach(([camel, snake]) => {
+        if (normalized[camel] === undefined && normalized[snake] !== undefined) normalized[camel] = normalized[snake];
+        if (normalized[snake] === undefined && normalized[camel] !== undefined) normalized[snake] = normalized[camel];
+      });
+      normalized.releaseType = normalized.releaseType || "Single";
+      normalized.distributionMeta = normalized.distributionMeta || {};
+      normalized.tracks = Array.isArray(normalized.tracks) ? normalized.tracks.map((track, index) => ({
+        ...track,
+        ...(track.distributionMeta || {}),
+        track_name: track.track_name || track.trackName || track.release_name || `Трек ${index + 1}`,
+        trackName: track.trackName || track.track_name || track.release_name || `Трек ${index + 1}`
+      })) : [];
+      return normalized;
+    }
+
+    function fillReleaseForm(data = {}) {
+      const normalized = normalizeDraftData(data);
+      setReleaseType(normalized.releaseType || "Single", false);
+      $("releaseArtistInput").value = normalized.artistName || "";
+      $("releaseNameInput").value = normalized.releaseName || "";
+      $("releaseProducerInput").value = normalized.producer || "";
+      $("releaseGenreInput").value = normalized.genre || "";
+      $("releaseDateInput").value = normalized.releaseDate || "";
+      $("releasePerformerInput").value = normalized.performerName || "";
+      $("releaseAuthorInput").value = normalized.musicAuthor || "";
+      $("releaseVideoInput").value = normalized.videoshotUrl || "";
+      $("releasePreviewInput").value = normalized.previewStart || "";
+      $("releaseExplicitInput").value = String(Boolean(normalized.explicitContent));
+      $("releaseYandexInput").value = String(Boolean(normalized.yandexSoon));
+      $("releaseLinksInput").value = String(Boolean(normalized.createLinks));
+      $("releaseTikTokCommercialInput").value = String(Boolean(normalized.tiktokCommercial));
+      $("releaseTikTokFullInput").value = String(Boolean(normalized.tiktokFullVersion));
+      const distributionMeta = normalized.distributionMeta || {};
+      setInputValue("distributionMetaMetadataLanguageInput", distributionMeta.metadataLanguage || "ru");
+      setInputValue("distributionMetaReleaseSubtitleInput", distributionMeta.releaseSubtitle);
+      setInputValue("distributionMetaReleaseKindInput", distributionMeta.releaseKind);
+      setInputValue("distributionMetaUpcInput", distributionMeta.upc || data.upc);
+      setInputValue("distributionMetaPartnerCodeInput", distributionMeta.partnerCode);
+      setInputValue("distributionMetaLabelNameInput", distributionMeta.labelName);
+      setInputValue("distributionMetaSubgenreInput", distributionMeta.subgenre);
+      setInputValue("distributionMetaStartDateInput", distributionMeta.startDate);
+      setInputValue("distributionMetaPreorderDateInput", distributionMeta.preorderDate);
+      setInputValue("distributionMetaRightsYearInput", distributionMeta.rightsYear);
+      setInputValue("distributionMetaPlatformsModeInput", distributionMeta.platformsMode || "all");
+      setInputValue("distributionMetaTerritoriesModeInput", distributionMeta.territoriesMode || "all");
+      setInputValue("distributionMetaPlatformsNoteInput", distributionMeta.platformsNote);
+      setInputValue("distributionMetaTerritoriesNoteInput", distributionMeta.territoriesNote);
+      setInputValue("distributionMetaEarlyRussiaInput", String(Boolean(distributionMeta.earlyStartRussia)));
+      setInputValue("distributionMetaRealtimeDeliveryInput", String(Boolean(distributionMeta.realtimeDelivery)));
+      setInputValue("distributionMetaAppleStartInput", distributionMeta.appleStart);
+      setInputValue("distributionMetaVkStartInput", distributionMeta.vkStart);
+      setInputValue("distributionMetaSpotifyStartInput", distributionMeta.spotifyStart);
+      setInputValue("distributionMetaTiktokStartInput", distributionMeta.tiktokStart);
+      setInputValue("distributionMetaYoutubeStartInput", distributionMeta.youtubeStart);
+      setInputValue("distributionMetaItunesStartInput", distributionMeta.itunesStart);
+      setInputValue("distributionMetaItunesReleasePriceInput", distributionMeta.itunesReleasePrice);
+      setInputValue("distributionMetaItunesTrackPriceInput", distributionMeta.itunesTrackPrice);
+      setInputValue("distributionMetaItunesMinPriceInput", String(Boolean(distributionMeta.itunesMinPrice)));
+      setInputValue("distributionMetaAdmInput", String(Boolean(distributionMeta.appleDigitalMasters)));
+      setInputValue("distributionMetaAdmStudioInput", distributionMeta.admStudio);
+      setInputValue("distributionMetaAdmEmailInput", distributionMeta.admEmail);
+      setInputValue("distributionMetaAdmLocationInput", distributionMeta.admLocation);
+      setInputValue("distributionMetaBookletNoteInput", distributionMeta.bookletNote);
+      setInputValue("distributionMetaAudiobookAnnotationInput", distributionMeta.audiobookAnnotation);
+      setInputValue("distributionMetaTrackSubtitleInput", distributionMeta.trackSubtitle);
+      setInputValue("distributionMetaTrackIsrcInput", distributionMeta.trackIsrc);
+      setInputValue("distributionMetaTrackPartnerCodeInput", distributionMeta.trackPartnerCode);
+      setInputValue("distributionMetaTrackCoPerformersInput", distributionMeta.trackCoPerformers);
+      setInputValue("distributionMetaLyricsAuthorsInput", distributionMeta.lyricsAuthors);
+      setInputValue("distributionMetaAuthorShareInput", distributionMeta.authorShare);
+      setInputValue("distributionMetaTrackLanguageInput", distributionMeta.trackLanguage);
+      setInputValue("distributionMetaTrackVersionInput", distributionMeta.trackVersion);
+      setInputValue("distributionMetaInstantInput", String(Boolean(distributionMeta.instantGratification)));
+      setInputValue("distributionMetaFocusTrackInput", String(Boolean(distributionMeta.focusTrack)));
+      setInputValue("distributionMetaLyricsTextInput", distributionMeta.lyricsText);
+      setInputValue("distributionMetaSyncedLyricsNoteInput", distributionMeta.syncedLyricsNote);
+      setInputValue("distributionMetaRingtoneNoteInput", distributionMeta.ringtoneNote);
+      setInputValue("distributionMetaModeratorCommentInput", distributionMeta.moderatorComment);
+      state.albumTracks = Array.isArray(normalized.tracks) ? normalized.tracks.map((track) => ({ ...track, ...(track.distributionMeta || {}), track_name: track.track_name || track.trackName || track.release_name || "" })) : [];
+      renderAlbumTracks();
+      toggleAlbumFields();
+    }
+
+    function validateReleaseData(data) {
+      const trackCount = data.releaseType === "Single" ? 1 : data.tracks.length;
+      if (!data.artistName) return "Укажите исполнителя.";
+      if (!data.releaseName) return "Укажите название релиза.";
+      if (!data.genre) return "Укажите жанр.";
+      if (!data.releaseDate) return "Укажите дату релиза.";
+      if (data.releaseType === "Maxi Single" && (trackCount < 1 || trackCount > 3)) return "Maxi Single: нужно от 1 до 3 композиций.";
+      if (data.releaseType === "EP" && (trackCount < 2 || trackCount > 5)) return "EP: нужно от 2 до 5 треков.";
+      if (data.releaseType === "ALBUM" && trackCount < 6) return "ALBUM: нужно минимум 6 треков.";
+      return "";
+    }
+
+    function renderAlbumTracks() {
+      const list = $("albumTracksList");
+      list.innerHTML = state.albumTracks.map((track, index) => `
+        <div class="track-editor" data-track-index="${index}">
+          <div><label>Название трека ${index + 1}</label><input data-track-field="track_name" value="${escapeAttr(track.track_name || "")}" placeholder="Название трека"></div>
+          <div><label>Подзаголовок</label><input data-track-field="subtitle" value="${escapeAttr(track.subtitle || "")}" placeholder="Remix / Acoustic Version"></div>
+          <div><label>prod. by</label><input data-track-field="producer" value="${escapeAttr(track.producer || "")}" placeholder="ProducerName"></div>
+          <div><label>Жанр</label><input data-track-field="genre" value="${escapeAttr(track.genre || "")}" placeholder="Жанр"></div>
+          <div><label>ISRC</label><input data-track-field="isrc" value="${escapeAttr(track.isrc || "")}" placeholder="Автоматически, если пусто"></div>
+          <div><label>Код партнёра</label><input data-track-field="partnerCode" value="${escapeAttr(track.partnerCode || "")}" placeholder="Внутренний ID"></div>
+          <div><label>Исполнители</label><input data-track-field="performers" value="${escapeAttr(track.performers || "")}" placeholder="Как на площадках"></div>
+          <div><label>Соисполнители feat.</label><input data-track-field="coPerformers" value="${escapeAttr(track.coPerformers || "")}" placeholder="Через ;"></div>
+          <div><label>Авторы музыки</label><input data-track-field="musicAuthors" value="${escapeAttr(track.musicAuthors || "")}" placeholder="ФИО"></div>
+          <div><label>Авторы слов</label><input data-track-field="lyricsAuthors" value="${escapeAttr(track.lyricsAuthors || "")}" placeholder="ФИО"></div>
+          <div><label>Доля авторских прав, %</label><input data-track-field="authorShare" value="${escapeAttr(track.authorShare || "")}" placeholder="100"></div>
+          <div><label>Начало предпрослушивания</label><input data-track-field="previewStart" value="${escapeAttr(track.previewStart || "")}" placeholder="90"></div>
+          <div><label>Instant Gratification</label><select data-track-field="instantGratification"><option value="">Нет</option><option value="true" ${track.instantGratification ? "selected" : ""}>Да</option></select></div>
+          <div><label>Focus track</label><select data-track-field="focusTrack"><option value="">Нет</option><option value="true" ${track.focusTrack ? "selected" : ""}>Да</option></select></div>
+          <div><label>Версия трека</label><input data-track-field="version" value="${escapeAttr(track.version || "")}" placeholder="Explicit / Live / Cover / Remix / Instrumental"></div>
+          <div><label>Язык трека</label><input data-track-field="language" value="${escapeAttr(track.language || "")}" placeholder="Русский / Без слов"></div>
+          <div><label>Аудио трека</label><input type="file" data-track-file="audio" accept="audio/*,.wav,.mp3,.flac,.m4a"></div>
+          <div><label>Договор / права</label><input type="file" data-track-file="contract" accept=".pdf,.doc,.docx,image/png,image/jpeg"></div>
+          <div><label>Текст TXT</label><input type="file" data-track-file="lyrics" accept=".txt,text/plain"></div>
+          <div><label>Текст трека</label><textarea data-track-field="lyricsText" placeholder="Текст точно как произносится">${escapeHtml(track.lyricsText || "")}</textarea></div>
+          <div><label>.ttml / рингтон / видео</label><textarea data-track-field="videoNote" placeholder="Ссылки/комментарии по синхро-тексту, рингтону или видео">${escapeHtml(track.videoNote || "")}</textarea></div>
+          <button class="secondary" type="button" data-remove-track="${index}" ${state.albumTracks.length <= releaseLimits().min ? "disabled" : ""}>Удалить трек</button>
+        </div>
+      `).join("");
+    }
+
+    function trackFile(index, kind) {
+      return document.querySelector(`[data-track-index="${index}"] [data-track-file="${kind}"]`)?.files?.[0];
+    }
+
+    function toggleAlbumFields() {
+      const isAlbum = $("releaseTypeInput").value !== "Single";
+      normalizeTrackCountForType();
+      renderAlbumTracks();
+      renderReleaseWizard();
+    }
+
+    async function saveReleaseDraft() {
+      if (!state.user) return setTab("profile");
+      const userId = state.user.telegram_id || state.user.id;
+      const data = releaseFormData();
+      const draft = await fetchJson(`${apiBase}/api/drafts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          draft_id: state.editingDraftId,
+          draft_type: data.releaseType === "Single" ? "single" : "album",
+          current_step: Object.values(data).filter(Boolean).length,
+          data
+        })
+      });
+      state.editingDraftId = draft.draft_id;
+      await loadProfileDashboard();
+      filterUserReleases();
+      renderProfile();
+      renderUserReleases();
+      setReleaseBuilderStatus(`Черновик #${draft.draft_id} сохранён.`, "ok");
+    }
+
+    async function loadDraftIntoBuilder(draftId) {
+      if (!state.user) return setTab("profile");
+      const userId = state.user.telegram_id || state.user.id;
+      const payload = await fetchJson(`${apiBase}/api/drafts/${draftId}?user_id=${encodeURIComponent(userId)}`);
+      state.editingDraftId = payload.draft.id;
+      fillReleaseForm(payload.draft.data || {});
+      openReleaseBuilder("draft");
+      setReleaseBuilderStatus(`Открыт черновик #${payload.draft.id}.`, "ok");
+    }
+
+    function openDraftWindow(draftId) {
+      window.open(`/release/new?draft=${encodeURIComponent(draftId)}`, `draft_${draftId}`, "popup,width=1180,height=920,noopener");
+    }
+
+    async function deleteDraft(draftId) {
+      if (!state.user) return setTab("profile");
+      const userId = state.user.telegram_id || state.user.id;
+      await fetchJson(`${apiBase}/api/drafts/${draftId}?user_id=${encodeURIComponent(userId)}`, { method: "DELETE" });
+      if (String(state.editingDraftId) === String(draftId)) state.editingDraftId = null;
+      await loadProfileDashboard();
+      filterUserReleases();
+      renderUserReleases();
+      renderProfile();
+      setStatus(`Черновик #${draftId} удалён.`, "ok");
+    }
+
+    async function submitReleaseForm() {
+      if (!state.user) return setTab("profile");
+      const userId = state.user.telegram_id || state.user.id;
+      const data = releaseFormData();
+      const validation = validateReleaseData(data);
+      if (validation) return setReleaseBuilderStatus(validation, "error");
+
+      setReleaseBuilderStatus("Проверяю баланс...");
+      const payment = await loadDistributionPrice();
+      if (payment && !payment.affordable) {
+        setReleaseStep(RELEASE_STEPS.length - 1);
+        return setReleaseBuilderStatus(`Недостаточно средств для отправки: нужно ${formatCounterValue(payment.final_price)} ₽, на балансе ${formatCounterValue(payment.balance)} ₽.`, "error");
+      }
+
+      setReleaseBuilderStatus(payment?.is_free ? "Создаю релиз без списания по роли artist..." : "Списываю оплату и создаю релиз...");
+      const isAlbum = data.releaseType !== "Single";
+      const endpoint = isAlbum ? "/api/albums/create" : "/api/releases/create";
+      const payload = { user_id: userId, ...data };
+      if (!isAlbum) delete payload.tracks;
+      const created = await fetchJson(`${apiBase}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const releaseId = created.release_id || created.album_id;
+
+      if (releaseId) {
+        setReleaseBuilderStatus("Релиз создан. Загружаю файлы...");
+        await uploadReleaseFile(releaseId, "cover", $("releaseCoverInput").files[0]);
+
+        if (isAlbum) {
+          const trackIds = Array.isArray(created.track_ids) ? created.track_ids : [];
+          for (let index = 0; index < trackIds.length; index += 1) {
+            const trackId = trackIds[index];
+            await uploadReleaseFile(trackId, "audio", trackFile(index, "audio"));
+            await uploadReleaseFile(trackId, "contract", trackFile(index, "contract"));
+            await uploadReleaseFile(trackId, "lyrics", trackFile(index, "lyrics"));
+          }
+        } else {
+          await uploadReleaseFile(releaseId, "audio", $("releaseAudioInput").files[0]);
+          await uploadReleaseFile(releaseId, "contract", $("releaseContractInput").files[0]);
+          await uploadReleaseFile(releaseId, "lyrics", $("releaseLyricsInput").files[0]);
+        }
+      }
+
+      if (state.editingDraftId) {
+        await fetchJson(`${apiBase}/api/drafts/${state.editingDraftId}?user_id=${encodeURIComponent(userId)}`, { method: "DELETE" });
+      }
+      resetReleaseForm();
+      $("releaseBuilder").classList.add("hidden");
+      await Promise.all([loadUserReleases(), loadProfileDashboard(), loadRecentReleases()]);
+      renderProfile();
+      renderUserReleases();
+      renderDistributionPayment(created.payment);
+      setStatus(isAlbum ? "Альбом отправлен на рассмотрение." : "Релиз отправлен на рассмотрение.", "ok");
+    }
+
+    async function openReleaseDetail(releaseId) {
+      if (!state.user) return setTab("profile");
+      const userId = state.user.telegram_id || state.user.id;
+      $("releaseListView").classList.add("hidden");
+      $("releaseDetailView").classList.remove("hidden");
+      $("releaseDetailView").innerHTML = '<p class="muted">Загружаю релиз...</p>';
+      try {
+        const data = await fetchJson(`${apiBase}/api/releases/${releaseId}?user_id=${encodeURIComponent(userId)}`);
+        state.selectedRelease = data;
+        renderReleaseDetail(data);
+      } catch (error) {
+        $("releaseDetailView").innerHTML = `<button class="secondary" id="backToReleasesBtn">← Назад</button><p class="error spaced">Не удалось загрузить релиз: ${escapeHtml(error.message)}</p>`;
+        $("backToReleasesBtn").addEventListener("click", closeReleaseDetail);
+      }
+    }
+
+    function closeReleaseDetail() {
+      state.selectedRelease = null;
+      $("releaseDetailView").classList.add("hidden");
+      $("releaseDetailView").innerHTML = "";
+      $("releaseListView").classList.remove("hidden");
+    }
+
+    function boolText(value) {
+      return value ? "Да" : "Нет";
+    }
+
+    function renderAudioBlock(item, label = "Аудио") {
+      if (!item.audio_url) {
+        return `<div class="detail"><span>${label}</span><b>файл не прикреплён</b></div>`;
+      }
+      return `
+        <div class="card pretty-player">
+          <div class="player-disc"></div>
+          <div>
+            <h3>${escapeHtml(label)}</h3>
+            <audio data-audio-player controls preload="none" src="${escapeHtml(item.audio_url)}"></audio>
+            <p class="audio-error hidden">Не удалось открыть аудио в веб-плеере. Обычно это значит, что Telegram не отдаёт файл боту для скачивания из-за размера.</p>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderReleaseDetail(data) {
+      const release = data.release;
+      const tracks = data.tracks || [];
+      const status = statusInfo(release.status);
+      const cover = release.cover_url
+        ? `<img src="${escapeHtml(release.cover_url)}" alt="Обложка ${escapeHtml(release.release_name || "")}" loading="lazy">`
+        : '<div class="cover-placeholder"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M15.5 8.5h.01"/></svg></div>';
+      const kindText = data.kind === "album" ? "Альбом" : data.kind === "track" ? "Трек альбома" : "Сингл";
+      const platformLinks = release.platform_links && typeof release.platform_links === "object"
+        ? Object.entries(release.platform_links).filter(([, value]) => value)
+        : [];
+      const parentAlbum = data.parent_album;
+
+      $("releaseDetailView").innerHTML = `
+        <div class="detail-view">
+          <div class="actions">
+            <button class="secondary" id="backToReleasesBtn">← Назад к релизам</button>
+          </div>
+          <div class="grid two">
+            <div class="cover-box">${cover}</div>
+            <div class="card">
+              <div class="meta">
+                <span class="pill">${escapeHtml(kindText)}</span>
+                <span class="badge ${escapeHtml(status.value)}">${escapeHtml(status.text)}</span>
+              </div>
+              <h2 class="spaced">${escapeHtml(release.release_name || "Без названия")}</h2>
+              <p class="muted">${escapeHtml(release.artist_name || "Артист не указан")}</p>
+              ${parentAlbum ? `<p class="spaced"><span class="pill">Альбом: ${escapeHtml(parentAlbum.release_name || "Без названия")}</span></p>` : ""}
+              <div class="details">
+                <div class="detail"><span>Дата релиза</span><b>${dateText(release.release_date)}</b></div>
+                <div class="detail"><span>Тип</span><b>${escapeHtml(release.release_type || "—")}</b></div>
+                <div class="detail"><span>Жанр</span><b>${escapeHtml(release.genre || "—")}</b></div>
+              </div>
+            </div>
+          </div>
+
+          ${data.kind === "album" ? "" : renderAudioBlock(release, "Прослушать релиз")}
+
+          <div class="card">
+            <h3>Вся информация</h3>
+            <div class="details">
+              <div class="detail"><span>Исполнитель</span><b>${escapeHtml(release.performer_name || "—")}</b></div>
+              <div class="detail"><span>Автор музыки</span><b>${escapeHtml(release.music_author || "—")}</b></div>
+              <div class="detail"><span>Продюсер</span><b>${escapeHtml(release.producer || "—")}</b></div>
+              <div class="detail"><span>Explicit</span><b>${boolText(release.explicit_content)}</b></div>
+              <div class="detail"><span>Начало превью</span><b>${counterOrDash(release.preview_start)}</b></div>
+              <div class="detail"><span>Яндекс soon</span><b>${boolText(release.yandex_soon)}</b></div>
+              <div class="detail"><span>Создать ссылки</span><b>${boolText(release.create_links)}</b></div>
+              <div class="detail"><span>TikTok</span><b>${boolText(release.tiktok_commercial || release.tiktok_full_version)}</b></div>
+            </div>
+            ${release.release_link ? `<p class="spaced"><a class="button-link secondary" href="${escapeHtml(release.release_link)}" target="_blank" rel="noopener">Открыть ссылку релиза</a></p>` : ""}
+            ${platformLinks.length ? `<div class="spaced meta">${platformLinks.map(([key, value]) => `<a class="pill" href="${escapeHtml(value)}" target="_blank" rel="noopener">${escapeHtml(key)}</a>`).join("")}</div>` : ""}
+          </div>
+
+          ${tracks.length ? `
+            <div class="card">
+              <h3>Треки альбома</h3>
+              <div class="track-list">
+                ${tracks.map((track) => `
+                  <div class="track-item">
+                    <div><b>${counterOrDash(track.track_number)}. ${escapeHtml(track.release_name || "Без названия")}</b></div>
+                    <div class="muted">${escapeHtml(track.performer_name || track.artist_name || "—")} · ${escapeHtml(track.music_author || "—")}</div>
+                    ${track.audio_url ? `<div class="pretty-player"><div class="player-disc"></div><div><audio data-audio-player controls preload="none" src="${escapeHtml(track.audio_url)}"></audio><p class="audio-error hidden">Не удалось открыть аудио в веб-плеере.</p></div></div>` : `<span class="muted">Аудио не прикреплено</span>`}
+                  </div>
+                `).join("")}
+              </div>
+            </div>
+          ` : ""}
+        </div>
+      `;
+      $("backToReleasesBtn").addEventListener("click", closeReleaseDetail);
+      animateCounters($("releaseDetailView"));
+    }
+
+    function renderMiniRows(elementId, rows, emptyText, mapper) {
+      const box = $(elementId);
+      if (!box) return;
+      if (!rows?.length) {
+        box.className = "mini-list muted";
+        box.textContent = emptyText;
+        return;
+      }
+      box.className = "mini-list";
+      box.innerHTML = rows.map(mapper).join("");
+    }
+
+    function renderProfileDashboard() {
+      const dashboard = state.profileDashboard;
+      if (!dashboard) {
+        ["financeSummary", "profileCounts", "profileOrders", "profileDrafts", "profileReports"].forEach((id) => {
+          const box = $(id);
+          if (box) {
+            box.className = "mini-list muted";
+            box.textContent = "Войдите, чтобы увидеть данные.";
+          }
+        });
+        return;
+      }
+
+      const finance = dashboard.finance || {};
+      $("financeSummary").className = "mini-list";
+      $("financeSummary").innerHTML = `
+        <div class="mini-row"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18M7 15h4"/></svg> Баланс: <b>${moneyCounter(finance.balance)}</b></div>
+        <div class="mini-row"><svg viewBox="0 0 24 24"><path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/></svg> Всего заказов: <b>${counterHtml(finance.total_orders || 0)}</b></div>
+        <div class="mini-row"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg> Завершённых: <b>${counterHtml(finance.completed_orders || 0)}</b></div>
+        <div class="mini-row"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 9v0M18 15v0"/></svg> Оплачено всего: <b>${moneyCounter(finance.completed_sum)}</b></div>
+      `;
+
+      const counts = dashboard.counts || {};
+      $("profileCounts").className = "mini-list";
+      $("profileCounts").innerHTML = `
+        <div class="mini-row"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/></svg> Релизы: <b>${counterHtml(counts.releases || 0)}</b></div>
+        <div class="mini-row"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4.5h6M9 10h6M9 14h6M9 18h4"/></svg> Черновики: <b>${counterHtml(counts.drafts || 0)}</b></div>
+        <div class="mini-row"><svg viewBox="0 0 24 24"><path d="M5 6h16l-2 8H7L5 3H2"/><circle cx="8" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/></svg> Заказы: <b>${counterHtml(counts.orders || 0)}</b></div>
+        <div class="mini-row"><svg viewBox="0 0 24 24"><path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/></svg> Отчёты: <b>${counterHtml(counts.reports || 0)}</b></div>
+      `;
+
+      renderMiniRows("profileOrders", dashboard.orders, "Заказов пока нет.", (order) => `
+        <div class="mini-row">#${counterHtml(order.id)} · ${escapeHtml(order.service_type || "услуга")} · <b>${moneyCounter(order.amount)}</b><br><span class="muted">${escapeHtml(order.status || "pending")} · ${dateText(order.created_date)}</span></div>
+      `);
+      renderMiniRows("profileDrafts", dashboard.drafts, "Черновиков пока нет.", (draft) => `
+        <button class="mini-row secondary" data-load-draft="${draft.id}">#${counterHtml(draft.id)} · ${escapeHtml(draft.draft_type || "черновик")}<br><span class="muted">Шаг ${counterHtml(draft.current_step ?? 0)} · ${dateText(draft.updated_at || draft.created_at)}</span></button>
+      `);
+      renderMiniRows("profileReports", dashboard.reports, "Отчётов пока нет.", (report) => `
+        <div class="mini-row">#${counterHtml(report.id)} · ${escapeHtml(report.request_type || "отчёт")}<br><span class="muted">${escapeHtml(report.status || "pending")} · ${dateText(report.created_at)}</span></div>
+      `);
+      animateCounters($("profileCard"));
+    }
+
+    function renderProfile() {
+      const user = state.user;
+      $("topUser").textContent = user ? (user.artistName || user.name || "Пользователь") : "Гость";
+      $("adminPanelBtn").classList.toggle("hidden", !(user?.isAdmin || user?.isOwner));
+      $("logoutBtn").classList.toggle("hidden", !user);
+      $("authCard").classList.toggle("hidden", !!user);
+      $("homeLoginBtn").classList.toggle("hidden", !!user);
+      $("artistName").textContent = user?.artistName || user?.name || "—";
+      const balanceValue = user?.balance ?? state.profileDashboard?.finance?.balance ?? 0;
+      const releaseCountValue = state.profileDashboard?.counts?.releases ?? state.releases.length ?? 0;
+      setCounter($("balance"), balanceValue, { suffix: " ₽" });
+      setCounter($("releaseCount"), releaseCountValue);
+      $("profileArtist").value = user?.artistName || user?.name || "";
+      $("profileFio").value = user?.fio || "";
+      $("profileEmail").value = user?.email || "";
+      $("profilePhone").value = user?.phone || "";
+      setProfileEditing(false);
+      renderProfileDashboard();
+    }
+
+    function setProfileEditing(isEditing) {
+      ["profileArtist", "profileFio", "profileEmail", "profilePhone"].forEach((id) => {
+        const input = $(id);
+        if (input) input.disabled = !isEditing;
+      });
+      document.querySelectorAll("[data-copy-profile]").forEach((button) => button.classList.toggle("hidden", isEditing));
+      $("editProfileBtn")?.classList.toggle("hidden", isEditing);
+      $("cancelProfileEditBtn")?.classList.toggle("hidden", !isEditing);
+      $("saveProfileBtn")?.classList.toggle("hidden", !isEditing);
+    }
+
+    async function copyTextToClipboard(value) {
+      const text = String(value || "").trim();
+      if (!text) {
+        setStatus("Нечего копировать.", "warn");
+        return;
+      }
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const area = document.createElement("textarea");
+        area.value = text;
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        area.remove();
+      }
+      setStatus("Скопировано.", "ok");
+    }
+
+    function setTopupStatus(message, kind = "muted") {
+      const box = $("topupStatus");
+      box.className = `topup-status ${kind}`;
+      box.textContent = message || "";
+    }
+
+    function toggleTopupCard(show = true) {
+      $("topupCard").classList.toggle("hidden", !show);
+      if (show) $("topupCard").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    function savePendingPayment(payment) {
+      localStorage.setItem("cabinet_pending_payment", JSON.stringify(payment));
+      $("topupPayLink").href = payment.payment_url;
+      $("topupResult").classList.remove("hidden");
+    }
+
+    function restorePendingPayment() {
+      const raw = localStorage.getItem("cabinet_pending_payment");
+      if (!raw) return null;
+      try {
+        const payment = JSON.parse(raw);
+        if (!payment?.payment_id || !payment?.payment_url) return null;
+        savePendingPayment(payment);
+        return payment;
+      } catch {
+        localStorage.removeItem("cabinet_pending_payment");
+        return null;
+      }
+    }
+
+    async function createTopupPayment(amount) {
+      if (!state.user) {
+        setTab("profile");
+        setStatus("Сначала войдите через Telegram.", "warn");
+        return;
+      }
+      const userId = state.user.telegram_id || state.user.id;
+      const numericAmount = Number(amount);
+      if (!Number.isFinite(numericAmount) || numericAmount < 50 || numericAmount > 100000) {
+        setTopupStatus("Введите сумму от 50 до 100000 ₽.", "error");
+        return;
+      }
+
+      setTopupStatus("Создаю платёж в ЮKassa...");
+      $("topupResult").classList.add("hidden");
+      const data = await fetchJson(`${apiBase}/api/payments/yookassa/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          amount: numericAmount,
+          service_type: "topup",
+          description: `Пополнение баланса talk with a star // label на ${numericAmount} ₽`,
+          return_url: `${apiBase}/cabinet?payment=return`
+        })
+      });
+      savePendingPayment(data);
+      setTopupStatus(`Платёж на ${formatCounterValue(numericAmount)} ₽ создан. Перейдите к оплате.`, "ok");
+    }
+
+    async function checkTopupPayment() {
+      const payment = restorePendingPayment();
+      if (!payment?.payment_id) {
+        setTopupStatus("Нет активного платежа для проверки.", "warn");
+        return;
+      }
+      setTopupStatus("Проверяю оплату...");
+      const data = await fetchJson(`${apiBase}/api/payments/yookassa/status/${encodeURIComponent(payment.payment_id)}`);
+      if (data.status === "completed") {
+        localStorage.removeItem("cabinet_pending_payment");
+        $("topupResult").classList.add("hidden");
+        setTopupStatus("Оплата прошла. Баланс обновлён.", "ok");
+        await loadProfileDashboard();
+        renderProfile();
+        return;
+      }
+      if (data.status === "pending") {
+        setTopupStatus("Платёж пока не оплачен. Если уже оплатили — подождите несколько секунд и проверьте ещё раз.", "warn");
+        return;
+      }
+      setTopupStatus("Платёж не завершён или отменён.", "error");
+    }
+
+    $("loginForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const code = $("authCode").value.replace(/\D/g, "");
+      if (!code) return setStatus("Введите код из Telegram.", "error");
+      try { await loginByCode(code); } catch (error) { setStatus(`Ошибка входа: ${error.message}`, "error"); }
+    });
+    $("logoutBtn").addEventListener("click", () => {
+      localStorage.removeItem("cabinet_user");
+      state.user = null; state.releases = []; state.filteredReleases = []; state.profileDashboard = null; state.promoHistory = []; state.activeDiscounts = []; state.distributionPayment = null;
+      closeReleaseDetail();
+      renderProfile(); renderUserReleases(); setStatus("Вы вышли.");
+      renderPromoSection();
+      setTab("profile");
+    });
+    $("refreshBtn").addEventListener("click", async () => {
+      if (!state.user) return setTab("profile");
+      await Promise.all([loadUserReleases(), loadProfileDashboard()]);
+      filterUserReleases();
+      renderProfile();
+      renderUserReleases();
+    });
+    $("refreshRecentBtn").addEventListener("click", loadRecentReleases);
+    const refilterReleases = debounce(() => { closeReleaseDetail(); filterUserReleases(); renderUserReleases(); }, 180);
+    $("releaseSearch").addEventListener("input", refilterReleases);
+    $("releaseStageFilter").addEventListener("change", () => { closeReleaseDetail(); filterUserReleases(); renderUserReleases(); });
+    $("releaseSortSelect").addEventListener("change", () => { closeReleaseDetail(); filterUserReleases(); renderUserReleases(); });
+    $("releasePrevPageBtn").addEventListener("click", () => { state.releasePage -= 1; renderUserReleases(); });
+    $("releaseNextPageBtn").addEventListener("click", () => { state.releasePage += 1; renderUserReleases(); });
+    $("releasePageSizeSelect").addEventListener("change", () => { state.releasePageSize = Number($("releasePageSizeSelect").value) || 12; state.releasePage = 1; renderUserReleases(); });
+    $("newReleaseBtn").addEventListener("click", () => {
+      window.open("/release/new", "new_release", "popup,width=1180,height=920,noopener");
+    });
+    $("distributionServiceBtn").addEventListener("click", () => {
+      window.open("/release/new?source=services", "new_release", "popup,width=1180,height=920,noopener");
+    });
+    $("closeReleaseBuilderBtn").addEventListener("click", () => {
+      if (document.body.classList.contains("release-page")) window.close();
+      else $("releaseBuilder").classList.add("hidden");
+    });
+    $("saveReleaseDraftBtnForm").addEventListener("click", () => saveReleaseDraft().catch((error) => setReleaseBuilderStatus(`Ошибка черновика: ${error.message}`, "error")));
+    $("releaseTypeInput").addEventListener("change", () => setReleaseType($("releaseTypeInput").value));
+    $("releaseTypeCards").addEventListener("click", (event) => {
+      const card = event.target.closest("[data-release-type-card]");
+      if (card) setReleaseType(card.dataset.releaseTypeCard);
+    });
+    $("refreshDistributionPriceBtn").addEventListener("click", () => {
+      loadDistributionPrice().catch((error) => setReleaseBuilderStatus(`Не удалось обновить стоимость: ${error.message}`, "error"));
+    });
+    $("releasePrevStepBtn").addEventListener("click", () => setReleaseStep(state.releaseStep - 1));
+    $("releaseNextStepBtn").addEventListener("click", () => setReleaseStep(state.releaseStep + 1));
+    $("addAlbumTrackBtn").addEventListener("click", () => {
+      const limits = releaseLimits();
+      if (Number.isFinite(limits.max) && state.albumTracks.length >= limits.max) {
+        updateReleaseLimitNote();
+        return setReleaseBuilderStatus(`Нельзя добавить больше ${limits.max} треков для выбранного типа.`, "warn");
+      }
+      state.albumTracks.push({ track_name: "", producer: "", genre: "" });
+      renderAlbumTracks();
+      updateReleaseLimitNote();
+    });
+    $("albumTracksList").addEventListener("input", (event) => {
+      const editor = event.target.closest("[data-track-index]");
+      if (!editor || !event.target.dataset.trackField) return;
+      const index = Number(editor.dataset.trackIndex);
+      state.albumTracks[index][event.target.dataset.trackField] = event.target.tagName === "SELECT"
+        ? event.target.value === "true"
+        : event.target.value;
+    });
+    $("albumTracksList").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-remove-track]");
+      if (!button) return;
+      const limits = releaseLimits();
+      if (state.albumTracks.length <= limits.min) {
+        updateReleaseLimitNote();
+        return setReleaseBuilderStatus(`Минимум для выбранного типа: ${limits.min} трек(а).`, "warn");
+      }
+      state.albumTracks.splice(Number(button.dataset.removeTrack), 1);
+      renderAlbumTracks();
+      updateReleaseLimitNote();
+    });
+    $("releaseForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitReleaseForm().catch((error) => setReleaseBuilderStatus(`Ошибка отправки: ${error.message}`, "error"));
+    });
+    $("profileDrafts").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-load-draft]");
+      if (!button) return;
+      openDraftWindow(button.dataset.loadDraft);
+    });
+    $("releases").addEventListener("click", (event) => {
+      const deleteButton = event.target.closest("[data-delete-draft]");
+      if (deleteButton) {
+        event.stopPropagation();
+        return deleteDraft(deleteButton.dataset.deleteDraft).catch((error) => setStatus(`Ошибка удаления черновика: ${error.message}`, "error"));
+      }
+      const draftButton = event.target.closest("[data-load-draft]");
+      if (draftButton) {
+        event.stopPropagation();
+        return openDraftWindow(draftButton.dataset.loadDraft);
+      }
+      const draftCard = event.target.closest("[data-draft-id]");
+      if (draftCard) return openDraftWindow(draftCard.dataset.draftId);
+      const card = event.target.closest("[data-release-id]");
+      if (!card) return;
+      openReleaseDetail(card.dataset.releaseId);
+    });
+    $("releases").addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const draftCard = event.target.closest("[data-draft-id]");
+      if (draftCard) {
+        event.preventDefault();
+        return openDraftWindow(draftCard.dataset.draftId);
+      }
+      const card = event.target.closest("[data-release-id]");
+      if (!card) return;
+      event.preventDefault();
+      openReleaseDetail(card.dataset.releaseId);
+    });
+    document.addEventListener("error", (event) => {
+      const player = event.target;
+      if (!(player instanceof HTMLAudioElement) || !player.matches("[data-audio-player]")) return;
+      const error = player.nextElementSibling;
+      if (error?.classList.contains("audio-error")) error.classList.remove("hidden");
+    }, true);
+    document.addEventListener("pointermove", (event) => {
+      const card = event.target.closest(".card, .release, .service-card");
+      if (!card) return;
+      const rect = card.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      card.style.setProperty("--mx", `${x}px`);
+      card.style.setProperty("--my", `${y}px`);
+      if (card.classList.contains("tilt-card")) {
+        card.style.setProperty("--rx", `${((y / rect.height) - .5) * -7}deg`);
+        card.style.setProperty("--ry", `${((x / rect.width) - .5) * 7}deg`);
+      }
+    });
+    document.addEventListener("click", (event) => {
+      const spark = document.createElement("span");
+      spark.className = "spark";
+      spark.style.left = `${event.clientX}px`;
+      spark.style.top = `${event.clientY}px`;
+      document.body.appendChild(spark);
+      setTimeout(() => spark.remove(), 520);
+    });
+    $("editProfileBtn").addEventListener("click", () => {
+      if (!state.user) return setTab("profile");
+      setProfileEditing(true);
+      $("profileArtist").focus();
+    });
+    $("cancelProfileEditBtn").addEventListener("click", () => renderProfile());
+    document.querySelectorAll("[data-copy-profile]").forEach((button) => {
+      button.addEventListener("click", () => copyTextToClipboard($(button.dataset.copyProfile)?.value || ""));
+    });
+    $("saveProfileBtn").addEventListener("click", async () => {
+      if (!state.user) return setTab("profile");
+      const userId = state.user.telegram_id || state.user.id;
+      try {
+        const data = await fetchJson(`${apiBase}/api/profile`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: userId,
+            artistName: $("profileArtist").value,
+            fio: $("profileFio").value,
+            email: $("profileEmail").value,
+            phone: $("profilePhone").value
+          })
+        });
+        state.user = data.user;
+        localStorage.setItem("cabinet_user", JSON.stringify(data.user));
+        await loadProfileDashboard();
+        renderProfile();
+        setProfileEditing(false);
+        setStatus("Профиль сохранён.", "ok");
+      } catch (error) {
+        setStatus(`Ошибка сохранения профиля: ${error.message}`, "error");
+      }
+    });
+    $("profileReleasesBtn").addEventListener("click", () => setTab("releases"));
+    $("profileDraftsBtn").addEventListener("click", () => {
+      setTab("releases");
+      $("releaseStageFilter").value = "draft";
+      filterUserReleases();
+      renderUserReleases();
+    });
+    $("profileReportsBtn").addEventListener("click", () => setStatus("Отчёты показаны в блоке профиля. Создание запросов отчёта подключим после UX.", "warn"));
+    $("profileOrdersBtn").addEventListener("click", () => $("profileOrders").scrollIntoView({ behavior: "smooth", block: "center" }));
+    $("profileTopupBtn").addEventListener("click", () => {
+      toggleTopupCard(true);
+      restorePendingPayment();
+      setTopupStatus("Выберите сумму и создайте оплату.");
+    });
+    document.querySelectorAll("[data-topup-amount]").forEach((button) => {
+      button.addEventListener("click", () => {
+        $("topupAmount").value = button.dataset.topupAmount;
+        createTopupPayment(button.dataset.topupAmount).catch((error) => setTopupStatus(`Ошибка создания платежа: ${error.message}`, "error"));
+      });
+    });
+    $("topupCreateBtn").addEventListener("click", () => {
+      createTopupPayment($("topupAmount").value).catch((error) => setTopupStatus(`Ошибка создания платежа: ${error.message}`, "error"));
+    });
+    $("topupCheckBtn").addEventListener("click", () => {
+      checkTopupPayment().catch((error) => setTopupStatus(`Ошибка проверки платежа: ${error.message}`, "error"));
+    });
+    $("profilePromoBtn").addEventListener("click", () => {
+      setTab("promos");
+      renderPromoSection();
+    });
+    $("activatePromoBtn").addEventListener("click", () => {
+      activatePromoFromSite().catch((error) => setPromoStatus(`Ошибка активации: ${error.message}`, "error"));
+    });
+    $("promoCodeInput").addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      activatePromoFromSite().catch((error) => setPromoStatus(`Ошибка активации: ${error.message}`, "error"));
+    });
+    $("generateEmailBtn").addEventListener("click", () => {
+      const to = $("emailTo").value || "команде";
+      const artist = $("emailArtist").value || "артиста";
+      const reason = $("emailReason").value || "сотрудничества";
+      $("emailOutput").value = `Здравствуйте!\\n\\nМеня зовут ${artist}. Пишу по поводу: ${reason}.\\n\\nБуду рад обсудить детали и предоставить все необходимые материалы.\\n\\nС уважением,\\n${artist}`;
+    });
+    $("copyEmailBtn").addEventListener("click", async () => {
+      await copyTextToClipboard($("emailOutput").value || "");
+    });
+    document.querySelectorAll("[data-go]").forEach((button) => button.addEventListener("click", () => setTab(button.dataset.go === "auth" ? "profile" : button.dataset.go)));
+
+    document.querySelectorAll("[data-fallback-tab]").forEach((button) => {
+      button.addEventListener("click", () => setTab(button.dataset.fallbackTab));
+    });
+    setupReleaseWizard();
+    renderReleaseTypeCards();
+    renderDock();
+    renderPromoSection();
+    configureBotLink();
+    loadRecentReleases();
+    const params = new URLSearchParams(window.location.search);
+    const initialTelegramId = params.get("tgid");
+    const dedicatedReleasePage = window.location.pathname.replace(/\/$/, "") === "/release/new";
+    if (dedicatedReleasePage) document.body.classList.add("release-page");
+    async function openDedicatedReleasePage() {
+      if (!dedicatedReleasePage) return;
+      const draftId = params.get("draft");
+      if (draftId) {
+        await loadDraftIntoBuilder(draftId);
+        document.title = `Черновик #${draftId} — talk with a star // label`;
+        return;
+      }
+      resetReleaseForm();
+      openReleaseBuilder(params.get("source") === "services" ? "services" : "releases");
+      document.title = "Новый релиз — talk with a star // label";
+    }
+    const savedUser = localStorage.getItem("cabinet_user");
+    if (params.get("payment") === "return") {
+      setTab("profile");
+      toggleTopupCard(true);
+      restorePendingPayment();
+      setTopupStatus("Вернулись после оплаты. Нажмите “Проверить оплату”.");
+    }
+    if (initialTelegramId) {
+      loginByTelegramId(initialTelegramId)
+        .then(openDedicatedReleasePage)
+        .catch((error) => setStatus(`Ошибка входа: ${error.message}`, "error"));
+    } else if (savedUser) {
+      try {
+        applyUser(JSON.parse(savedUser))
+          .then(openDedicatedReleasePage)
+          .catch((error) => setStatus(`Ошибка восстановления: ${error.message}`, "error"));
+      } catch { localStorage.removeItem("cabinet_user"); }
+    } else {
+      renderProfile();
+      if (dedicatedReleasePage) {
+        setTab("profile");
+        setStatus("Войдите через Telegram, затем форма релиза откроется в этой вкладке.", "warn");
+      }
+    }
+  </script>
+</body>
+</html>

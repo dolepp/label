@@ -6,7 +6,7 @@ import logging
 from telebot import types
 
 from core.config import ADMIN_IDS, PERMANENT_ADMINS
-from db.repositories.admin_user_roles import get_user_roles
+from db.repositories.admin_user_roles import get_user_roles, toggle_user_role
 from db.repositories.users import list_admin_ids
 
 
@@ -33,6 +33,28 @@ def _role_text(value, title: str) -> str:
     return f"{'✅' if value else '❌'} {title}"
 
 
+ROLE_TITLES = {
+    "admin": "Администратор",
+    "artist": "Артист",
+    "owner": "Owner",
+    "steezy": "Steezy",
+    "bibi": "Bibi",
+    "shvepz": "Shvepz",
+    "creator": "Creator",
+}
+
+
+ROLE_STATUS_TEXT = {
+    "admin": ("назначен администратором", "снят с администратора"),
+    "artist": ("назначен артистом", "снят с артиста"),
+    "owner": ("назначен Owner", "снят с Owner"),
+    "steezy": ("назначен Steezy", "снят с Steezy"),
+    "bibi": ("назначен Bibi", "снят с Bibi"),
+    "shvepz": ("назначен Shvepz", "снят с Shvepz"),
+    "creator": ("назначен Creator", "снят с Creator"),
+}
+
+
 def _user_role_text(user: dict) -> str:
     return (
         "🔧 Управление ролями пользователя\n\n"
@@ -41,6 +63,9 @@ def _user_role_text(user: dict) -> str:
         f"• Администратор: {'Да' if user.get('admin') else 'Нет'}\n"
         f"• Артист: {'Да' if user.get('artist') else 'Нет'}\n"
         f"• Owner: {'Да' if user.get('owner') else 'Нет'}\n"
+        f"• Steezy: {'Да' if user.get('steezy') else 'Нет'}\n"
+        f"• Bibi: {'Да' if user.get('bibi') else 'Нет'}\n"
+        f"• Shvepz: {'Да' if user.get('shvepz') else 'Нет'}\n"
         f"• Creator: {'Да' if user.get('creator') else 'Нет'}\n\n"
         "Нажмите на роль для изменения:"
     )
@@ -52,6 +77,9 @@ def _user_role_markup(user: dict):
     markup.add(types.InlineKeyboardButton(_role_text(user.get("admin"), "Администратор"), callback_data=f"toggle_admin_{user_id}"))
     markup.add(types.InlineKeyboardButton(_role_text(user.get("artist"), "Артист"), callback_data=f"toggle_artist_{user_id}"))
     markup.add(types.InlineKeyboardButton(_role_text(user.get("owner"), "Owner"), callback_data=f"toggle_owner_{user_id}"))
+    markup.add(types.InlineKeyboardButton(_role_text(user.get("steezy"), "Steezy"), callback_data=f"toggle_steezy_{user_id}"))
+    markup.add(types.InlineKeyboardButton(_role_text(user.get("bibi"), "Bibi"), callback_data=f"toggle_bibi_{user_id}"))
+    markup.add(types.InlineKeyboardButton(_role_text(user.get("shvepz"), "Shvepz"), callback_data=f"toggle_shvepz_{user_id}"))
     markup.add(types.InlineKeyboardButton(_role_text(user.get("creator"), "Creator"), callback_data=f"toggle_creator_{user_id}"))
     markup.add(types.InlineKeyboardButton("◀️ К списку пользователей", callback_data="admin_users"))
     markup.add(types.InlineKeyboardButton("◀️ В админ панель", callback_data="admin_back"))
@@ -90,3 +118,52 @@ def register_admin_user_role_handlers(bot) -> None:
             reply_markup=_user_role_markup(user),
         )
 
+    @bot.callback_query_handler(
+        func=lambda call: call.data.startswith(
+            (
+                "toggle_admin_",
+                "toggle_artist_",
+                "toggle_owner_",
+                "toggle_steezy_",
+                "toggle_bibi_",
+                "toggle_shvepz_",
+                "toggle_creator_",
+            )
+        )
+    )
+    def handle_toggle_user_role(call):
+        if not _is_admin(call.from_user.id):
+            bot.answer_callback_query(call.id, "У вас нет доступа к этой функции.", show_alert=True)
+            return
+
+        try:
+            _, role, raw_user_id = call.data.split("_", 2)
+            user_id = int(raw_user_id)
+        except (ValueError, IndexError):
+            bot.answer_callback_query(call.id, "❌ Ошибка данных", show_alert=True)
+            return
+
+        try:
+            result = toggle_user_role(user_id, role)
+        except Exception as exc:
+            logger.error("Error toggling %s role: %s", role, exc)
+            bot.answer_callback_query(call.id, f"❌ Ошибка: {exc}", show_alert=True)
+            return
+
+        if not result:
+            bot.answer_callback_query(call.id, "❌ Пользователь не найден", show_alert=True)
+            return
+
+        display_name = _display_name(result)
+        enabled_text, disabled_text = ROLE_STATUS_TEXT[role]
+        status_text = enabled_text if result["value"] else disabled_text
+        bot.answer_callback_query(call.id, f"✅ {display_name} {status_text}", show_alert=True)
+
+        user = get_user_roles(user_id)
+        if user:
+            bot.edit_message_text(
+                _user_role_text(user),
+                call.message.chat.id,
+                call.message.message_id,
+                reply_markup=_user_role_markup(user),
+            )

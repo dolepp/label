@@ -41,8 +41,13 @@ import io
 from urllib.parse import quote
 
 from db.repositories.release_files import get_release_file_id
-from services import admin_access, contracts, notifications, payments
+from services import admin_access, bot_runner, contracts, notifications, payment_callbacks, payments, referral_notifications, runtime_helpers, service_artist_release, user_storage
 from utils.security import escape_html, escape_markdown, validate_file_upload
+from keyboards.reply import create_cancel_keyboard
+from handlers.onboarding import require_channel_subscription
+
+from handlers.legacy_distribution_steps import save_release_data_for_user
+from handlers.design_admin import build_design_status_markup, format_design_request_text
 
 # Load environment variables
 try:
@@ -52,40 +57,6 @@ try:
 except ImportError:
     pass  # dotenv не установлен, используем системные переменные
 
-LEGACY_REVIEWS_ENABLED = os.getenv("ENABLE_MODULAR_REVIEWS") != "1"
-LEGACY_PROFILE_ENABLED = os.getenv("ENABLE_MODULAR_PROFILE") != "1"
-LEGACY_SUPPORT_ENABLED = os.getenv("ENABLE_MODULAR_SUPPORT") != "1"
-LEGACY_REPORTS_ENABLED = os.getenv("ENABLE_MODULAR_REPORTS") != "1"
-LEGACY_CONTRACTS_ENABLED = os.getenv("ENABLE_MODULAR_CONTRACTS") != "1"
-LEGACY_ORDERS_ENABLED = os.getenv("ENABLE_MODULAR_ORDERS") != "1"
-LEGACY_DRAFTS_ENABLED = os.getenv("ENABLE_MODULAR_DRAFTS") != "1"
-LEGACY_PROMOS_ENABLED = os.getenv("ENABLE_MODULAR_PROMOS") != "1"
-LEGACY_FINANCE_ENABLED = os.getenv("ENABLE_MODULAR_FINANCE") != "1"
-LEGACY_REFERRALS_ENABLED = os.getenv("ENABLE_MODULAR_REFERRALS") != "1"
-LEGACY_RELEASE_DETAILS_ENABLED = os.getenv("ENABLE_MODULAR_RELEASE_DETAILS") != "1"
-LEGACY_RELEASE_EDIT_MENU_ENABLED = os.getenv("ENABLE_MODULAR_RELEASE_EDIT_MENU") != "1"
-LEGACY_RELEASE_LINKS_ENABLED = os.getenv("ENABLE_MODULAR_RELEASE_LINKS") != "1"
-LEGACY_RELEASES_ENABLED = os.getenv("ENABLE_MODULAR_RELEASES") != "1"
-LEGACY_RELEASE_STATUS_MENU_ENABLED = os.getenv("ENABLE_MODULAR_RELEASE_STATUS_MENU") != "1"
-LEGACY_BOOKINGS_ENABLED = os.getenv("ENABLE_MODULAR_BOOKINGS") != "1"
-LEGACY_INFO_ENABLED = os.getenv("ENABLE_MODULAR_INFO") != "1"
-LEGACY_ADMIN_CONTRACTS_ENABLED = os.getenv("ENABLE_MODULAR_ADMIN_CONTRACTS") != "1"
-LEGACY_ADMIN_FINANCE_ENABLED = os.getenv("ENABLE_MODULAR_ADMIN_FINANCE") != "1"
-LEGACY_ADMIN_PROMOS_ENABLED = os.getenv("ENABLE_MODULAR_ADMIN_PROMOS") != "1"
-LEGACY_ADMIN_RELEASES_ENABLED = os.getenv("ENABLE_MODULAR_ADMIN_RELEASES") != "1"
-LEGACY_ADMIN_REPORTS_ENABLED = os.getenv("ENABLE_MODULAR_ADMIN_REPORTS") != "1"
-LEGACY_WEB_AUTH_ENABLED = os.getenv("ENABLE_MODULAR_WEB_AUTH") != "1"
-LEGACY_DIAGNOSTICS_ENABLED = os.getenv("ENABLE_MODULAR_DIAGNOSTICS") != "1"
-LEGACY_TOPUPS_ENABLED = os.getenv("ENABLE_MODULAR_TOPUPS") != "1"
-LEGACY_ADMIN_STATS_ENABLED = os.getenv("ENABLE_MODULAR_ADMIN_STATS") != "1"
-LEGACY_ADMIN_MENU_ENABLED = os.getenv("ENABLE_MODULAR_ADMIN_MENU") != "1"
-LEGACY_ADMIN_SERVICES_ENABLED = os.getenv("ENABLE_MODULAR_ADMIN_SERVICES") != "1"
-LEGACY_ADMIN_USERS_ENABLED = os.getenv("ENABLE_MODULAR_ADMIN_USERS") != "1"
-LEGACY_ADMIN_USER_INFO_ENABLED = os.getenv("ENABLE_MODULAR_ADMIN_USER_INFO") != "1"
-LEGACY_ADMIN_USER_REPORTS_ENABLED = os.getenv("ENABLE_MODULAR_ADMIN_USER_REPORTS") != "1"
-LEGACY_ADMIN_USER_RELEASES_ENABLED = os.getenv("ENABLE_MODULAR_ADMIN_USER_RELEASES") != "1"
-LEGACY_ADMIN_USER_ROLES_ENABLED = os.getenv("ENABLE_MODULAR_ADMIN_USER_ROLES") != "1"
-LEGACY_COMMON_ENABLED = os.getenv("ENABLE_MODULAR_COMMON") != "1"
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -109,6 +80,8 @@ from psycopg2.pool import ThreadedConnectionPool
 # Initialize bot
 BOT_TOKEN = os.getenv('BOT_TOKEN', '6285811276:AAHoVTSOok-_Bwxe1GWSSSsN7LiP5CynYas')
 bot = telebot.TeleBot(BOT_TOKEN)
+referral_notifications.configure(bot)
+user_storage.configure(bot)
 bot.user_data = {}  # Initialize user data storage
 
 # Инициализация broadcast_levels
@@ -125,7 +98,7 @@ except ImportError:
 
 # Initialize logging with enhanced configuration
 logging.basicConfig(
-    level=logging.INFO, 
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
@@ -155,98 +128,17 @@ def is_save_draft_message(message):
     return t in ("💾 сохранить черновик", "сохранить черновик", "черновик")
 
 
-def save_draft_at_any_step(message):
-    """Сохранить текущие данные раздачи как черновик на любом этапе."""
-    user_id = message.from_user.id
-    user_data = bot.user_data.get(user_id, {})
-    
-    if not user_data:
-        bot.send_message(message.chat.id, "❌ Нет данных для сохранения.", reply_markup=create_main_menu())
-        return
-    
-    try:
-        conn = get_pg_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("""
-                    SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'drafts'
-                """)
-                if not cursor.fetchone():
-                    cursor.execute('''
-                        CREATE TABLE IF NOT EXISTS drafts (
-                            id SERIAL PRIMARY KEY,
-                            user_id BIGINT NOT NULL,
-                            draft_type VARCHAR(50) NOT NULL,
-                            data TEXT NOT NULL,
-                            current_step INTEGER DEFAULT 0,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                    ''')
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_drafts_user_id ON drafts(user_id)")
-                    conn.commit()
-            except Exception:
-                conn.rollback()
-            cursor.execute(
-                'INSERT INTO drafts (user_id, draft_type, data, current_step, created_at, updated_at) VALUES (%s, %s, %s, %s, NOW(), NOW())',
-                (user_id, 'distribution_legacy', json.dumps(user_data, ensure_ascii=False, default=str), 0)
-            )
-            conn.commit()
-            cursor.close()
-            return_pg_connection(conn)
-        
-        # Очищаем обработчики следующего шага и данные пользователя
-        bot.clear_step_handler_by_chat_id(message.chat.id)
-        bot.user_data.pop(user_id, None)
-        bot.send_message(
-            message.chat.id,
-            "💾 Черновик сохранён!\n\nВы можете продолжить заполнение позже из раздела «Черновики» в профиле.",
-            reply_markup=create_main_menu()
-        )
-        logger.info(f"Draft saved for user {user_id} at any step")
-    except Exception as e:
-        logger.error(f"Error saving draft at any step for user {user_id}: {e}")
-        bot.send_message(message.chat.id, "❌ Ошибка сохранения черновика. Попробуйте позже.")
-
-
 # --- Balance helpers ---
 def get_user_balance_safe(user_id: int) -> float:
-    return payments.get_user_balance(user_id, get_pg_connection, return_pg_connection, logger)
+    return runtime_helpers.get_user_balance_safe(user_id)
 
 
 def change_user_balance(user_id: int, delta: float) -> bool:
-    return payments.change_user_balance(user_id, delta, get_pg_connection, return_pg_connection, logger)
+    return runtime_helpers.change_user_balance(user_id, delta)
 
 
 def is_profile_complete(user_id: int) -> tuple[bool, str]:
-    """Проверяет, заполнен ли профиль пользователя. Возвращает (is_complete, missing_field)"""
-    conn = get_pg_connection()
-    if not conn:
-        return (False, "Ошибка подключения к базе данных")
-    
-    try:
-        cur = conn.cursor()
-        cur.execute('SELECT name FROM label WHERE telegram_id = %s', (user_id,))
-        row = cur.fetchone()
-        
-        if not row:
-            return (False, "Профиль не найден")
-        
-        name = row[0]
-        if not name or not name.strip():
-            return (False, "name")
-        
-        return (True, "")
-    except Exception as e:
-        logger.error(f"Failed to check profile for {user_id}: {e}")
-        return (False, "Ошибка при проверке профиля")
-    finally:
-        try:
-            cur.close()
-            return_pg_connection(conn)
-        except Exception:
-            pass
+    return runtime_helpers.is_profile_complete(user_id)
 
 
 # Configure logging
@@ -292,18 +184,18 @@ def test_channel_access():
         # Пытаемся получить информацию о канале
         chat_info = bot.get_chat(CHANNEL_USERNAME)
         logger.info(f"✅ Channel access test successful: {chat_info.title}")
-        
+
         # Пытаемся получить информацию о боте в канале
         bot_member = bot.get_chat_member(CHANNEL_USERNAME, bot.get_me().id)
         logger.info(f"✅ Bot member status: {bot_member.status}")
-        
+
         if bot_member.status in ['administrator', 'creator']:
             logger.info("✅ Bot has admin rights in channel")
             return True
         else:
             logger.warning("⚠️ Bot is not an administrator in the channel")
             return False
-            
+
     except Exception as e:
         logger.error(f"❌ Channel access test failed: {e}")
         logger.error("Bot needs to be added to the channel as administrator!")
@@ -314,113 +206,23 @@ def check_yookassa_status():
     try:
         if not YOOKASSA_AVAILABLE:
             return False, "YooKassa module not available"
-        
+
         if not Configuration.account_id or not Configuration.secret_key:
             return False, "YooKassa credentials not configured"
-        
+
         # Простая проверка доступности API
         import requests
-        response = requests.get("https://api.yookassa.ru/v3/me", 
+        response = requests.get("https://api.yookassa.ru/v3/me",
                               auth=(Configuration.account_id, Configuration.secret_key),
                               timeout=10)
-        
+
         if response.status_code == 200:
             return True, "YooKassa API is accessible"
         else:
             return False, f"YooKassa API returned status {response.status_code}"
-            
+
     except Exception as e:
         return False, f"YooKassa API check failed: {str(e)}"
-
-_subscription_cache = {}  # user_id -> (is_subscribed, timestamp)
-_SUBSCRIPTION_CACHE_TTL = 300  # 5 минут
-
-def check_channel_subscription(user_id, force_check=False):
-    """Проверка подписки пользователя на канал @twaslabel (с кэшем 5 мин)"""
-    now = time.time()
-    if not force_check and user_id in _subscription_cache:
-        is_subscribed, cached_at = _subscription_cache[user_id]
-        if now - cached_at < _SUBSCRIPTION_CACHE_TTL:
-            return is_subscribed
-    try:
-        chat_member = bot.get_chat_member(CHANNEL_USERNAME, user_id)
-        is_subscribed = chat_member.status in ['member', 'administrator', 'creator']
-        _subscription_cache[user_id] = (is_subscribed, now)
-        return is_subscribed
-    except Exception as e:
-        logger.error(f"Error checking channel subscription for user {user_id}: {e}")
-        
-        # Если бот не может получить информацию о пользователе, 
-        # возможно он не добавлен в канал как администратор
-        if "chat not found" in str(e).lower() or "bot is not a member" in str(e).lower():
-            logger.error("Bot is not added to the channel as administrator!")
-            return False
-        
-        return False
-
-def require_channel_subscription(func):
-    """Декоратор для обязательной подписки на канал"""
-    def wrapper(message):
-        user_id = message.from_user.id
-        
-        # Проверяем подписку на канал
-        if not check_channel_subscription(user_id):
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("📢 Подписаться на канал", url=f"https://t.me/{CHANNEL_USERNAME[1:]}"))
-            markup.add(types.InlineKeyboardButton("✅ Я подписался", callback_data="check_subscription"))
-            
-            bot.reply_to(message, 
-                f"🔔 Для использования бота необходимо подписаться на наш канал!\n\n"
-                f"📢 Канал: {CHANNEL_USERNAME}\n"
-                f"🎵 Здесь мы публикуем новости, релизы и важные обновления\n\n"
-                f"После подписки нажмите кнопку 'Я подписался'",
-                reply_markup=markup
-            )
-            return
-        
-        # Если подписка есть, выполняем оригинальную функцию
-        return func(message)
-    
-    return wrapper
-
-@bot.callback_query_handler(func=lambda call: call.data == "check_subscription")
-def handle_subscription_check(call):
-    """Обработка проверки подписки после нажатия кнопки 'Я подписался'"""
-    user_id = call.from_user.id
-    
-    if check_channel_subscription(user_id, force_check=True):
-        bot.answer_callback_query(call.id, "✅ Отлично! Теперь вы можете пользоваться ботом!")
-        
-        # Показываем главное меню
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        markup.add(
-            types.KeyboardButton("📀 Мои релизы"),
-            types.KeyboardButton("📊 Статистика"),
-            types.KeyboardButton("💳 Пополнить баланс"),
-            types.KeyboardButton("👤 Профиль"),
-            types.KeyboardButton("📞 Поддержка"),
-            types.KeyboardButton("ℹ️ О нас")
-        )
-        
-        bot.edit_message_text(
-            f"<code>{details}</code>",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup,
-        )
-        
-        bot.send_message(
-            call.message.chat.id,
-            "🎵 Добро пожаловать в TWAS Label Studio!\n\n"
-            "Выберите нужную опцию из меню:",
-            reply_markup=markup
-        )
-    else:
-        bot.answer_callback_query(
-            call.id, 
-            "❌ Подписка не найдена. Пожалуйста, подпишитесь на канал и попробуйте снова.",
-            show_alert=True
-        )
 
 # Crypto Bot Configuration
 CRYPTO_BOT_TOKEN = "449150:AAhpOhS1Mwm8mUfiVuOazq6Y7YHc6wkACxj"
@@ -619,15 +421,13 @@ def get_status_summary(items, statuses):
 
 
 def ensure_user_storage(user_id):
-    if not hasattr(bot, 'user_data'):
-        bot.user_data = {}
-    return bot.user_data.setdefault(user_id, {})
+    return user_storage.ensure_user_storage(user_id)
 
 
 def get_user_support_requests(user_id):
     """Получить заявки пользователя из памяти и БД"""
     requests = [req for req in SUPPORT_REQUESTS if req.get("user_id") == user_id]
-    
+
     # Также загружаем из БД
     conn = get_pg_connection()
     if conn:
@@ -640,7 +440,7 @@ def get_user_support_requests(user_id):
                 ORDER BY created_at DESC
                 LIMIT 50
             """, (user_id,))
-            
+
             for row in cursor.fetchall():
                 db_id, template_id, template_title, details, status, release_id, release_name, created_at = row
                 # Проверяем, нет ли уже такой заявки в памяти
@@ -663,7 +463,7 @@ def get_user_support_requests(user_id):
             if conn:
                 cursor.close()
                 return_pg_connection(conn)
-    
+
     return requests
 
 
@@ -869,7 +669,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
 
     <div class="service-card">
-      
+
       <p>Профессиональная студия звукозаписи с лучшим оборудованием и звукорежиссерами. Запишите свой хит в комфортной атмосфере.</p>
       <div class="price">800 ₽/час</div>
       <a href="https://t.me/twaslabel_bot" class="btn">Записаться в боте</a>
@@ -892,26 +692,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </body>
 </html>"""
 
-
-def get_all_admins():
-    """Получить всех администраторов (постоянных + из БД)"""
-    return admin_access.get_all_admin_ids(PERMANENT_ADMINS, get_pg_connection, return_pg_connection, logger)
-
-
-def is_admin(user_id):
-    """Проверить, является ли пользователь администратором"""
-    return admin_access.is_admin_user(user_id, PERMANENT_ADMINS, get_pg_connection, return_pg_connection, logger)
-
-
-def debug_user_data(user_id, step_name="unknown"):
-    """Отладочная функция для проверки данных пользователя"""
-    user_data = bot.user_data.get(user_id, {})
-    logger.info(f"DEBUG [{step_name}] User {user_id} data: {list(user_data.keys())}")
-    if 'cover_file_id' in user_data:
-        logger.info(f"DEBUG [{step_name}] cover_file_id: {user_data['cover_file_id']}")
-    else:
-        logger.warning(f"DEBUG [{step_name}] cover_file_id NOT FOUND in user data!")
-    return user_data
 
 
 # Release statuses
@@ -937,146 +717,13 @@ _db_pool = None
 _db_pool_lock = threading.Lock()
 
 def init_db_pool():
-    """Инициализация пула соединений PostgreSQL"""
-    global _db_pool
-    if _db_pool is None:
-        with _db_pool_lock:
-            if _db_pool is None:
-                try:
-                    logger.info(f"Initializing DB connection pool to {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['dbname']}")
-                    _db_pool = ThreadedConnectionPool(
-                        minconn=2,  # Минимум соединений
-                        maxconn=10,  # Максимум соединений
-                        dbname=DB_CONFIG["dbname"],
-                        user=DB_CONFIG["user"],
-                        password=DB_CONFIG["password"],
-                        host=DB_CONFIG["host"],
-                        port=DB_CONFIG["port"],
-                        client_encoding='utf8',
-                        connect_timeout=10  # Увеличено до 10 секунд
-                    )
-                    logger.info("✅ PostgreSQL connection pool initialized")
-                except Exception as e:
-                    error_msg = str(e)
-                    logger.error(f"❌ Failed to initialize connection pool: {error_msg}")
-                    logger.error(f"DB config: host={DB_CONFIG['host']}, port={DB_CONFIG['port']}, dbname={DB_CONFIG['dbname']}, user={DB_CONFIG['user']}")
-                    _db_pool = None
+    return runtime_helpers.init_db_pool()
 
 def get_pg_connection(max_retries=3, retry_delay=0.5):
-    """Get PostgreSQL connection from pool with retry logic"""
-    global _db_pool
-    
-    # Инициализируем пул при первом вызове
-    if _db_pool is None:
-        init_db_pool()
-    
-    # Если пул не инициализирован, пробуем создать прямое подключение
-    if _db_pool is None:
-        logger.warning("Connection pool not initialized, trying direct connection")
-        for attempt in range(max_retries):
-            try:
-                logger.debug(f"Attempting direct DB connection (attempt {attempt + 1}/{max_retries}) to {DB_CONFIG['host']}:{DB_CONFIG['port']}")
-                conn = psycopg2.connect(
-                    dbname=DB_CONFIG["dbname"],
-                    user=DB_CONFIG["user"],
-                    password=DB_CONFIG["password"],
-                    host=DB_CONFIG["host"],
-                    port=DB_CONFIG["port"],
-                    client_encoding='utf8',
-                    connect_timeout=10  # Увеличено до 10 секунд
-                )
-                logger.info("✅ Direct DB connection established")
-                return conn
-            except Error as e:
-                error_msg = str(e)
-                logger.warning(f"Direct connection attempt {attempt + 1}/{max_retries} failed: {error_msg}")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay * (attempt + 1))
-                    continue
-                logger.error(f"❌ Failed to connect to PostgreSQL after {max_retries} attempts (direct): {error_msg}")
-                logger.error(f"DB config: host={DB_CONFIG['host']}, port={DB_CONFIG['port']}, dbname={DB_CONFIG['dbname']}, user={DB_CONFIG['user']}")
-                return None
-    
-    # Используем пул соединений (без лишней проверки SELECT 1 — быстрее)
-    for attempt in range(max_retries):
-        try:
-            conn = _db_pool.getconn()
-            return conn
-        except pool.PoolError as e:
-            error_msg = str(e)
-            logger.warning(f"Pool error on attempt {attempt + 1}/{max_retries}: {error_msg}")
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay * (attempt + 1))
-                continue
-            logger.error(f"❌ Pool error after {max_retries} attempts: {error_msg}")
-            # Пробуем создать прямое подключение как fallback
-            try:
-                logger.info("Trying direct connection as fallback...")
-                conn = psycopg2.connect(
-                    dbname=DB_CONFIG["dbname"],
-                    user=DB_CONFIG["user"],
-                    password=DB_CONFIG["password"],
-                    host=DB_CONFIG["host"],
-                    port=DB_CONFIG["port"],
-                    client_encoding='utf8',
-                    connect_timeout=10
-                )
-                logger.info("✅ Fallback direct connection established")
-                return conn
-            except Error as fallback_error:
-                logger.error(f"❌ Fallback direct connection also failed: {fallback_error}")
-                return None
-        except Error as e:
-            error_msg = str(e)
-            logger.warning(f"DB error on attempt {attempt + 1}/{max_retries}: {error_msg}")
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay * (attempt + 1))
-                continue
-            logger.error(f"❌ DB error after {max_retries} attempts: {error_msg}")
-            # Пробуем создать прямое подключение как fallback
-            try:
-                logger.info("Trying direct connection as fallback...")
-                conn = psycopg2.connect(
-                    dbname=DB_CONFIG["dbname"],
-                    user=DB_CONFIG["user"],
-                    password=DB_CONFIG["password"],
-                    host=DB_CONFIG["host"],
-                    port=DB_CONFIG["port"],
-                    client_encoding='utf8',
-                    connect_timeout=10
-                )
-                logger.info("✅ Fallback direct connection established")
-                return conn
-            except Error as fallback_error:
-                logger.error(f"❌ Fallback direct connection also failed: {fallback_error}")
-                return None
-    
-    logger.error("❌ All connection attempts failed")
-    return None
+    return runtime_helpers.get_pg_connection(max_retries=max_retries, retry_delay=retry_delay)
 
 def return_pg_connection(conn):
-    """Возврат соединения в пул или закрытие прямого подключения"""
-    global _db_pool
-    if conn is None:
-        return
-    try:
-        if _db_pool is not None:
-            try:
-                _db_pool.putconn(conn)
-            except Exception as e:
-                logger.warning(f"Could not return conn to pool (may be direct): {e}")
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-        else:
-            conn.close()
-    except Exception as e:
-        logger.error(f"Error returning connection: {e}")
-        try:
-            conn.close()
-        except Exception:
-            pass
+    return runtime_helpers.return_pg_connection(conn)
 
 
 def perform_system_diagnostics():
@@ -1221,3596 +868,9 @@ def update_pg_user(username):
             logger.info("Database connection closed")
 
 
-def init_database():
-    """Initialize all database tables in PostgreSQL"""
-    conn = get_pg_connection()
-    if not conn:
-        logger.error("Failed to initialize database")
-        return
 
-    try:
-        cursor = conn.cursor()
-        logger.info("Starting database initialization...")
 
-        # Create label table (main users table)
-        logger.info("Creating label table...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS label (
-                id SERIAL PRIMARY KEY,
-                login VARCHAR(255) UNIQUE,
-                passvord VARCHAR(255),
-                name VARCHAR(255),
-                tg VARCHAR(255),
-                telegram_id BIGINT UNIQUE,
-                kanal TEXT,
-                admin INTEGER DEFAULT 0,
-                artist INTEGER DEFAULT 1,
-                created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                balance NUMERIC(10, 2) DEFAULT 0,
-                email TEXT,
-                fio TEXT,
-                phone VARCHAR(50)
-            )
-        ''')
 
-        # Create reviews table
-        logger.info("Creating reviews table...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS reviews (
-                id SERIAL PRIMARY KEY,
-                user_id BIGINT NOT NULL,
-                service_type TEXT NOT NULL,
-                rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
-                text TEXT NOT NULL,
-                status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
-                created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        # Create releases table
-        logger.info("Creating releases table...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS releases (
-                id SERIAL PRIMARY KEY,
-                user_id BIGINT NOT NULL,
-                release_type TEXT NOT NULL CHECK (release_type IN ('Single', 'EP', 'ALBUM', 'Maxi Single')),
-                artist_name TEXT NOT NULL,
-                release_name TEXT NOT NULL,
-                producer TEXT,
-                genre TEXT NOT NULL,
-                cover_file_id TEXT,
-                audio_file_id TEXT,
-                release_date DATE NOT NULL,
-                performer_name TEXT NOT NULL,
-                music_author TEXT NOT NULL,
-                contract_file_id TEXT,
-                videoshot_url TEXT,
-                explicit_content BOOLEAN NOT NULL DEFAULT FALSE,
-                lyrics_file_id TEXT,
-                preview_start INTEGER,
-                yandex_soon BOOLEAN DEFAULT FALSE,
-                create_links BOOLEAN DEFAULT FALSE,
-                tiktok_commercial BOOLEAN DEFAULT FALSE,
-                tiktok_full_version BOOLEAN DEFAULT FALSE,
-                status TEXT DEFAULT 'pending',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                is_album BOOLEAN DEFAULT FALSE,
-                is_track BOOLEAN DEFAULT FALSE,
-                album_id INTEGER,
-                track_number INTEGER,
-                upc_code TEXT DEFAULT 'пока что нет'
-            )
-        ''')
-
-        # Create files table
-        logger.info("Creating files table...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS files (
-                id SERIAL PRIMARY KEY,
-                type TEXT NOT NULL CHECK (type IN ('cover', 'audio', 'contract', 'lyrics', 'other')),
-                file_id TEXT NOT NULL,
-                file_name TEXT,
-                file_size BIGINT,
-                upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                uploaded_by BIGINT NOT NULL
-            )
-        ''')
-
-        # Create distribution_agreements table
-        logger.info("Creating distribution_agreements table...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS distribution_agreements (
-                id SERIAL PRIMARY KEY,
-                user_id BIGINT NOT NULL,
-                agreed BOOLEAN NOT NULL DEFAULT FALSE,
-                ip_address INET,
-                user_agent TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        # Create payments table for tracking payments
-        logger.info("Creating payments table...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS payments (
-                id SERIAL PRIMARY KEY,
-                user_id BIGINT NOT NULL,
-                amount NUMERIC(10, 2) NOT NULL,
-                currency VARCHAR(3) DEFAULT 'RUB',
-                service_type TEXT NOT NULL,
-                payment_id TEXT UNIQUE,
-                status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'succeeded', 'canceled', 'failed')),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        # Create user_sessions table for tracking user sessions
-        logger.info("Creating user_sessions table...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS user_sessions (
-                id SERIAL PRIMARY KEY,
-                user_id BIGINT NOT NULL,
-                session_data JSONB,
-                last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        # Create admin_logs table for admin actions
-        logger.info("Creating admin_logs table...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS admin_logs (
-                id SERIAL PRIMARY KEY,
-                admin_id BIGINT NOT NULL,
-                action TEXT NOT NULL,
-                target_user_id BIGINT,
-                target_release_id INTEGER,
-                details JSONB,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        # Create orders table for balance top-ups and service orders
-        logger.info("Creating orders table...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS orders (
-                id SERIAL PRIMARY KEY,
-                user_id BIGINT NOT NULL,
-                service_type TEXT NOT NULL CHECK (service_type IN ('topup', 'cover', 'motion', 'videoshot', 'distribution', 'other')),
-                amount NUMERIC(10, 2) NOT NULL CHECK (amount > 0),
-                status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'cancelled', 'failed')),
-                payment_id TEXT UNIQUE,
-                created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                description TEXT,
-                metadata JSONB
-            )
-        ''')
-
-        # Create promo codes table
-        logger.info("Creating promo codes table...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS promo_codes (
-                id SERIAL PRIMARY KEY,
-                code TEXT UNIQUE NOT NULL,
-                amount NUMERIC(10, 2) NOT NULL,
-                discount NUMERIC(10, 2) DEFAULT 0,
-                is_used BOOLEAN DEFAULT FALSE,
-                used_by BIGINT,
-                used_at TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                created_by BIGINT NOT NULL,
-                max_uses INTEGER DEFAULT NULL,
-                current_uses INTEGER DEFAULT 0,
-                expires_at TIMESTAMP DEFAULT NULL,
-                is_active BOOLEAN DEFAULT TRUE
-            )
-        ''')
-        
-        # Create promo code usage tracking table
-        logger.info("Creating promo code usage tracking table...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS promo_code_usage (
-                id SERIAL PRIMARY KEY,
-                user_id BIGINT NOT NULL,
-                promo_code_id INTEGER NOT NULL,
-                promo_code TEXT NOT NULL,
-                used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                amount_added NUMERIC(10, 2) NOT NULL,
-                UNIQUE(user_id, promo_code_id),
-                FOREIGN KEY (promo_code_id) REFERENCES promo_codes(id) ON DELETE CASCADE
-            )
-        ''')
-        
-        # Create report requests table
-        logger.info("Creating report requests table...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS report_requests (
-                id SERIAL PRIMARY KEY,
-                user_id BIGINT NOT NULL,
-                release_id INTEGER,
-                release_type TEXT,
-                request_type TEXT NOT NULL,
-                status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'rejected')),
-                admin_id BIGINT,
-                report_file_id TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                completed_at TIMESTAMP,
-                updated_at TIMESTAMP,
-                rejection_reason TEXT,
-                notes TEXT
-            )
-        ''')
-        
-        # Create contracts table
-        logger.info("Creating contracts table...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS contracts (
-                id SERIAL PRIMARY KEY,
-                user_id BIGINT NOT NULL,
-                contract_number VARCHAR(100),
-                contract_type VARCHAR(50) DEFAULT 'license',
-                status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'rejected')),
-                contract_file_id TEXT,
-                admin_id BIGINT,
-                notes TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                completed_at TIMESTAMP
-            )
-        ''')
-        
-        # Create drafts table (черновики релизов)
-        logger.info("Creating drafts table...")
-        try:
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS drafts (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
-                    draft_type VARCHAR(50) NOT NULL,
-                    data TEXT NOT NULL,
-                    current_step INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_drafts_user_id ON drafts(user_id)")
-        except Exception as e:
-            logger.warning(f"Could not create drafts table: {e}")
-        
-        # Create user_discount_promos (промокоды на скидку, активированные пользователем)
-        logger.info("Creating user_discount_promos table...")
-        try:
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS user_discount_promos (
-                    user_id BIGINT NOT NULL,
-                    promo_code_id INTEGER NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (user_id, promo_code_id),
-                    FOREIGN KEY (promo_code_id) REFERENCES promo_codes(id) ON DELETE CASCADE
-                )
-            ''')
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_discount_promos_user_id ON user_discount_promos(user_id)")
-        except Exception as e:
-            logger.warning(f"Could not create user_discount_promos table: {e}")
-        
-        conn.commit()
-        # Add comments to orders table
-        try:
-            cursor.execute("COMMENT ON TABLE orders IS 'Заказы пользователей и пополнения баланса'")
-            cursor.execute("COMMENT ON COLUMN orders.user_id IS 'ID пользователя Telegram'")
-            cursor.execute("COMMENT ON COLUMN orders.service_type IS 'Тип услуги: topup (пополнение), cover (обложка), motion (анимация), videoshot (видеошот), distribution (дистрибуция)'")
-            cursor.execute("COMMENT ON COLUMN orders.amount IS 'Сумма заказа в рублях'")
-            cursor.execute("COMMENT ON COLUMN orders.status IS 'Статус заказа: pending (ожидает), completed (выполнен), cancelled (отменен), failed (ошибка)'")
-            cursor.execute("COMMENT ON COLUMN orders.payment_id IS 'Уникальный ID платежа от платежной системы'")
-            cursor.execute("COMMENT ON COLUMN orders.description IS 'Описание заказа'")
-            cursor.execute("COMMENT ON COLUMN orders.metadata IS 'Дополнительные данные заказа в формате JSON'")
-        except Exception as e:
-            logger.warning(f"Could not add comments to orders table: {e}")
-
-        # Add missing columns to existing tables
-        logger.info("Adding missing columns to existing tables...")
-
-        # Label table columns
-        label_columns_to_add = [
-            "ALTER TABLE label ADD COLUMN IF NOT EXISTS created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-            "ALTER TABLE label ADD COLUMN IF NOT EXISTS balance NUMERIC(10, 2) DEFAULT 0",
-            "ALTER TABLE label ADD COLUMN IF NOT EXISTS email TEXT",
-            "ALTER TABLE label ADD COLUMN IF NOT EXISTS fio TEXT",
-            "ALTER TABLE label ADD COLUMN IF NOT EXISTS phone VARCHAR(50)",
-            "ALTER TABLE label ADD COLUMN IF NOT EXISTS owner INTEGER DEFAULT 0",
-            "ALTER TABLE label ADD COLUMN IF NOT EXISTS steezy INTEGER DEFAULT 0",
-            "ALTER TABLE label ADD COLUMN IF NOT EXISTS bibi INTEGER DEFAULT 0",
-            "ALTER TABLE label ADD COLUMN IF NOT EXISTS shvepz INTEGER DEFAULT 0",
-            "ALTER TABLE label ADD COLUMN IF NOT EXISTS creator INTEGER DEFAULT 0"
-        ]
-
-        # Report requests table columns
-        report_columns_to_add = [
-            "ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
-            "ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT"
-        ]
-        
-        # Modify existing columns
-        report_columns_to_modify = [
-            "ALTER TABLE report_requests ALTER COLUMN release_type DROP NOT NULL"
-        ]
-
-        for column_sql in label_columns_to_add:
-            try:
-                cursor.execute(column_sql)
-                logger.info(f"✅ Added column to label table: {column_sql}")
-            except Exception as e:
-                logger.warning(f"Could not add column to label table: {e}")
-
-        for column_sql in report_columns_to_add:
-            try:
-                cursor.execute(column_sql)
-                logger.info(f"✅ Added column to report_requests table: {column_sql}")
-            except Exception as e:
-                logger.warning(f"Could not add column to report_requests table: {e}")
-
-        for column_sql in report_columns_to_modify:
-            try:
-                cursor.execute(column_sql)
-                logger.info(f"✅ Modified column in report_requests table: {column_sql}")
-            except Exception as e:
-                logger.warning(f"Could not modify column in report_requests table: {e}")
-        
-        # Verify all required columns exist and set default values
-        try:
-            # Check if all required role columns exist
-            required_role_columns = ['owner', 'creator']
-            for column in required_role_columns:
-                cursor.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'label' AND column_name = '{column}'
-                """)
-                
-                if not cursor.fetchone():
-                    # Column doesn't exist, create it manually
-                    cursor.execute(f"ALTER TABLE label ADD COLUMN {column} INTEGER DEFAULT 0")
-                    logger.info(f"✅ Manually added column {column} to label table")
-                
-                # Update existing records to set default values
-                cursor.execute(f"UPDATE label SET {column} = 0 WHERE {column} IS NULL")
-                logger.info(f"✅ Updated default values for column {column}")
-            
-            # Migrate old role columns to new ones if they exist
-            old_role_columns = ['moderator', 'support', 'premium', 'verified', 'vip']
-            for old_column in old_role_columns:
-                cursor.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'label' AND column_name = '{old_column}'
-                """)
-                
-                if cursor.fetchone():
-                    # Old column exists, migrate data and drop it
-                    logger.info(f"🔄 Migrating data from {old_column} column...")
-                    
-                    # Map old columns to new ones (you can customize this mapping)
-                    if old_column == 'moderator':
-                        cursor.execute("UPDATE label SET owner = moderator WHERE owner = 0 AND moderator = 1")
-                    elif old_column == 'support':
-                        cursor.execute("UPDATE label SET steezy = support WHERE steezy = 0 AND support = 1")
-                    elif old_column == 'premium':
-                        cursor.execute("UPDATE label SET bibi = premium WHERE bibi = 0 AND premium = 1")
-                    elif old_column == 'verified':
-                        cursor.execute("UPDATE label SET shvepz = verified WHERE shvepz = 0 AND verified = 1")
-                    elif old_column == 'vip':
-                        cursor.execute("UPDATE label SET creator = vip WHERE creator = 0 AND vip = 1")
-                    
-                    # Drop old column
-                    cursor.execute(f"ALTER TABLE label DROP COLUMN {old_column}")
-                    logger.info(f"✅ Dropped old column {old_column}")
-                
-        except Exception as e:
-            logger.warning(f"Could not verify role columns: {e}")
-
-        # Releases table columns
-        releases_columns_to_add = [
-            "ALTER TABLE releases ADD COLUMN IF NOT EXISTS is_album BOOLEAN DEFAULT FALSE",
-            "ALTER TABLE releases ADD COLUMN IF NOT EXISTS is_track BOOLEAN DEFAULT FALSE",
-            "ALTER TABLE releases ADD COLUMN IF NOT EXISTS album_id INTEGER",
-            "ALTER TABLE releases ADD COLUMN IF NOT EXISTS track_number INTEGER",
-            "ALTER TABLE releases ADD COLUMN IF NOT EXISTS upc_code TEXT DEFAULT 'пока что нет'"
-        ]
-
-        for column_sql in releases_columns_to_add:
-            try:
-                cursor.execute(column_sql)
-            except Exception as e:
-                logger.warning(f"Could not add column to releases table: {e}")
-
-        # Files table columns
-        files_columns_to_add = [
-            "ALTER TABLE files ADD COLUMN IF NOT EXISTS file_name TEXT",
-            "ALTER TABLE files ADD COLUMN IF NOT EXISTS file_size BIGINT",
-            "ALTER TABLE files ADD COLUMN IF NOT EXISTS upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-        ]
-
-        for column_sql in files_columns_to_add:
-            try:
-                cursor.execute(column_sql)
-            except Exception as e:
-                logger.warning(f"Could not add column to files table: {e}")
-
-        # Orders table columns
-        orders_columns_to_add = [
-            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS description TEXT",
-            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS metadata JSONB"
-        ]
-
-        for column_sql in orders_columns_to_add:
-            try:
-                cursor.execute(column_sql)
-            except Exception as e:
-                logger.warning(f"Could not add column to orders table: {e}")
-
-        # Promo codes table columns - handle existing table structure
-        try:
-            # Check if all required columns exist
-            required_columns = ['amount', 'discount', 'is_used', 'created_by']
-            for column in required_columns:
-                cursor.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'promo_codes' AND column_name = '{column}'
-                """)
-                
-                if not cursor.fetchone():
-                    # Column doesn't exist, add it
-                    if column == 'amount':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN amount NUMERIC(10, 2) DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET amount = 0 WHERE amount IS NULL")
-                    elif column == 'discount':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN discount NUMERIC(10, 2) DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET discount = 0 WHERE discount IS NULL")
-                    elif column == 'is_used':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN is_used BOOLEAN DEFAULT FALSE")
-                        cursor.execute("UPDATE promo_codes SET is_used = FALSE WHERE is_used IS NULL")
-                    elif column == 'created_by':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN created_by BIGINT DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET created_by = 0 WHERE created_by IS NULL")
-                    
-                    logger.info(f"✅ Added column {column} to promo_codes table")
-                else:
-                    logger.info(f"✅ Column {column} already exists in promo_codes table")
-                
-        except Exception as e:
-            logger.warning(f"Could not handle promo_codes table structure: {e}")
-            # Try to recreate the table if there are issues
-            try:
-                cursor.execute("DROP TABLE IF EXISTS promo_codes CASCADE")
-                cursor.execute('''
-                    CREATE TABLE promo_codes (
-                        id SERIAL PRIMARY KEY,
-                        code TEXT UNIQUE NOT NULL,
-                        amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
-                        discount NUMERIC(10, 2) DEFAULT 0,
-                        is_used BOOLEAN DEFAULT FALSE,
-                        used_by BIGINT,
-                        used_at TIMESTAMP,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        created_by BIGINT NOT NULL,
-                        max_uses INTEGER DEFAULT NULL,
-                        current_uses INTEGER DEFAULT 0,
-                        expires_at TIMESTAMP DEFAULT NULL,
-                        is_active BOOLEAN DEFAULT TRUE
-                    )
-                ''')
-                logger.info("✅ Recreated promo_codes table with correct structure")
-            except Exception as recreate_error:
-                logger.error(f"Failed to recreate promo_codes table: {recreate_error}")
-
-        # Create indexes for better performance
-        logger.info("Creating indexes...")
-        indexes = [
-            "CREATE INDEX IF NOT EXISTS idx_label_telegram_id ON label(telegram_id)",
-            "CREATE INDEX IF NOT EXISTS idx_label_tg ON label(tg)",
-            "CREATE INDEX IF NOT EXISTS idx_releases_user_id ON releases(user_id)",
-            "CREATE INDEX IF NOT EXISTS idx_releases_status ON releases(status)",
-            "CREATE INDEX IF NOT EXISTS idx_releases_release_date ON releases(release_date)",
-            "CREATE INDEX IF NOT EXISTS idx_releases_album_id ON releases(album_id)",
-            "CREATE INDEX IF NOT EXISTS idx_files_uploaded_by ON files(uploaded_by)",
-            "CREATE INDEX IF NOT EXISTS idx_files_type ON files(type)",
-            "CREATE INDEX IF NOT EXISTS idx_reviews_user_id ON reviews(user_id)",
-            "CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(status)",
-            "CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id)",
-            "CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status)",
-            "CREATE INDEX IF NOT EXISTS idx_admin_logs_admin_id ON admin_logs(admin_id)",
-            "CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id)",
-            "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id)",
-            "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)",
-            "CREATE INDEX IF NOT EXISTS idx_orders_payment_id ON orders(payment_id)",
-            "CREATE INDEX IF NOT EXISTS idx_orders_created_date ON orders(created_date)",
-            "CREATE INDEX IF NOT EXISTS idx_orders_service_type ON orders(service_type)",
-            "CREATE INDEX IF NOT EXISTS idx_promo_codes_code ON promo_codes(code)",
-            "CREATE INDEX IF NOT EXISTS idx_promo_codes_is_used ON promo_codes(is_used)",
-            "CREATE INDEX IF NOT EXISTS idx_promo_code_usage_user_id ON promo_code_usage(user_id)",
-            "CREATE INDEX IF NOT EXISTS idx_promo_code_usage_promo_code_id ON promo_code_usage(promo_code_id)",
-            "CREATE INDEX IF NOT EXISTS idx_report_requests_user_id ON report_requests(user_id)",
-            "CREATE INDEX IF NOT EXISTS idx_report_requests_status ON report_requests(status)",
-            "CREATE INDEX IF NOT EXISTS idx_report_requests_release_id ON report_requests(release_id)"
-        ]
-
-        for index_sql in indexes:
-            try:
-                cursor.execute(index_sql)
-            except Exception as e:
-                logger.warning(f"Could not create index: {e}")
-
-        # Insert permanent admins if they don't exist
-        logger.info("Setting up permanent admins...")
-        for admin_id in PERMANENT_ADMINS:
-            try:
-                cursor.execute('''
-                    INSERT INTO label (telegram_id, admin, artist, created_date, tg)
-                    VALUES (%s, 1, 1, CURRENT_TIMESTAMP, 'admin_' || %s)
-                    ON CONFLICT (telegram_id) DO UPDATE SET admin = 1
-                ''', (admin_id, admin_id))
-            except Exception as e:
-                logger.warning(f"Could not set up admin {admin_id}: {e}")
-
-        conn.commit()
-        logger.info("✅ Database initialization completed successfully - all tables created with indexes")
-
-    except Error as e:
-        logger.error(f"❌ Error creating database tables: {e}")
-        if conn:
-            conn.rollback()
-    except Exception as e:
-        logger.error(f"❌ Unexpected error during database initialization: {e}")
-        if conn:
-            conn.rollback()
-    finally:
-        if conn:
-            return_pg_connection(conn)
-
-
-def fix_promo_codes_table():
-    """Fix promo_codes table structure by ensuring all required columns exist"""
-    logger.info("Fixing promo_codes table structure...")
-    conn = get_pg_connection()
-    if not conn:
-        logger.error("Cannot fix promo_codes table - no connection")
-        return False
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Check if table exists
-        cursor.execute("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_name = 'promo_codes'
-            )
-        """)
-        
-        if not cursor.fetchone()[0]:
-            logger.info("Creating promo_codes table...")
-            cursor.execute('''
-                CREATE TABLE promo_codes (
-                    id SERIAL PRIMARY KEY,
-                    code TEXT UNIQUE NOT NULL,
-                    amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
-                    discount NUMERIC(10, 2) DEFAULT 0,
-                    is_used BOOLEAN DEFAULT FALSE,
-                    used_by BIGINT,
-                    used_at TIMESTAMP,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    created_by BIGINT NOT NULL DEFAULT 0,
-                    max_uses INTEGER DEFAULT NULL,
-                    current_uses INTEGER DEFAULT 0,
-                    expires_at TIMESTAMP DEFAULT NULL,
-                    is_active BOOLEAN DEFAULT TRUE
-                )
-            ''')
-            conn.commit()
-            logger.info("✅ promo_codes table created successfully")
-            return True
-        
-        # Add missing columns
-        required_columns = {
-            'amount': 'NUMERIC(10, 2) DEFAULT 0',
-            'discount': 'NUMERIC(10, 2) DEFAULT 0',
-            'is_used': 'BOOLEAN DEFAULT FALSE',
-            'created_by': 'BIGINT DEFAULT 0',
-            'used_by': 'BIGINT',
-            'used_at': 'TIMESTAMP',
-            'max_uses': 'INTEGER DEFAULT NULL',
-            'current_uses': 'INTEGER DEFAULT 0',
-            'expires_at': 'TIMESTAMP DEFAULT NULL',
-            'is_active': 'BOOLEAN DEFAULT TRUE'
-        }
-        
-        for column, definition in required_columns.items():
-            cursor.execute(f"""
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name = 'promo_codes' AND column_name = '{column}'
-            """)
-            
-            if not cursor.fetchone():
-                logger.info(f"Adding missing column: {column}")
-                cursor.execute(f"ALTER TABLE promo_codes ADD COLUMN {column} {definition}")
-        
-        # Check and create promo_code_usage table if it doesn't exist
-        cursor.execute("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_name = 'promo_code_usage'
-            )
-        """)
-        
-        if not cursor.fetchone()[0]:
-            logger.info("Creating promo_code_usage table...")
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS promo_code_usage (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
-                    promo_code_id INTEGER NOT NULL,
-                    promo_code TEXT NOT NULL,
-                    used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    amount_added NUMERIC(10, 2) NOT NULL,
-                    UNIQUE(user_id, promo_code_id),
-                    FOREIGN KEY (promo_code_id) REFERENCES promo_codes(id) ON DELETE CASCADE
-                )
-            ''')
-            
-            # Create indexes for promo_code_usage table
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_promo_code_usage_user_id ON promo_code_usage(user_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_promo_code_usage_promo_code_id ON promo_code_usage(promo_code_id)")
-            
-            logger.info("✅ promo_code_usage table created successfully")
-        
-        conn.commit()
-        logger.info("✅ promo_codes table structure fixed successfully")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Error fixing promo_codes table: {e}")
-        if conn:
-            conn.rollback()
-        return False
-    finally:
-        if conn:
-            return_pg_connection(conn)
-
-
-def check_database_integrity():
-    """Check database integrity and create missing tables/columns"""
-    logger.info("Checking database integrity...")
-    conn = get_pg_connection()
-    if not conn:
-        logger.error("Cannot check database integrity - no connection")
-        return False
-
-    try:
-        cursor = conn.cursor()
-
-        # Check if all required tables exist
-        required_tables = [
-            'label', 'releases', 'reviews', 'files',
-            'distribution_agreements', 'payments',
-            'user_sessions', 'admin_logs', 'orders', 'promo_codes', 'promo_code_usage', 'report_requests'
-        ]
-
-        cursor.execute("""
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-        """)
-        existing_tables = [row[0] for row in cursor.fetchall()]
-
-        missing_tables = [table for table in required_tables if table not in existing_tables]
-
-        if missing_tables:
-            logger.warning(f"Missing tables detected: {missing_tables}")
-            logger.info("Reinitializing database...")
-            return_pg_connection(conn)
-            init_database()
-            return True
-        else:
-            logger.info("✅ All required tables exist")
-
-        # Check for required columns in critical tables
-        cursor.execute("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'label' AND table_schema = 'public'
-        """)
-        label_columns = [row[0] for row in cursor.fetchall()]
-
-        required_label_columns = ['telegram_id', 'admin', 'balance', 'created_date', 'owner', 'creator']
-        missing_label_columns = [col for col in required_label_columns if col not in label_columns]
-        
-        if missing_label_columns:
-            logger.warning(f"Missing columns in label table: {missing_label_columns}")
-            logger.info("Adding missing columns to label table...")
-            
-            # Add missing columns
-            for column in missing_label_columns:
-                if column in ['owner', 'creator']:
-                    try:
-                        cursor.execute(f"ALTER TABLE label ADD COLUMN {column} INTEGER DEFAULT 0")
-                        cursor.execute(f"UPDATE label SET {column} = 0 WHERE {column} IS NULL")
-                        logger.info(f"✅ Added column {column} to label table")
-                    except Exception as e:
-                        logger.warning(f"Could not add column {column}: {e}")
-                else:
-                    try:
-                        if column == 'balance':
-                            cursor.execute("ALTER TABLE label ADD COLUMN balance NUMERIC(10, 2) DEFAULT 0")
-                        elif column == 'created_date':
-                            cursor.execute("ALTER TABLE label ADD COLUMN created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-                        logger.info(f"✅ Added column {column} to label table")
-                    except Exception as e:
-                        logger.warning(f"Could not add column {column}: {e}")
-            
-            conn.commit()
-            logger.info("✅ Label table structure updated")
-        
-        # Check orders table structure
-        cursor.execute("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'orders' AND table_schema = 'public'
-        """)
-        orders_columns = [row[0] for row in cursor.fetchall()]
-        
-        required_orders_columns = ['id', 'user_id', 'service_type', 'amount', 'status', 'payment_id', 'created_date']
-        missing_orders_columns = [col for col in required_orders_columns if col not in orders_columns]
-        
-        if missing_orders_columns:
-            logger.warning(f"Missing columns in orders table: {missing_orders_columns}")
-            return_pg_connection(conn)
-            init_database()
-            return True
-        
-        # Check promo_codes table structure
-        cursor.execute("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'promo_codes' AND table_schema = 'public'
-        """)
-        promo_codes_columns = [row[0] for row in cursor.fetchall()]
-        
-        required_promo_codes_columns = ['id', 'code', 'amount', 'is_used', 'created_by']
-        missing_promo_codes_columns = [col for col in required_promo_codes_columns if col not in promo_codes_columns]
-        
-        if missing_promo_codes_columns:
-            logger.warning(f"Missing columns in promo_codes table: {missing_promo_codes_columns}")
-            return_pg_connection(conn)
-            init_database()
-            return True
-        
-        # Check promo_code_usage table structure
-        cursor.execute("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'promo_code_usage' AND table_schema = 'public'
-        """)
-        promo_code_usage_columns = [row[0] for row in cursor.fetchall()]
-        
-        required_promo_code_usage_columns = ['id', 'user_id', 'promo_code_id', 'promo_code', 'used_at', 'amount_added']
-        missing_promo_code_usage_columns = [col for col in required_promo_code_usage_columns if col not in promo_code_usage_columns]
-        
-        if missing_promo_code_usage_columns:
-            logger.warning(f"Missing columns in promo_code_usage table: {missing_promo_code_usage_columns}")
-            return_pg_connection(conn)
-            init_database()
-            return True
-        
-        logger.info("✅ Database integrity check passed")
-        return True
-
-    except Exception as e:
-        logger.error(f"Database integrity check failed: {e}")
-        return False
-    finally:
-        if conn:
-            return_pg_connection(conn)
-
-
-def migrate_orders_data():
-    """Migrate any existing order data if needed"""
-    logger.info("Checking for orders data migration...")
-    conn = get_pg_connection()
-    if not conn:
-        logger.warning("Cannot check orders migration - no connection")
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        # Check if orders table exists and has data
-        cursor.execute("SELECT COUNT(*) FROM orders")
-        orders_count = cursor.fetchone()[0]
-
-        if orders_count == 0:
-            logger.info("Orders table is empty - no migration needed")
-        else:
-            logger.info(f"Found {orders_count} existing orders")
-
-        # Add any missing columns to orders table if needed
-        orders_columns_to_add = [
-            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS description TEXT",
-            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS metadata JSONB"
-        ]
-
-        for column_sql in orders_columns_to_add:
-            try:
-                cursor.execute(column_sql)
-            except Exception as e:
-                logger.warning(f"Could not add column to orders table: {e}")
-
-        conn.commit()
-        logger.info("✅ Orders migration completed")
-
-    except Exception as e:
-        logger.error(f"Orders migration failed: {e}")
-    finally:
-        if conn:
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("distribution_pay_"))
-def handle_distribution_pay(call):
-    """Create payment for distribution based on calculated cost"""
-    try:
-        amount = int(call.data.split("_")[2])
-    except Exception:
-        bot.answer_callback_query(call.id, "❌ Неверная сумма", show_alert=True)
-        return
-
-    user_id = call.from_user.id
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute('SELECT COALESCE(balance, 0) FROM label WHERE telegram_id = %s', (user_id,))
-        row = cursor.fetchone()
-        current_balance = float(row[0]) if row else 0.0
-
-        if current_balance >= amount:
-            cursor.execute('UPDATE label SET balance = COALESCE(balance,0) - %s WHERE telegram_id = %s',
-                           (amount, user_id))
-            conn.commit()
-            user_data = bot.user_data.get(user_id, {})
-            promo_id = user_data.pop('distribution_promo_id', None)
-            user_data.pop('distribution_discount_pct', None)
-            if promo_id:
-                try:
-                    cursor.execute('DELETE FROM user_discount_promos WHERE user_id = %s AND promo_code_id = %s', (user_id, promo_id))
-                    cursor.execute(
-                        'INSERT INTO promo_code_usage (user_id, promo_code_id, promo_code, amount_added) SELECT %s, %s, code, 0 FROM promo_codes WHERE id = %s',
-                        (user_id, promo_id, promo_id)
-                    )
-                    conn.commit()
-                except Exception as e:
-                    logger.warning(f"Could not record discount promo usage: {e}")
-
-            try:
-                bot.edit_message_text(
-                    f"✅ Списано {amount}₽ с баланса. Отправляем релиз на модерацию...",
-                    call.message.chat.id,
-                    call.message.message_id
-                )
-            except Exception:
-                bot.send_message(call.message.chat.id, f"✅ Списано {amount}₽ с баланса. Отправляем релиз...")
-
-            # Сохранить релиз для пользователя
-            save_release_data_for_user(user_id, call.message.chat.id)
-        else:
-            needed = int(amount - current_balance)
-            markup = types.InlineKeyboardMarkup()
-            # Сохраняем ожидаемую операцию, чтобы после пополнения продолжить автоматически и не терять прогресс
-            bot.user_data.setdefault(user_id, {})['pending_operation'] = {
-                'type': 'distribution',
-                'amount': amount,
-                'needed': needed,
-                'resume': True
-            }
-            markup.add(
-                types.InlineKeyboardButton(f"Пополнить на {needed}₽", callback_data=f"topup_pay_{needed}"),
-                types.InlineKeyboardButton("Повторить оплату", callback_data=f"distribution_pay_{amount}")
-            )
-            bot.edit_message_text(
-                f"❌ Недостаточно средств. Требуется {amount}₽, на балансе {current_balance:,.2f}₽.\n\nПополните баланс и попробуйте снова.",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-    except Exception as e:
-        logger.error(f"Error in handle_distribution_pay: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка обработки оплаты", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-def save_release_data_for_user(user_id: int, chat_id: int) -> None:
-    """Save release using data from bot.user_data for specified user and notify."""
-    user_data = bot.user_data.get(user_id, {})
-    release_type = user_data.get('release_type', '')
-
-    # Отладочная информация
-    logger.info(f"Saving release for user {user_id}, release_type: {release_type}")
-    logger.info(f"User data cover_file_id: {user_data.get('cover_file_id')}")
-    logger.info(f"Full user_data keys: {list(user_data.keys())}")
-    debug_user_data(user_id, "before_release_save")
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.send_message(chat_id, "❌ Ошибка подключения к БД")
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        if release_type == "ALBUM" or release_type == "EP" or release_type == "Maxi Single":
-            # Сохранение записи альбома/мульти-трекового релиза как альбома
-            # Используем контракт первого трека для записи альбома
-            first_track_contract = (user_data.get('tracks') or [{}])[0].get('contract_file_id', 'N/A')
-            cursor.execute('''
-                INSERT INTO releases (
-                    user_id, release_type, artist_name, release_name,
-                    genre, cover_file_id, release_date, performer_name,
-                    music_author, contract_file_id, videoshot_url, explicit_content,
-                    lyrics_file_id, preview_start, yandex_soon, create_links,
-                    tiktok_commercial, tiktok_full_version, status, is_album
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                user_id,
-                "ALBUM",
-                user_data.get('album_artist') or user_data.get('artist_name'),
-                user_data.get('album_name') or user_data.get('release_name'),
-                (user_data.get('tracks') or [{}])[0].get('genre') or 'N/A',
-                user_data.get('cover_file_id'),
-                user_data.get('release_date'),
-                user_data.get('performer_name'),
-                user_data.get('music_author'),
-                first_track_contract,
-                user_data.get('videoshot_url'),
-                user_data.get('explicit_content', False),
-                user_data.get('lyrics_file_id'),
-                user_data.get('preview_start'),
-                user_data.get('yandex_soon', False),
-                user_data.get('create_links', False),
-                user_data.get('tiktok_commercial', False),
-                user_data.get('tiktok_full_version', False),
-                'pending',
-                True
-            ))
-            album_id = cursor.fetchone()[0]
-
-            # Сохранение треков
-            for track in user_data.get('tracks', []):
-                cursor.execute('''
-                    INSERT INTO releases (
-                        user_id, release_type, artist_name, release_name, producer, genre,
-                        audio_file_id, release_date, performer_name, music_author,
-                        contract_file_id, explicit_content, status, album_id, is_track, track_number,
-                        lyrics_file_id
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ''', (
-                    user_id,
-                    "TRACK",
-                    user_data.get('album_artist') or user_data.get('artist_name'),
-                    track.get('track_name'),
-                    track.get('producer'),
-                    track.get('genre') or 'N/A',
-                    track.get('audio_file_id'),
-                    user_data.get('release_date'),
-                    user_data.get('performer_name'),
-                    user_data.get('music_author'),
-                    track.get('contract_file_id'),
-                    user_data.get('explicit_content', False),
-                    'pending',
-                    album_id,
-                    True,
-                    track.get('track_number'),
-                    track.get('lyrics_file_id')
-                ))
-
-            release_name = user_data.get('album_name') or user_data.get('release_name') or 'Релиз'
-            conn.commit()
-            bot.send_message(chat_id, f"✅ Релиз «{release_name}» успешно отправлен на модерацию!",
-                             reply_markup=create_main_menu())
-            notify_admins_about_new_release(user_id, album_id)
-        else:
-            # Сохранение сингла
-            cursor.execute('''
-                INSERT INTO releases (
-                    user_id, release_type, artist_name, release_name, producer, genre,
-                    cover_file_id, audio_file_id, release_date, performer_name,
-                    music_author, contract_file_id, videoshot_url, explicit_content,
-                    lyrics_file_id, preview_start, yandex_soon, create_links,
-                    tiktok_commercial, tiktok_full_version, status, is_album
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                user_id,
-                user_data.get('release_type'),
-                user_data.get('artist_name'),
-                user_data.get('release_name'),
-                user_data.get('producer'),
-                user_data.get('genre') or 'N/A',
-                user_data.get('cover_file_id'),
-                user_data.get('audio_file_id'),
-                user_data.get('release_date'),
-                user_data.get('performer_name'),
-                user_data.get('music_author'),
-                user_data.get('contract_file_id'),
-                user_data.get('videoshot_url'),
-                user_data.get('explicit_content', False),
-                user_data.get('lyrics_file_id'),
-                user_data.get('preview_start'),
-                user_data.get('yandex_soon', False),
-                user_data.get('create_links', False),
-                user_data.get('tiktok_commercial', False),
-                user_data.get('tiktok_full_version', False),
-                'pending',
-                False
-            ))
-            release_id = cursor.fetchone()[0]
-            release_name = user_data.get('release_name') or 'Релиз'
-            conn.commit()
-            bot.send_message(chat_id, f"✅ Релиз «{release_name}» успешно отправлен на модерацию!",
-                             reply_markup=create_main_menu())
-            notify_admins_about_new_release(user_id, release_id)
-
-    except Exception as e:
-        logger.error(f"Ошибка при сохранении релиза для пользователя {user_id}: {e}")
-        bot.send_message(chat_id, "❌ Произошла ошибка при сохранении релиза. Попробуйте еще раз.")
-        if conn:
-            conn.rollback()
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-def process_track_audio(message):
-    """Process audio file for track and then ask for track contract"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    if not message.audio and not message.document:
-        msg = bot.send_message(
-            message.chat.id,
-            "Пожалуйста, загрузите аудиофайл",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_track_audio)
-        return
-
-    user_id = message.from_user.id
-    current_track_idx = bot.user_data[user_id]['current_track'] - 1
-
-    # Save audio file ID
-    if message.audio:
-        file_id = message.audio.file_id
-    else:
-        file_id = message.document.file_id
-
-    bot.user_data[user_id]['tracks'][current_track_idx]['audio_file_id'] = file_id
-
-    # After audio, ask for contract for this track
-    ask_track_contract(message)
-
-
-def ask_track_contract(message):
-    """Запрос договора на бит для текущего трека"""
-    user_id = message.from_user.id
-    current_track = bot.user_data[user_id]['current_track']
-
-    bot.send_message(
-        message.chat.id,
-        f"9.1) ДОГОВОР НА БИТ для трека {current_track}\n\n"
-        "Загрузите 1 файл поддерживаемого типа. Размер файла – не более 10 MB.",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_track_contract)
-
-
-def process_track_contract(message):
-    """Обработка договора на бит для текущего трека"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    # Используем универсальную функцию валидации
-    is_valid, error_message, file_id = validate_file_upload(
-        message, 
-        allowed_extensions=['.pdf', '.doc', '.docx', '.jpg', '.png'], 
-        max_size_mb=10, 
-        required_type="document"
-    )
-    
-    if not is_valid:
-        msg = bot.send_message(
-            message.chat.id,
-            error_message,
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_track_contract)
-        return
-
-    user_id = message.from_user.id
-    current_track_idx = bot.user_data[user_id]['current_track'] - 1
-    bot.user_data[user_id]['tracks'][current_track_idx]['contract_file_id'] = file_id
-
-    # После договора — спросим текст для ТЕКУЩЕГО трека
-    ask_track_lyrics(message)
-
-
-def ask_track_lyrics(message):
-    """Запрос текста (TXT-файл) для текущего трека"""
-    user_id = message.from_user.id
-    current_track = bot.user_data[user_id]['current_track']
-
-    bot.send_message(
-        message.chat.id,
-        f"9.2) Текст трека {current_track} файлом в формате .txt:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_track_lyrics)
-
-
-def process_track_lyrics(message):
-    """Обработка текста трека (ожидаем документ txt)"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    current_track_idx = bot.user_data[user_id]['current_track'] - 1
-
-    # Используем универсальную функцию валидации
-    is_valid, error_message, file_id = validate_file_upload(
-        message, 
-        allowed_extensions=['.txt'], 
-        max_size_mb=10, 
-        required_type="document"
-    )
-    
-    if not is_valid:
-        msg = bot.send_message(
-            message.chat.id,
-            error_message,
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_track_lyrics)
-        return
-
-    # Сохраняем file_id текста трека
-    bot.user_data[user_id]['tracks'][current_track_idx]['lyrics_file_id'] = file_id
-
-    # Переход к следующему треку или завершение
-    bot.user_data[user_id]['current_track'] += 1
-    track_count = bot.user_data[user_id]['track_count']
-
-    if bot.user_data[user_id]['current_track'] <= track_count:
-        ask_track_info(message)
-    else:
-        ask_album_cover(message)
-
-
-def ask_album_cover(message):
-    """Запрос обложки альбома с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "10) Обложка альбома (PNG, JPG 3000x3000):\n\n"
-        "🎨 Способы отправки обложки:\n"
-        "📷 Как фото (быстро, сжатое)\n"
-        "📎 Как документ (лучшее качество, несжатое)\n\n"
-        "💡 Для лучшего качества ОБЯЗАТЕЛЬНО отправляйте как документ:\n"
-        "• Нажмите на скрепку 📎\n"
-        "• Выберите 'Файл' или 'Документ'\n"
-        "• Выберите файл обложки\n\n"
-        "⚠️ ВАЖНО: Отправка как фото значительно снижает качество!\n"
-        "✅ Поддерживаемые форматы: PNG, JPG, JPEG, WEBP\n"
-        "📐 Рекомендуемый размер: 3000x3000 пикселей\n"
-        "💾 Максимальный размер файла: 100 MB",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_album_cover)
-
-
-def process_album_cover(message):
-    """Обработка обложки альбома с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-
-    try:
-        if message.photo:
-            # Принимаем сжатые изображения (фото)
-            file_id = message.photo[-1].file_id
-            logger.info(f"Received album photo cover, file_id: {file_id}")
-
-            # Проверяем и инициализируем user_data если нужно
-            if user_id not in bot.user_data:
-                logger.warning(f"User data not found for user {user_id}, reinitializing")
-                bot.user_data[user_id] = {}
-
-            bot.user_data[user_id]['cover_file_id'] = file_id
-            bot.user_data[user_id]['cover_file_type'] = 'photo'  # Сохраняем тип файла
-            logger.info(f"Saved album photo cover_file_id for user {user_id}: {file_id}")
-            debug_user_data(user_id, "after_album_photo_cover")
-
-            bot.send_message(
-                message.chat.id,
-                "✅ Обложка принята как фото!"
-            )
-            ask_album_release_date(message)
-            return
-
-        elif message.document:
-            file_name = (message.document.file_name or '').lower()
-            mime_type = (message.document.mime_type or '').lower()
-
-            allowed_extensions = ['.png', '.jpg', '.jpeg', '.webp']
-            # Проверяем MIME-тип, расширение файла и размер
-            if (mime_type.startswith('image/') or any(file_name.endswith(ext) for ext in allowed_extensions)) and message.document.file_size <= 100 * 1024 * 1024:  # 100 MB
-                file_id = message.document.file_id
-                logger.info(f"Received album document cover: {file_name} ({mime_type}), file_id: {file_id}")
-
-                # Проверяем и инициализируем user_data если нужно
-                if user_id not in bot.user_data:
-                    logger.warning(f"User data not found for user {user_id}, reinitializing")
-                    bot.user_data[user_id] = {}
-
-                bot.user_data[user_id]['cover_file_id'] = file_id
-                bot.user_data[user_id]['cover_file_type'] = 'document'  # Сохраняем тип файла
-                logger.info(f"Saved album cover_file_id for user {user_id}: {file_id}")
-                debug_user_data(user_id, "after_album_document_cover")
-
-                bot.send_message(
-                    message.chat.id,
-                    "✅ Обложка принята как документ (качество сохранено)!"
-                )
-                ask_album_release_date(message)
-                return
-
-        # Проверяем размер файла отдельно для более точного сообщения об ошибке
-        if message.document and message.document.file_size > 100 * 1024 * 1024:
-            error_msg = (
-                "❌ Файл слишком большой!\n\n"
-                f"📏 Размер файла: {message.document.file_size / (1024 * 1024):.1f} МБ\n"
-                "💾 Максимальный размер: 100 МБ\n\n"
-                "💡 Рекомендации:\n"
-                "• Сожмите изображение до размера менее 100 МБ\n"
-                "• Используйте формат JPG вместо PNG для уменьшения размера\n"
-                "• Отправьте как фото (📷) для автоматического сжатия\n\n"
-                "Попробуйте отправить обложку еще раз:"
-            )
-        else:
-            error_msg = (
-                "❌ Неверный формат обложки!\n\n"
-                "Поддерживаемые способы отправки:\n"
-                "📷 Как фото (сжатое)\n"
-                "📎 Как документ (несжатое, лучшее качество)\n\n"
-                "✅ Поддерживаемые форматы: PNG, JPG, JPEG, WEBP\n"
-                "💾 Максимальный размер: 100 МБ\n\n"
-                "Пожалуйста, отправьте обложку в правильном формате:"
-        )
-        msg = bot.send_message(message.chat.id, error_msg, reply_markup=create_cancel_keyboard())
-        bot.register_next_step_handler(msg, process_album_cover)
-
-    except Exception as e:
-        logger.error(f"Ошибка обработки обложки: {str(e)}")
-        error_msg = (
-            "❌ Ошибка обработки файла!\n\n"
-            "Проверьте что файл:\n"
-            "• Является изображением\n"
-            "• Имеет размер менее 100 МБ\n"
-            "• Имеет правильный формат (PNG/JPG/JPEG/WEBP)\n\n"
-            "💡 Рекомендации:\n"
-            "• Для лучшего качества отправляйте как документ (📎)\n"
-            "• Для быстрой загрузки отправляйте как фото (📷)\n"
-            "• Убедитесь, что файл не поврежден\n\n"
-            "Попробуйте отправить обложку еще раз:"
-        )
-        msg = bot.send_message(message.chat.id, error_msg, reply_markup=create_cancel_keyboard())
-        bot.register_next_step_handler(msg, process_album_cover)
-
-
-def ask_album_release_date(message):
-    """Запрос даты релиза альбома с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "11) Дата релиза альбома (в формате ДД.ММ.ГГГГ):\n\n"
-        "📅 Укажите дату выхода вашего альбома:\n\n"
-        "💡 Формат: ДД.ММ.ГГГГ (например: 15.03.2024)\n\n"
-        "⚠️ Важные моменты:\n"
-        "• Дата должна быть в будущем\n"
-        "• Для промо поддержки подавайте заявку за 2 недели до релиза\n"
-        "• Учитывайте время обработки альбома (7-14 дней)\n"
-        "• Все треки альбома выйдут в эту дату\n\n"
-        "📝 Введите дату релиза альбома:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_album_release_date)
-
-
-def process_album_release_date(message):
-    """Обработка даты релиза альбома с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    try:
-        release_date = datetime.strptime(message.text, "%d.%m.%Y").date()
-        user_id = message.from_user.id
-        bot.user_data[user_id]['release_date'] = release_date
-        ask_performer_name(message)
-    except ValueError:
-        msg = bot.send_message(
-            message.chat.id,
-            "Неверный формат даты. Используйте ДД.ММ.ГГГГ",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_album_release_date)
-
-
-# Обновленная функция process_track_audio (единая логика: после аудио спрашиваем текст трека)
-def process_track_audio(message):
-    """Process audio file for track and then ask for track contract"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    if not message.audio and not message.document:
-        msg = bot.send_message(message.chat.id, "Пожалуйста, загрузите аудиофайл")
-        bot.register_next_step_handler(msg, process_track_audio)
-        return
-
-    user_id = message.from_user.id
-    current_track_idx = bot.user_data[user_id]['current_track'] - 1
-
-    # Save audio file ID
-    if message.audio:
-        file_id = message.audio.file_id
-    else:
-        file_id = message.document.file_id
-
-    bot.user_data[user_id]['tracks'][current_track_idx]['audio_file_id'] = file_id
-
-    # After audio, ask for contract for this track
-    ask_track_contract(message)
-
-
-def ask_artist_name(message):
-    """Запрос имени артиста с кнопкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-    bot.user_data[message.from_user.id] = {'release_type': message.text}
-    bot.send_message(
-        message.chat.id,
-        "3) Исполнитель(-и):\n\n"
-        "🎤 Укажите основного исполнителя или группу:\n\n"
-        "💡 Примеры:\n"
-        "• \"Артист Исполнитель\"\n"
-        "• \"The Music Band\"\n"
-        "• \"Singer feat. Rapper\"\n\n"
-        "📝 Если несколько исполнителей, перечислите через запятую:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, ask_release_name)
-
-
-def ask_release_name(message):
-    """Запрос названия релиза с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    try:
-        bot.user_data[message.from_user.id]['artist_name'] = message.text
-        bot.send_message(
-            message.chat.id,
-            "4) Название релиза:\n\n"
-            "🎵 Введите название вашего сингла:\n\n"
-            "💡 Примеры:\n"
-            "• \"Моя Лучшая Песня\"\n"
-            "• \"Summer Hit 2024\"\n"
-            "• \"Love Ballad (Radio Edit)\"\n\n"
-            "📝 Название должно соответствовать аудиофайлу:",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(message, ask_producer)
-    except Exception as e:
-        logger.error(f"Error in ask_release_name: {e}")
-        bot.send_message(message.chat.id, "Произошла ошибка, пожалуйста, попробуйте снова.")
-
-
-@bot.message_handler(commands=['cancel'])
-def cancel_distribution(message):
-    """Отмена процесса создания релиза"""
-    user_id = message.from_user.id
-    if user_id in bot.user_data:
-        # Очищаем только контекст создания релиза, оставляя возможные pending операции
-        for key in list(bot.user_data[user_id].keys()):
-            if key not in ('pending_operation',):
-                bot.user_data[user_id].pop(key, None)
-    bot.send_message(message.chat.id, "❌ Процесс создания релиза отменён.", reply_markup=create_main_menu())
-
-
-def create_cancel_keyboard():
-    """Создает клавиатуру с кнопками отмены и сохранения черновика"""
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(
-        types.KeyboardButton("💾 Сохранить черновик"),
-        types.KeyboardButton("❌ Отмена")
-    )
-    return markup
-
-
-def create_options_keyboard(options):
-    """Создает клавиатуру с опциями, кнопкой отмены и сохранения черновика"""
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    buttons = [types.KeyboardButton(option) for option in options]
-    markup.add(*buttons)
-    markup.add(
-        types.KeyboardButton("💾 Сохранить черновик"),
-        types.KeyboardButton("❌ Отмена")
-    )
-    return markup
-
-
-def ask_producer(message):
-    """Запрос продюсера с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    bot.user_data[message.from_user.id]['release_name'] = message.text
-    bot.send_message(
-        message.chat.id,
-        "5) prod. by (будет указан в формате [prod.by yourbeatmaker]):\n\n"
-        "🎛️ Укажите продюсера/битмейкера:\n\n"
-        "💡 Примеры:\n"
-        "• \"BeatMaker\"\n"
-        "• \"ProducerName\"\n"
-        "• \"YourBeatMaker\"\n\n"
-        "📝 Будет отображаться как: [prod.by ВашПродюсер]",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, ask_genre)
-
-
-def ask_genre(message):
-    """Запрос жанра с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    bot.user_data[message.from_user.id]['producer'] = message.text
-    bot.send_message(
-        message.chat.id,
-        "6) Жанр релиза:\n\n"
-        "🎼 Укажите музыкальный жанр вашего релиза:\n\n"
-        "💡 Популярные жанры:\n"
-        "• Hip-Hop, Rap, Trap\n"
-        "• Pop, Dance, House\n"
-        "• Rock, Alternative, Indie\n"
-        "• R&B, Soul, Jazz\n"
-        "• Electronic, Techno, Dubstep\n\n"
-        "📝 Введите один основной жанр:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_genre)
-
-
-def process_genre(message):
-    """Обработка жанра с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    bot.user_data[message.from_user.id]['genre'] = message.text
-    ask_cover(message)
-
-
-def ask_cover(message):
-    """Запрос обложки с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "7) Обложка релиза (PNG, JPG 3000x3000):\n\n"
-        "🎨 Способы отправки обложки:\n"
-        "📷 Как фото (быстро, сжатое)\n"
-        "📎 Как документ (лучшее качество, несжатое)\n\n"
-        "💡 Для лучшего качества ОБЯЗАТЕЛЬНО отправляйте как документ:\n"
-        "• Нажмите на скрепку 📎\n"
-        "• Выберите 'Файл' или 'Документ'\n"
-        "• Выберите файл обложки\n\n"
-        "⚠️ ВАЖНО: Отправка как фото значительно снижает качество!\n"
-        "✅ Поддерживаемые форматы: PNG, JPG, JPEG, WEBP\n"
-        "📐 Рекомендуемый размер: 3000x3000 пикселей\n"
-        "💾 Максимальный размер файла: 100 MB",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_cover)
-
-
-def process_cover(message):
-    """Обработка обложки с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    if user_id not in bot.user_data:
-        bot.send_message(message.chat.id, "❌ Сессия создания релиза устарела. Начните заново.")
-        return
-
-    try:
-        if message.photo:
-            file_id = message.photo[-1].file_id
-            logger.info(f"Received photo cover: {file_id}")
-
-            # Проверяем и инициализируем user_data если нужно
-            if user_id not in bot.user_data:
-                logger.warning(f"User data not found for user {user_id}, reinitializing")
-                bot.user_data[user_id] = {}
-
-            bot.user_data[user_id]['cover_file_id'] = file_id
-            bot.user_data[user_id]['cover_file_type'] = 'photo'  # Сохраняем тип файла
-            logger.info(f"Saved photo cover_file_id for user {user_id}: {file_id}")
-            debug_user_data(user_id, "after_single_photo_cover")
-
-            bot.send_message(
-                message.chat.id,
-                "✅ Обложка принята как фото!"
-            )
-            ask_audio(message)
-            return
-
-        elif message.document:
-            file_name = (message.document.file_name or '').lower()
-            mime_type = (message.document.mime_type or '').lower()
-
-            allowed_extensions = ['.png', '.jpg', '.jpeg', '.webp']
-            if (mime_type.startswith('image/') or any(file_name.endswith(ext) for ext in allowed_extensions)) and message.document.file_size <= 100 * 1024 * 1024:  # 100 MB
-                file_id = message.document.file_id
-                logger.info(f"Received document cover: {file_name} ({mime_type}), file_id: {file_id}")
-
-                # Проверяем и инициализируем user_data если нужно
-                if user_id not in bot.user_data:
-                    logger.warning(f"User data not found for user {user_id}, reinitializing")
-                    bot.user_data[user_id] = {}
-
-                bot.user_data[user_id]['cover_file_id'] = file_id
-                bot.user_data[user_id]['cover_file_type'] = 'document'  # Сохраняем тип файла
-                logger.info(f"Saved cover_file_id for user {user_id}: {file_id}")
-                debug_user_data(user_id, "after_single_document_cover")
-
-                bot.send_message(
-                    message.chat.id,
-                    "✅ Обложка принята как документ (качество сохранено)!"
-                )
-                ask_audio(message)
-                return
-
-        # Проверяем размер файла отдельно для более точного сообщения об ошибке
-        if message.document and message.document.file_size > 100 * 1024 * 1024:
-            error_msg = (
-                "❌ Файл слишком большой!\n\n"
-                f"📏 Размер файла: {message.document.file_size / (1024 * 1024):.1f} МБ\n"
-                "💾 Максимальный размер: 100 МБ\n\n"
-                "💡 Рекомендации:\n"
-                "• Сожмите изображение до размера менее 100 МБ\n"
-                "• Используйте формат JPG вместо PNG для уменьшения размера\n"
-                "• Отправьте как фото (📷) для автоматического сжатия\n\n"
-                "Попробуйте отправить обложку еще раз:"
-            )
-        else:
-            error_msg = (
-                "❌ Неверный формат обложки!\n\n"
-                "Поддерживаемые способы отправки:\n"
-                "📷 Как фото (сжатое)\n"
-                "📎 Как документ (несжатое, лучшее качество)\n\n"
-                "✅ Поддерживаемые форматы: PNG, JPG, JPEG, WEBP\n"
-                "💾 Максимальный размер: 100 МБ\n\n"
-                "Пожалуйста, отправьте обложку в правильном формате:"
-        )
-        msg = bot.send_message(message.chat.id, error_msg, reply_markup=create_cancel_keyboard())
-        bot.register_next_step_handler(msg, process_cover)
-
-    except Exception as e:
-        logger.error(f"Error processing cover: {str(e)}")
-        error_msg = (
-            "❌ Ошибка обработки файла!\n\n"
-            "Проверьте что файл:\n"
-            "• Является изображением\n"
-            "• Имеет размер менее 100 МБ\n"
-            "• Имеет правильный формат (PNG/JPG/JPEG/WEBP)\n\n"
-            "💡 Рекомендации:\n"
-            "• Для лучшего качества отправляйте как документ (📎)\n"
-            "• Для быстрой загрузки отправляйте как фото (📷)\n"
-            "• Убедитесь, что файл не поврежден\n\n"
-            "Попробуйте отправить обложку еще раз:"
-        )
-        msg = bot.send_message(message.chat.id, error_msg, reply_markup=create_cancel_keyboard())
-        bot.register_next_step_handler(msg, process_cover)
-
-
-def ask_audio(message):
-    """Запрос аудиофайла с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "8) Файл трека (WAV, STEREO):\n\n"
-        "🎧 Загрузите аудиофайл вашего трека:\n\n"
-        "💡 Рекомендуемые форматы:\n"
-        "• WAV (несжатый, лучшее качество)\n"
-        "• MP3 (сжатый, меньший размер)\n"
-        "• FLAC (сжатый без потерь)\n\n"
-        "⚙️ Технические требования:\n"
-        "• Формат: STEREO (стерео)\n"
-        "• Качество: не менее 44.1 kHz / 16 bit\n"
-        "• Максимальный размер: 100 MB\n\n"
-        "📎 Отправьте файл как документ для сохранения качества:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_audio)
-
-
-def process_audio(message):
-    """Обработка аудиофайла с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    if not message.audio and not message.document:
-        msg = bot.send_message(
-            message.chat.id,
-            "Пожалуйста, загрузите аудиофайл",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_audio)
-        return
-
-    if message.audio:
-        file_id = message.audio.file_id
-    else:
-        file_id = message.document.file_id
-
-    bot.user_data[message.from_user.id]['audio_file_id'] = file_id
-    ask_release_date(message)
-
-
-def ask_release_date(message):
-    """Запрос даты релиза с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "9) Дата релиза (в формате ДД.ММ.ГГГГ):\n\n"
-        "📅 Укажите дату выхода вашего релиза:\n\n"
-        "💡 Формат: ДД.ММ.ГГГГ (например: 25.12.2024)\n\n"
-        "⚠️ Важные моменты:\n"
-        "• Дата должна быть в будущем\n"
-        "• Для промо поддержки подавайте заявку за 2 недели до релиза\n"
-        "• Учитывайте время обработки заявки (3-7 дней)\n\n"
-        "📝 Введите дату релиза:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_release_date)
-
-
-def process_release_date(message):
-    """Обработка даты релиза с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    try:
-        release_date = datetime.strptime(message.text, "%d.%m.%Y").date()
-        bot.user_data[message.from_user.id]['release_date'] = release_date
-        ask_performer_name(message)
-    except ValueError:
-        msg = bot.send_message(
-            message.chat.id,
-            "Неверный формат даты. Используйте ДД.ММ.ГГГГ",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_release_date)
-
-
-def ask_performer_name(message):
-    """Запрос ФИО исполнителя с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "10) ФИО Исполнителя (-ей):\n\n"
-        "👤 Укажите полное имя исполнителя для официальных документов:\n\n"
-        "💡 Примеры:\n"
-        "• \"Иванов Иван Иванович\"\n"
-        "• \"Петрова Анна Сергеевна\"\n"
-        "• \"Smith John Michael\"\n\n"
-        "📝 Важно:\n"
-        "• Указывайте реальное ФИО (как в паспорте)\n"
-        "• Если несколько исполнителей, перечислите через запятую\n"
-        "• Эта информация нужна для договоров с площадками:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, ask_music_author)
-
-
-def ask_music_author(message):
-    """Запрос автора музыки с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    bot.user_data[message.from_user.id]['performer_name'] = message.text
-    bot.send_message(
-        message.chat.id,
-        "11) ФИО Автора (-ов) музыки:\n\n"
-        "🎼 Укажите автора(ов) музыкальной композиции:\n\n"
-        "💡 Примеры:\n"
-        "• \"Композиторов Алексей Владимирович\"\n"
-        "• \"Musicmaker Ivan Petrov\"\n"
-        "• \"Иванов И.И., Петров П.П.\"\n\n"
-        "📝 Важные моменты:\n"
-        "• Автор музыки - тот, кто создал мелодию\n"
-        "• Может отличаться от исполнителя\n"
-        "• Если несколько авторов, перечислите через запятую\n"
-        "• Указывайте полные ФИО для авторских прав:",
-        reply_markup=create_cancel_keyboard()
-    )
-    # Всегда следующим шагом обрабатываем авторов в функции ask_contract,
-    # где будет ветвление: для мульти-трековых релизов пропускаем запрос договора
-    bot.register_next_step_handler(message, ask_contract)
-
-
-def ask_contract(message):
-    """Запрос договора с кнопкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    bot.user_data[user_id]['music_author'] = message.text
-    release_type = bot.user_data.get(user_id, {}).get('release_type')
-
-    # Для мульти-трековых релизов пропускаем запрос договора на уровне альбома — договоры собираются по трекам
-    if release_type in ("ALBUM", "EP", "Maxi Single"):
-        ask_videoshot(message)
-        return
-
-    bot.send_message(
-        message.chat.id,
-        "12) ДОГОВОР НА БИТ\n\n"
-        "📄 Загрузите договор на использование бита:\n\n"
-        "💡 Что это:\n"
-        "• Документ, подтверждающий права на использование инструментала\n"
-        "• Договор с битмейкером/продюсером\n"
-        "• Лицензия на бит\n\n"
-        "📎 Форматы файлов:\n"
-        "• PDF, DOC, DOCX, JPG, PNG\n"
-        "• Максимальный размер: 10 MB\n\n"
-        "⚠️ Важно: без этого документа релиз не может быть опубликован на площадках:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_contract)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "releases_approve" or call.data == "releases_reject")
-def handle_release_status_change(call):
-    """Handle release approval/rejection request"""
-    action = "approve" if call.data == "releases_approve" else "reject"
-    bot.edit_message_text(
-        "Введите ID релиза для изменения статуса:",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    bot.register_next_step_handler(call.message, process_release_id, action)
-
-
-def process_release_id(message, action):
-    """Process release ID input"""
-    try:
-        release_id = int(message.text)
-        bot.send_message(
-            message.chat.id,
-            "Выберите новый статус релиза:",
-            reply_markup=create_status_keyboard(release_id, action)
-        )
-    except ValueError:
-        msg = bot.send_message(message.chat.id, "❌ Неверный формат ID. Введите число:")
-        bot.register_next_step_handler(msg, process_release_id, action)
-
-
-def create_status_keyboard(release_id, action):
-    """Create keyboard with status options"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-
-    # For approve/reject show simplified options
-    if action == "approve":
-        markup.add(types.InlineKeyboardButton("✅ Принят", callback_data=f"status_update_{release_id}_принят"))
-    elif action == "reject":
-        markup.add(types.InlineKeyboardButton("❌ Отклонен", callback_data=f"status_update_{release_id}_отклонен"))
-
-    # Add all status options
-    for status in RELEASE_STATUSES:
-        if status not in ["принят", "отклонен"]:  # Already added
-            markup.add(types.InlineKeyboardButton(
-                f"🔄 {status.capitalize()}",
-                callback_data=f"status_update_{release_id}_{status}"
-            ))
-
-    return markup
-
-
-def process_contract(message):
-    """Обработка договора с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    # Используем универсальную функцию валидации
-    is_valid, error_message, file_id = validate_file_upload(
-        message, 
-        allowed_extensions=['.pdf', '.doc', '.docx', '.jpg', '.png'], 
-        max_size_mb=10, 
-        required_type="document"
-    )
-    
-    if not is_valid:
-        msg = bot.send_message(
-            message.chat.id,
-            error_message,
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_contract)
-        return
-
-    bot.user_data[message.from_user.id]['contract_file_id'] = file_id
-    ask_videoshot(message)
-
-
-def ask_videoshot(message):
-    """Запрос видеошота с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "13) Ссылка на видеошот для Яндекс.Музыки (если нет, напишите 'нет'):\n\n"
-        "🎥 Видеошот - короткий вертикальный клип для промо:\n\n"
-        "💡 Что это:\n"
-        "• Короткое видео (15-30 сек) в вертикальном формате\n"
-        "• Используется для продвижения в Яндекс.Музыке\n"
-        "• Может содержать отрывок трека + визуал\n\n"
-        "📎 Как отправить:\n"
-        "• Загрузите видео на YouTube, VK, или другую платформу\n"
-        "• Отправьте ссылку на видео\n"
-        "• Если видеошота нет, напишите 'нет'\n\n"
-        "📝 Введите ссылку или 'нет':",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, ask_explicit_content)
-
-
-def process_explicit_response(message):
-    """Обработка контента для взрослых с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    bot.user_data[user_id]['explicit_content'] = message.text.lower() == 'да'
-
-    # Для многотрековых форматов (ALBUM, EP, Maxi Single) текст треков уже собран по каждому треку,
-    # поэтому переходим сразу к следующему шагу без вопроса "15) Текст трека ..."
-    if bot.user_data[user_id].get('release_type') in ['ALBUM', 'EP', 'Maxi Single']:
-        ask_preview_start(message)
-    else:
-        ask_lyrics(message)
-
-
-def ask_explicit_content(message):
-    """Запрос контента для взрослых с кнопкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    bot.user_data[user_id]['videoshot_url'] = message.text if message.text.lower() != 'нет' else None
-
-    markup = create_options_keyboard(["Да", "Нет"])
-    msg = bot.send_message(
-        message.chat.id,
-        "14) Нецензурная лексика в треке (маты):",
-        reply_markup=markup
-    )
-    bot.register_next_step_handler(msg, process_explicit_response)
-
-
-def ask_lyrics(message):
-    """Запрос текста песни с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "15) Текст трека файлом в формате txt:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_lyrics)
-
-
-def process_lyrics(message):
-    """Обработка текста песни с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    # Используем универсальную функцию валидации
-    is_valid, error_message, file_id = validate_file_upload(
-        message, 
-        allowed_extensions=['.txt'], 
-        max_size_mb=10, 
-        required_type="document"
-    )
-    
-    if not is_valid:
-        msg = bot.send_message(
-            message.chat.id,
-            error_message,
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_lyrics)
-        return
-
-    bot.user_data[message.from_user.id]['lyrics_file_id'] = file_id
-    ask_preview_start(message)
-
-
-def ask_preview_start(message):
-    """Запрос времени предпрослушивания с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "16) Начало предпрослушивания (секунда начала звука, например 90 для 1:30):",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, ask_yandex_soon)
-
-
-def ask_yandex_soon(message):
-    """Запрос плашки 'Скоро' с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    try:
-        bot.user_data[message.from_user.id]['preview_start'] = int(message.text)
-        markup = create_options_keyboard(["Да", "Нет"])
-        msg = bot.send_message(
-            message.chat.id,
-            "17) Плашка 'скоро новый релиз' на Яндекс.Музыке:",
-            reply_markup=markup
-        )
-        bot.register_next_step_handler(msg, ask_create_links)
-    except ValueError:
-        msg = bot.send_message(
-            message.chat.id,
-            "Пожалуйста, введите число (секунды)",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, ask_yandex_soon)
-
-
-def ask_create_links(message):
-    """Запрос создания ссылок с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    bot.user_data[message.from_user.id]['yandex_soon'] = message.text.lower() == 'да'
-    markup = create_options_keyboard(["Да", "Нет"])
-    msg = bot.send_message(
-        message.chat.id,
-        "18) Сделать ссылку на все площадки?",
-        reply_markup=markup
-    )
-    bot.register_next_step_handler(msg, ask_tiktok_features)
-
-
-def ask_tiktok_features(message):
-    """Запрос функций TikTok с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    bot.user_data[message.from_user.id]['create_links'] = message.text.lower() == 'да'
-    markup = create_options_keyboard(["Да", "Нет"])
-    msg = bot.send_message(
-        message.chat.id,
-        "19) Разрешить коммерческое использование в TikTok?",
-        reply_markup=markup
-    )
-    bot.register_next_step_handler(msg, process_tiktok_commercial)
-
-
-def process_promo_create_limited(message):
-    """Process promo code creation with usage limit"""
-    try:
-        parts = message.text.strip().split()
-        if len(parts) != 3:
-            bot.reply_to(message, "❌ Неверный формат. Используйте: КОД СУММА КОЛИЧЕСТВО_ИСПОЛЬЗОВАНИЙ")
-            return
-        
-        code = parts[0].upper()
-        amount = float(parts[1])
-        max_uses = int(parts[2])
-        
-        if amount <= 0:
-            bot.reply_to(message, "❌ Сумма должна быть больше 0")
-            return
-        
-        if max_uses <= 0:
-            bot.reply_to(message, "❌ Количество использований должно быть больше 0")
-            return
-        
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-        
-        try:
-            cursor = conn.cursor()
-            
-            # Check if all required columns exist, if not - create them
-            required_columns = ['amount', 'discount', 'is_used', 'created_by', 'used_by', 'used_at', 'max_uses', 'current_uses', 'expires_at', 'is_active']
-            for column in required_columns:
-                cursor.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'promo_codes' AND column_name = '{column}'
-                """)
-                
-                if not cursor.fetchone():
-                    # Column doesn't exist, add it
-                    if column == 'amount':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN amount NUMERIC(10, 2) DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET amount = 0 WHERE amount IS NULL")
-                    elif column == 'discount':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN discount NUMERIC(10, 2) DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET discount = 0 WHERE discount IS NULL")
-                    elif column == 'is_used':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN is_used BOOLEAN DEFAULT FALSE")
-                        cursor.execute("UPDATE promo_codes SET is_used = FALSE WHERE is_used IS NULL")
-                    elif column == 'created_by':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN created_by BIGINT DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET created_by = 0 WHERE created_by IS NULL")
-                    elif column == 'used_by':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN used_by BIGINT")
-                    elif column == 'used_at':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN used_at TIMESTAMP")
-                    elif column == 'max_uses':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN max_uses INTEGER DEFAULT NULL")
-                    elif column == 'current_uses':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN current_uses INTEGER DEFAULT 0")
-                    elif column == 'expires_at':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN expires_at TIMESTAMP DEFAULT NULL")
-                    elif column == 'is_active':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN is_active BOOLEAN DEFAULT TRUE")
-                    
-                    logger.info(f"✅ Added column {column} to promo_codes table during promo creation")
-            
-            # Now insert the promo code with usage limit
-            cursor.execute(
-                'INSERT INTO promo_codes (code, amount, discount, created_by, max_uses, current_uses, is_active) VALUES (%s, %s, %s, %s, %s, %s, %s)',
-                (code, amount, 0, message.from_user.id, max_uses, 0, True)
-            )
-            conn.commit()
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="finance_promo"))
-            
-            bot.reply_to(
-                message,
-                f"✅ Промокод создан!\n\n"
-                f"Код: {code}\n"
-                f"Сумма: {amount}₽\n"
-                f"Максимум использований: {max_uses}",
-                reply_markup=markup
-            )
-            
-        except Error as e:
-            if "duplicate key" in str(e).lower():
-                bot.reply_to(message, "❌ Промокод с таким кодом уже существует")
-            else:
-                bot.reply_to(message, f"❌ Ошибка создания промокода: {str(e)}")
-        finally:
-            cursor.close()
-            return_pg_connection(conn)
-            
-    except ValueError:
-        bot.reply_to(message, "❌ Неверный формат. Введите корректные числа")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
-
-
-def process_promo_create_timed(message):
-    """Process promo code creation with time limit"""
-    try:
-        parts = message.text.strip().split()
-        if len(parts) != 3:
-            bot.reply_to(message, "❌ Неверный формат. Используйте: КОД СУММА ДАТА_ОКОНЧАНИЯ")
-            return
-        
-        code = parts[0].upper()
-        amount = float(parts[1])
-        expiry_date_str = parts[2]
-        
-        if amount <= 0:
-            bot.reply_to(message, "❌ Сумма должна быть больше 0")
-            return
-        
-        # Parse expiry date (DD.MM.YYYY format)
-        try:
-            expiry_date = datetime.strptime(expiry_date_str, "%d.%m.%Y")
-            # Set time to end of day
-            expiry_date = expiry_date.replace(hour=23, minute=59, second=59)
-        except ValueError:
-            bot.reply_to(message, "❌ Неверный формат даты. Используйте: ДД.ММ.ГГГГ")
-            return
-        
-        # Check if date is in the future
-        if expiry_date <= datetime.now():
-            bot.reply_to(message, "❌ Дата окончания должна быть в будущем")
-            return
-        
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-        
-        try:
-            cursor = conn.cursor()
-            
-            # Check if all required columns exist, if not - create them
-            required_columns = ['amount', 'discount', 'is_used', 'created_by', 'used_by', 'used_at', 'max_uses', 'current_uses', 'expires_at', 'is_active']
-            for column in required_columns:
-                cursor.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'promo_codes' AND column_name = '{column}'
-                """)
-                
-                if not cursor.fetchone():
-                    # Column doesn't exist, add it
-                    if column == 'amount':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN amount NUMERIC(10, 2) DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET amount = 0 WHERE amount IS NULL")
-                    elif column == 'discount':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN discount NUMERIC(10, 2) DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET discount = 0 WHERE discount IS NULL")
-                    elif column == 'is_used':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN is_used BOOLEAN DEFAULT FALSE")
-                        cursor.execute("UPDATE promo_codes SET is_used = FALSE WHERE is_used IS NULL")
-                    elif column == 'created_by':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN created_by BIGINT DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET created_by = 0 WHERE created_by IS NULL")
-                    elif column == 'used_by':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN used_by BIGINT")
-                    elif column == 'used_at':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN used_at TIMESTAMP")
-                    elif column == 'max_uses':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN max_uses INTEGER DEFAULT NULL")
-                    elif column == 'current_uses':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN current_uses INTEGER DEFAULT 0")
-                    elif column == 'expires_at':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN expires_at TIMESTAMP DEFAULT NULL")
-                    elif column == 'is_active':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN is_active BOOLEAN DEFAULT TRUE")
-                    
-                    logger.info(f"✅ Added column {column} to promo_codes table during promo creation")
-            
-            # Now insert the promo code with time limit
-            cursor.execute(
-                'INSERT INTO promo_codes (code, amount, discount, created_by, expires_at, is_active) VALUES (%s, %s, %s, %s, %s, %s)',
-                (code, amount, 0, message.from_user.id, expiry_date, True)
-            )
-            conn.commit()
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="finance_promo"))
-            
-            bot.reply_to(
-                message,
-                f"✅ Промокод создан!\n\n"
-                f"Код: {code}\n"
-                f"Сумма: {amount}₽\n"
-                f"Действует до: {expiry_date.strftime('%d.%m.%Y')}",
-                reply_markup=markup
-            )
-            
-        except Error as e:
-            if "duplicate key" in str(e).lower():
-                bot.reply_to(message, "❌ Промокод с таким кодом уже существует")
-            else:
-                bot.reply_to(message, f"❌ Ошибка создания промокода: {str(e)}")
-        finally:
-            cursor.close()
-            return_pg_connection(conn)
-            
-    except ValueError:
-        bot.reply_to(message, "❌ Неверный формат. Введите корректные числа")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "distribution_agree")
-def handle_distribution_agree(call):
-    """Handle agreement with distribution terms"""
-    conn = None
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "Ошибка подключения к базе данных", show_alert=True)
-            return
-
-        with conn.cursor() as cursor:
-            cursor.execute(
-                'INSERT INTO distribution_agreements (user_id, agreed) VALUES (%s, %s)',
-                (call.from_user.id, True)
-            )
-            conn.commit()
-
-        ask_release_type(call.message)
-    except Exception as e:
-        logger.error(f"Error saving distribution agreement: {e}")
-        bot.answer_callback_query(call.id, f"Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            return_pg_connection(conn)
-
-
-def save_release_data(message):
-    user_id = message.from_user.id
-    user_data = bot.user_data.get(user_id, {})
-    release_type = user_data.get('release_type', '')
-
-    # Отладочная информация
-    logger.info(f"Saving release data for user {user_id}, release_type: {release_type}")
-    logger.info(f"User data cover_file_id: {user_data.get('cover_file_id')}")
-    logger.info(f"Full user_data keys: {list(user_data.keys())}")
-    debug_user_data(user_id, "before_save_release_data")
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.send_message(message.chat.id, "❌ Ошибка подключения к БД")
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        if release_type == "ALBUM" or release_type == "EP" or release_type == "Maxi Single":
-            # Сохранение альбома
-            # Используем контракт первого трека для записи альбома
-            first_track_contract = (user_data.get('tracks') or [{}])[0].get('contract_file_id', 'N/A')
-            cursor.execute('''
-                INSERT INTO releases (
-                    user_id, release_type, artist_name, release_name, 
-                    genre, cover_file_id, release_date, performer_name,
-                    music_author, contract_file_id, videoshot_url, explicit_content,
-                    lyrics_file_id, preview_start, yandex_soon, create_links,
-                    tiktok_commercial, tiktok_full_version, status, is_album
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                user_id,
-                "ALBUM",
-                user_data.get('album_artist') or user_data.get('artist_name'),
-                user_data.get('album_name') or user_data.get('release_name'),
-                (user_data.get('tracks') or [{}])[0].get('genre') or 'N/A',
-                user_data.get('cover_file_id'),
-                user_data.get('release_date'),
-                user_data.get('performer_name'),
-                user_data.get('music_author'),
-                first_track_contract,
-                user_data.get('videoshot_url'),
-                user_data.get('explicit_content', False),
-                user_data.get('lyrics_file_id'),
-                user_data.get('preview_start'),
-                user_data.get('yandex_soon', False),
-                user_data.get('create_links', False),
-                user_data.get('tiktok_commercial', False),
-                user_data.get('tiktok_full_version', False),
-                'pending',
-                True
-            ))
-            album_id = cursor.fetchone()[0]
-
-            # Сохранение треков
-            for track in user_data.get('tracks', []):
-                cursor.execute('''
-                    INSERT INTO releases (
-                        user_id, release_type, artist_name, release_name, producer, genre,
-                        audio_file_id, release_date, performer_name, music_author,
-                        contract_file_id, explicit_content, status, album_id, is_track, track_number,
-                        lyrics_file_id
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ''', (
-                    user_id,
-                    "TRACK",
-                    user_data.get('album_artist') or user_data.get('artist_name'),
-                    track.get('track_name'),
-                    track.get('producer'),
-                    track.get('genre') or 'N/A',
-                    track.get('audio_file_id'),
-                    user_data.get('release_date'),
-                    user_data.get('performer_name'),
-                    user_data.get('music_author'),
-                    track.get('contract_file_id'),
-                    user_data.get('explicit_content', False),
-                    'pending',
-                    album_id,
-                    True,
-                    track.get('track_number'),
-                    track.get('lyrics_file_id')
-                ))
-
-            release_name = user_data.get('album_name') or user_data.get('release_name') or 'Релиз'
-
-        else:
-            # Сохранение сингла
-            cursor.execute('''
-                INSERT INTO releases (
-                    user_id, release_type, artist_name, release_name, producer, genre,
-                    cover_file_id, audio_file_id, release_date, performer_name,
-                    music_author, contract_file_id, videoshot_url, explicit_content,
-                    lyrics_file_id, preview_start, yandex_soon, create_links,
-                    tiktok_commercial, tiktok_full_version, status, is_album
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                user_id,
-                user_data.get('release_type'),
-                user_data.get('artist_name'),
-                user_data.get('release_name'),
-                user_data.get('producer'),
-                user_data.get('genre') or 'N/A',
-                user_data.get('cover_file_id'),
-                user_data.get('audio_file_id'),
-                user_data.get('release_date'),
-                user_data.get('performer_name'),
-                user_data.get('music_author'),
-                user_data.get('contract_file_id'),
-                user_data.get('videoshot_url'),
-                user_data.get('explicit_content', False),
-                user_data.get('lyrics_file_id'),
-                user_data.get('preview_start'),
-                user_data.get('yandex_soon', False),
-                user_data.get('create_links', False),
-                user_data.get('tiktok_commercial', False),
-                user_data.get('tiktok_full_version', False),
-                'pending',
-                False  # not album
-            ))
-            release_id = cursor.fetchone()[0]
-            release_name = user_data['release_name']
-
-        conn.commit()
-
-        # Уведомление пользователя
-        bot.send_message(
-            message.chat.id,
-            f"✅ Релиз «{release_name}» успешно отправлен на модерацию!",
-            reply_markup=create_main_menu()
-        )
-
-        # Уведомление админов
-        notify_admins_about_new_release(user_id, release_id if release_type != "ALBUM" else album_id)
-
-    except Exception as e:
-        logger.exception(f"Ошибка сохранения релиза")
-        bot.send_message(
-            message.chat.id,
-            f"❌ Критическая ошибка: {str(e)}",
-            reply_markup=create_main_menu()
-        )
-    finally:
-        if user_id in bot.user_data:
-            del bot.user_data[user_id]
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-def create_admin_notification(release_info):
-    """Create detailed notification message for admins"""
-    return notifications.create_admin_notification_message(release_info, BOT_TOKEN)
-
-
-def notify_all_admins(message_text):
-    """Send notification to all admins"""
-    notifications.notify_all_admins(bot, get_all_admins(), message_text, logger)
-
-
-def notify_admins(user_id, release_id):
-    """Notify admins about new release"""
-    notifications.notify_release_admins(
-        bot,
-        user_id,
-        release_id,
-        get_pg_connection,
-        return_pg_connection,
-        get_all_admins,
-        logger,
-        escape_markdown,
-    )
-
-
-def notify_admins_about_new_release(user_id, release_id):
-    """Notify admins about new release submission"""
-    notifications.notify_admins_about_new_release(
-        bot,
-        user_id,
-        release_id,
-        get_pg_connection,
-        return_pg_connection,
-        logger,
-    )
-
-
-def notify_admins_about_report_request(user_id, report_id, user_name, username):
-    """Notify admins about new report request"""
-    notifications.notify_admins_about_report_request(
-        bot,
-        user_id,
-        report_id,
-        user_name,
-        username,
-        get_pg_connection,
-        return_pg_connection,
-        logger,
-    )
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_view_release_"))
-def handle_admin_view_release(call):
-    """Handle admin request to view release attachments"""
-    try:
-        # Extract release ID from callback data
-        release_id = call.data.split("_")[-1]
-        logger.info(f"Admin requested attachments for release: {release_id}")
-
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Database connection error", show_alert=True)
-            return
-
-        cursor = conn.cursor()
-
-        # Get release details
-        cursor.execute('''
-            SELECT cover_file_id, audio_file_id, contract_file_id, lyrics_file_id
-            FROM releases 
-            WHERE id = %s
-        ''', (release_id,))
-        release_files = cursor.fetchone()
-
-        if not release_files:
-            bot.answer_callback_query(call.id, "❌ Release not found", show_alert=True)
-            return
-
-        # Send files if available
-        if release_files[0]:  # Cover
-                            send_file_smart(call.message.chat.id, release_files[0], caption="🎨 Release Cover", file_type_hint='photo')
-
-        if release_files[1]:  # Audio
-            bot.send_audio(call.message.chat.id, release_files[1], caption="🎧 Audio Track")
-
-        if release_files[2]:  # Contract
-            bot.send_document(call.message.chat.id, release_files[2], caption="📝 Beat Contract")
-
-        if release_files[3]:  # Lyrics
-            bot.send_document(call.message.chat.id, release_files[3], caption="📜 Song Lyrics")
-
-        # Confirm to admin
-        bot.answer_callback_query(call.id, "✅ Attachments sent")
-
-    except Exception as e:
-        logger.error(f"Error in handle_admin_view_release: {e}")
-        bot.answer_callback_query(call.id, f"❌ Error: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-def check_subscription(user_id):
-    """Check if user is subscribed to the required channel"""
-    try:
-        member = bot.get_chat_member(chat_id=-1002021934191, user_id=user_id)
-        return member is not None
-    except Exception as e:
-        print(e)
-        return False
-
-
-def has_access_level(user_id, required_levels):
-    """Check if user has required access level using Telegram ID, not username"""
-    conn = None
-    cur = None
-    try:
-        logger.info(f"Starting access level check for user_id: {user_id}")
-
-        # Сначала проверяем список постоянных админов
-        if user_id in PERMANENT_ADMINS:
-            logger.info(f"User {user_id} is a permanent admin")
-            return True
-
-        # Подключаемся к базе данных
-        conn = get_pg_connection()
-        if not conn:
-            logger.error("Failed to connect to database")
-            return False
-        cur = conn.cursor()
-
-        # Проверяем флаг admin по telegram_id
-        cur.execute("SELECT admin FROM label WHERE telegram_id = %s", (user_id,))
-        result = cur.fetchone()
-        logger.info(f"Admin flag by telegram_id result: {result}")
-
-        return bool(result and result[0] == 1)
-
-    except Exception as e:
-        logger.error(f"Error checking access level: {e}")
-        return False
-    finally:
-        try:
-            if cur:
-                cur.close()
-            if conn:
-                return_pg_connection(conn)
-        except Exception:
-            pass
-
-
-@bot.message_handler(commands=['start'])
-@require_channel_subscription
-def start(message):
-    """Handle /start command"""
-    user_id = message.from_user.id
-    username = message.from_user.username
-
-    # Извлекаем реферальный код из команды /start REFERRAL_CODE
-    referral_code = None
-    if message.text and len(message.text.split()) > 1:
-        referral_code = message.text.split()[1].strip()
-
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "Извините, произошла ошибка при подключении к базе данных.")
-            return
-
-        cursor = conn.cursor()
-
-        # Ищем пользователя по telegram_id и обновляем username (tg), если он указан
-        cursor.execute('SELECT id, tg FROM label WHERE telegram_id = %s', (user_id,))
-        row = cursor.fetchone()
-
-        is_new_user = False
-        if row:
-            current_tg = row[1]
-            if username and current_tg != username:
-                cursor.execute('UPDATE label SET tg = %s WHERE telegram_id = %s', (username, user_id))
-            bot.reply_to(message, "С возвращением!")
-        else:
-            # Пользователь не найден по telegram_id — регистрируем нового
-            is_new_user = True
-            cursor.execute('SELECT COALESCE(MAX(id), 0) + 1 FROM label')
-            result = cursor.fetchone()
-            new_id = result[0] if result else 1
-
-            cursor.execute(
-                'INSERT INTO label (id, tg, telegram_id, admin, artist, created_date) VALUES (%s, %s, %s, %s, %s, %s)',
-                (new_id, username, user_id, 0, 0, datetime.now())
-            )
-            bot.reply_to(message, "Добро пожаловать! Вы успешно зарегистрированы в системе.")
-            logger.info(f"New user registered: {user_id} (username: {username or 'не указан'}) with ID {new_id}")
-
-        conn.commit()
-
-        # Обрабатываем реферальный код
-        if referral_code:
-            try:
-                if is_new_user:
-                    cursor.execute('SELECT id FROM referrals WHERE referred_id = %s', (user_id,))
-                    existing_referral = cursor.fetchone()
-                    if not existing_referral:
-                        handle_referral_registration(cursor, user_id, referral_code, conn)
-                        conn.commit()
-                        logger.info(f"Referral code {referral_code} processed for new user {user_id}")
-                    else:
-                        notify_referrer_about_visit(referral_code, user_id, username)
-                else:
-                    notify_referrer_about_visit(referral_code, user_id, username)
-            except Exception as e:
-                logger.error(f"Error processing referral code {referral_code} for user {user_id}: {e}")
-                if is_new_user:
-                    conn.rollback()
-
-    except Error as e:
-        logger.error(f"Database error in start handler: {e}")
-        bot.reply_to(message, "Произошла ошибка при обработке вашего запроса.")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-    # Создаем клавиатуру
-    markup = create_main_menu()
-
-    # Отправляем приветственное сообщение
-    welcome_text = (
-        "Добро пожаловать в talk with a star // label  ⭐️\n\n"
-        "Мы - музыкальный лейбл и мы поможем вам:\n"
-        "• Выпустить трек на все площадки 🎧\n"
-        "• Создать обложку для релиза 🎨\n"
-        "• Заказать историю к релизу\n"
-        "• Получить продвижение 📈\n\n"
-        "Используйте меню ниже для навигации 👇\n\n"
-        "💡 Команды:\n"
-        "/start - Главная страница\n"
-        "/main - Вернуться в главное меню\n"
-        "/cancel - Отменить текущую операцию"
-    )
-
-    bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
-
-
-@bot.message_handler(commands=['main'], func=lambda message: LEGACY_INFO_ENABLED)
-def main_menu(message):
-    """Handle /main command - return to main menu"""
-    user_id = message.from_user.id
-    
-    # Создаем клавиатуру главного меню
-    markup = create_main_menu()
-    
-    # Отправляем сообщение с главным меню
-    menu_text = (
-        "🏠 Главное меню\n\n"
-        "Выберите нужную опцию из меню ниже 👇"
-    )
-    
-    bot.send_message(message.chat.id, menu_text, reply_markup=markup)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "check_subscription")
-def callback_check_subscription(call):
-    """Handle subscription check callback"""
-    if check_subscription(call.from_user.id):
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        start(call.message)
-    else:
-        bot.answer_callback_query(
-            call.id,
-            "Окак вы все еще не подписаны на канал. Подпишитесь для использования бота.",
-            show_alert=True
-        )
-
-
-@bot.message_handler(commands=['admin'], func=lambda message: LEGACY_ADMIN_MENU_ENABLED)
-def admin_panel(message):
-    """Handle admin panel access"""
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-
-        cursor = conn.cursor()
-
-        user_id = message.from_user.id
-        username = message.from_user.username
-
-        # Проверяем, является ли пользователь постоянным администратором
-        if user_id in PERMANENT_ADMINS:
-            logger.info(f"User {user_id} ({username}) is a permanent admin")
-            # Убеждаемся, что постоянный админ есть в БД с правильными правами
-            cursor.execute('SELECT admin FROM label WHERE telegram_id = %s', (user_id,))
-            result = cursor.fetchone()
-
-            if result is None:
-                # Добавляем постоянного админа в БД
-                cursor.execute(
-                    'INSERT INTO label (tg, telegram_id, admin, artist, created_date) VALUES (%s, %s, %s, %s, %s)',
-                    (username, user_id, 1, 1, datetime.now())
-                )
-                conn.commit()
-                logger.info(f"Added permanent admin {user_id} to database")
-            elif result[0] != 1:
-                # Обновляем права постоянного админа
-                cursor.execute('UPDATE label SET admin = 1 WHERE telegram_id = %s', (user_id,))
-                conn.commit()
-                logger.info(f"Updated admin rights for permanent admin {user_id}")
-        else:
-            # Проверяем обычных пользователей через БД
-            cursor.execute('SELECT admin FROM label WHERE telegram_id = %s', (user_id,))
-            result = cursor.fetchone()
-
-            if result is None:
-                # Если пользователя нет, добавляем его как нового с admin = 0
-                logger.info(f"User {user_id} ({username}) not found, adding to database.")
-                cursor.execute(
-                    'INSERT INTO label (tg, telegram_id, admin, artist, created_date) VALUES (%s, %s, %s, %s, %s)',
-                    (username, user_id, 0, 0, datetime.now())
-                )
-                conn.commit()
-                bot.reply_to(message, "❌ У вас недостаточно прав администратора.")
-                return
-
-            # Если пользователь найден, но не админ
-            if result[0] != 1:
-                bot.reply_to(message, "❌ У вас недостаточно прав администратора.")
-                return
-
-        # Показываем админ-панель (для постоянных админов или админов из БД)
-        if user_id in PERMANENT_ADMINS or (result and result[0] == 1):
-            markup = types.InlineKeyboardMarkup(row_width=2)
-            markup.add(
-                types.InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
-                types.InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast"),
-                types.InlineKeyboardButton("💿 Релизы", callback_data="admin_releases"),
-                types.InlineKeyboardButton("👥 Пользователи", callback_data="admin_users"),
-                types.InlineKeyboardButton("📝 Отзывы", callback_data="admin_reviews"),
-                types.InlineKeyboardButton("💰 Финансы", callback_data="admin_finance"),
-                types.InlineKeyboardButton("🆘 Поддержка", callback_data="admin_support"),
-                types.InlineKeyboardButton("🛒 Заказы", callback_data="admin_orders")
-            )
-
-            bot.reply_to(message, "🔐 Панель администратора:", reply_markup=markup)
-        else:
-            bot.reply_to(message, "❌ Неожиданная ошибка при проверке прав доступа.")
-
-    except Error as e:
-        print(f"Error in admin panel: {e}")
-        bot.reply_to(message, "❌ Произошла ошибка при проверке прав доступа.")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.message_handler(commands=['healthcheck', 'diag', 'diagnostics'], func=lambda message: LEGACY_DIAGNOSTICS_ENABLED)
-def handle_system_healthcheck(message):
-    """Allow admins to run automated system diagnostics"""
-    user_id = message.from_user.id
-    if not has_access_level(user_id, ["admin"]):
-        bot.reply_to(message, "❌ Эта команда доступна только администраторам.")
-        return
-
-    diagnostics, overall_status = perform_system_diagnostics()
-
-    response_lines = [
-        "🩺 Автоматическая проверка систем завершена",
-        f"🕒 {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}",
-        ""
-    ]
-
-    for item in diagnostics:
-        icon = "✅" if item["ok"] else "❌"
-        response_lines.append(f"{icon} {item['name']}: {item['details']}")
-
-    response_lines.append("")
-    response_lines.append("💡 Все системы работают штатно." if overall_status else "⚠️ Обнаружены проблемы, проверьте логи.")
-
-    bot.reply_to(message, "\n".join(response_lines))
-
-
-@bot.callback_query_handler(
-    func=lambda call: call.data.startswith("admin_")
-    and call.data != "admin_back"
-    and (LEGACY_REVIEWS_ENABLED or not call.data.startswith("admin_reviews"))
-    and (LEGACY_SUPPORT_ENABLED or not call.data.startswith("admin_support"))
-    and (LEGACY_ADMIN_FINANCE_ENABLED or call.data != "admin_finance")
-    and (LEGACY_ADMIN_RELEASES_ENABLED or call.data != "admin_releases")
-    and (LEGACY_ADMIN_REPORTS_ENABLED or call.data != "admin_report_requests")
-    and (LEGACY_ADMIN_STATS_ENABLED or call.data != "admin_stats")
-    and (
-        LEGACY_ADMIN_SERVICES_ENABLED
-        or call.data not in ("admin_services", "admin_templates", "admin_service_settings")
-    )
-    and (LEGACY_ADMIN_USERS_ENABLED or call.data != "admin_users")
-    and not call.data.startswith("admin_view_report_")
-    and not call.data.startswith("admin_view_release_")
-    and call.data != "admin_process_pending_reports"
-    and not call.data.startswith(("admin_start_report_", "admin_send_report_", "admin_reject_report_"))
-    and (LEGACY_ADMIN_CONTRACTS_ENABLED or call.data != "admin_contracts")
-    and (LEGACY_ADMIN_CONTRACTS_ENABLED or not call.data.startswith("admin_view_contract_"))
-    and call.data != "admin_upload_contract"
-)
-def admin_panel_handler(call):
-    """Handle admin panel button clicks (except admin_back which has its own handler)"""
-    user_id = call.from_user.id
-    logger.info(f"admin_panel_handler called with data: {call.data}")
-    
-    if not has_access_level(user_id, ["admin"]):
-        logger.warning(f"User {user_id} tried to access admin function without rights")
-        bot.answer_callback_query(call.id, "У вас нет доступа к этой функции.")
-        return
-
-    # Быстрый роутинг для подменю отзывов
-    if call.data in ("admin_reviews_pending", "admin_reviews_all"):
-        handle_admin_reviews_list(call)
-        return
-    if call.data == "admin_support_list":
-        show_support_list(call)
-        return
-    if call.data.startswith("admin_orders_"):
-        service = call.data.split("_", 2)[2]
-        show_orders_list(call, service)
-        return
-
-    # Роутинг новых действий пользователей - убрано создание релиза за пользователя
-
-    action = call.data.split("_")[1]
-
-    handlers = {
-        "broadcast": handle_admin_broadcast,
-        "stats": handle_admin_stats,
-        "users": handle_admin_users,  # New handler
-        "levels": handle_admin_levels,
-        "releases": handle_admin_releases,
-        "finance": handle_admin_finance,
-        "promo": handle_admin_promo,
-        "schedule": handle_admin_schedule,
-        "services": handle_admin_services,
-        "reviews": handle_admin_reviews,
-        "support": handle_admin_support_main,
-        "orders": handle_admin_orders_main
-    }
-
-    if action in handlers:
-        logger.info(f"Calling handler for action: {action}")
-        handlers[action](call)
-    else:
-        logger.warning(f"No handler found for action: {action}")
-
-
-def handle_admin_reviews(call):
-    """Show admin reviews menu with moderation and list options"""
-    if not has_access_level(call.from_user.id, ["admin"]):
-        bot.answer_callback_query(call.id, "У вас нет доступа к этой функции.")
-        return
-
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("⏳ Ждут одобрения", callback_data="admin_reviews_pending"),
-        types.InlineKeyboardButton("📚 Все отзывы", callback_data="admin_reviews_all"),
-        types.InlineKeyboardButton("◀️ Назад", callback_data="admin_back")
-    )
-
-    bot.edit_message_text(
-        "📝 Управление отзывами:\n\nВыберите список:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REVIEWS_ENABLED and call.data in ("admin_reviews_pending", "admin_reviews_all"))
-def handle_admin_reviews_list(call):
-    """Show pending or all reviews to admin"""
-    show_pending = call.data.endswith("pending")
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-
-    try:
-        cursor = conn.cursor()
-        if show_pending:
-            cursor.execute('''
-                SELECT r.id, l.name, r.service_type, r.rating, r.text, r.created_date
-                FROM reviews r
-                JOIN label l ON r.user_id = l.telegram_id
-                WHERE r.status = 'pending'
-                ORDER BY r.created_date DESC
-                LIMIT 20
-            ''')
-            title = "⏳ Отзывы на модерации"
-        else:
-            cursor.execute('''
-                SELECT r.id, l.name, r.service_type, r.rating, r.text, r.created_date, r.status
-                FROM reviews r
-                JOIN label l ON r.user_id = l.telegram_id
-                ORDER BY r.created_date DESC
-                LIMIT 20
-            ''')
-            title = "📚 Все отзывы"
-
-        rows = cursor.fetchall()
-
-        if not rows:
-            text = f"{title}\n\nПока пусто."
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_reviews"))
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-            return
-
-        messages = []
-        for row in rows:
-            if show_pending:
-                review_id, artist_name, service_type, rating, text_body, created_date = row
-                stars = "⭐️" * rating
-                text = (
-                    f"{title}\n\n"
-                    f"ID: {review_id}\n"
-                    f"👤 {artist_name}\n"
-                    f"📂 {service_type}\n"
-                    f"{stars}\n"
-                    f"💬 {text_body[:300]}{'...' if len(text_body) > 300 else ''}\n"
-                    f"📅 {created_date.strftime('%d.%m.%Y')}"
-                )
-                markup = types.InlineKeyboardMarkup()
-                markup.row(
-                    types.InlineKeyboardButton("✅ Одобрить", callback_data=f"review_approve_{review_id}"),
-                    types.InlineKeyboardButton("❌ Отклонить", callback_data=f"review_reject_{review_id}")
-                )
-                markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_reviews"))
-                messages.append((text, markup))
-            else:
-                review_id, artist_name, service_type, rating, text_body, created_date, status = row
-                stars = "⭐️" * rating
-                text = (
-                    f"ID: {review_id} • {status}\n"
-                    f"👤 {artist_name}\n"
-                    f"📂 {service_type}\n"
-                    f"{stars}\n"
-                    f"💬 {text_body[:300]}{'...' if len(text_body) > 300 else ''}\n"
-                    f"📅 {created_date.strftime('%d.%m.%Y')}"
-                )
-                messages.append((text, None))
-
-        # Если pending — редактируем текущий; если все отзывы — отправим серией сообщений
-        if show_pending:
-            text, markup = messages[0]
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-            # остальные (если есть) отправим отдельно ниже
-            for text, markup in messages[1:]:
-                bot.send_message(call.message.chat.id, text, reply_markup=markup)
-        else:
-            bot.edit_message_text(f"{title}", call.message.chat.id, call.message.message_id)
-            for text, _ in messages:
-                bot.send_message(call.message.chat.id, text)
-
-    except Error as e:
-        logger.error(f"Database error in handle_admin_reviews_list: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при загрузке отзывов", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-def handle_admin_broadcast(call):
-    """Handle broadcast message creation"""
-    logger.info(f"Broadcast handler called with data: {call.data}")
-
-    # Инициализируем broadcast_levels, если его нет
-    if not hasattr(bot, 'broadcast_levels'):
-        bot.broadcast_levels = {}
-
-    # Получаем текущие выбранные уровни для этого пользователя
-    user_id = call.from_user.id
-    if user_id not in bot.broadcast_levels:
-        bot.broadcast_levels[user_id] = []
-
-    # Проверяем, является ли это переключением уровня
-    if call.data.startswith("broadcast_level_"):
-        level = call.data.split("_")[2]
-        logger.info(f"Toggling level: {level} for user {user_id}")
-
-        # Переключаем уровень
-        if level in bot.broadcast_levels[user_id]:
-            bot.broadcast_levels[user_id].remove(level)
-            logger.info(f"Removed level {level}")
-        else:
-            bot.broadcast_levels[user_id].append(level)
-            logger.info(f"Added level {level}")
-
-    # Создаем разметку с уровнями
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    levels = ["artist", "admin", "owner", "creator"]
-
-    for level in levels:
-        # Определяем статус уровня
-        is_selected = level in bot.broadcast_levels[user_id]
-        button_text = f"{'✅' if is_selected else '❌'} {level}"
-        markup.add(types.InlineKeyboardButton(
-            button_text,
-            callback_data=f"broadcast_level_{level}"
-        ))
-
-    # Добавляем кнопки создания рассылки и ввода сообщения
-    markup.add(
-        types.InlineKeyboardButton("✏️ Создать рассылку", callback_data="broadcast_create"),
-        types.InlineKeyboardButton("◀️ Назад", callback_data="admin_back")
-    )
-
-    try:
-        bot.edit_message_text(
-            "Выберите уровни пользователей для рассылки:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-    except Exception as e:
-        logger.error(f"Error in broadcast handler: {e}")
-        bot.answer_callback_query(call.id, f"Ошибка: {str(e)}", show_alert=True)
-
-
-@bot.callback_query_handler(
-    func=lambda call: call.data.startswith("broadcast_level_") or call.data == "broadcast_create")
-def handle_broadcast_callback(call):
-    """Handle broadcast level selection and creation"""
-    if call.data.startswith("broadcast_level_"):
-        handle_admin_broadcast(call)
-    elif call.data == "broadcast_create":
-        start_broadcast_message(call)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "broadcast_create")
-def start_broadcast_message(call):
-    """Start creating broadcast message"""
-    user_id = call.from_user.id
-
-    # Проверяем, что выбраны уровни
-    if not hasattr(bot, 'broadcast_levels') or user_id not in bot.broadcast_levels or not bot.broadcast_levels[user_id]:
-        bot.answer_callback_query(call.id, "❌ Сначала выберите уровни пользователей!", show_alert=True)
-        return
-
-    bot.edit_message_text(
-        "Введите сообщение для рассылки:",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    bot.register_next_step_handler(call.message, process_broadcast_message)
-
-
-def process_promo_create_limited(message):
-    """Process promo code creation with usage limit"""
-    try:
-        parts = message.text.strip().split()
-        if len(parts) != 3:
-            bot.reply_to(message, "❌ Неверный формат. Используйте: КОД СУММА КОЛИЧЕСТВО_ИСПОЛЬЗОВАНИЙ")
-            return
-        
-        code = parts[0].upper()
-        amount = float(parts[1])
-        max_uses = int(parts[2])
-        
-        if amount <= 0:
-            bot.reply_to(message, "❌ Сумма должна быть больше 0")
-            return
-        
-        if max_uses <= 0:
-            bot.reply_to(message, "❌ Количество использований должно быть больше 0")
-            return
-        
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-        
-        try:
-            cursor = conn.cursor()
-            
-            # Check if all required columns exist, if not - create them
-            required_columns = ['amount', 'discount', 'is_used', 'created_by', 'used_by', 'used_at', 'max_uses', 'current_uses', 'expires_at', 'is_active']
-            for column in required_columns:
-                cursor.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'promo_codes' AND column_name = '{column}'
-                """)
-                
-                if not cursor.fetchone():
-                    # Column doesn't exist, add it
-                    if column == 'amount':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN amount NUMERIC(10, 2) DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET amount = 0 WHERE amount IS NULL")
-                    elif column == 'discount':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN discount NUMERIC(10, 2) DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET discount = 0 WHERE discount IS NULL")
-                    elif column == 'is_used':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN is_used BOOLEAN DEFAULT FALSE")
-                        cursor.execute("UPDATE promo_codes SET is_used = FALSE WHERE is_used IS NULL")
-                    elif column == 'created_by':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN created_by BIGINT DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET created_by = 0 WHERE created_by IS NULL")
-                    elif column == 'used_by':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN used_by BIGINT")
-                    elif column == 'used_at':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN used_at TIMESTAMP")
-                    elif column == 'max_uses':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN max_uses INTEGER DEFAULT NULL")
-                    elif column == 'current_uses':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN current_uses INTEGER DEFAULT 0")
-                    elif column == 'expires_at':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN expires_at TIMESTAMP DEFAULT NULL")
-                    elif column == 'is_active':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN is_active BOOLEAN DEFAULT TRUE")
-                    
-                    logger.info(f"✅ Added column {column} to promo_codes table during promo creation")
-            
-            # Now insert the promo code with usage limit
-            cursor.execute(
-                'INSERT INTO promo_codes (code, amount, discount, created_by, max_uses, current_uses, is_active) VALUES (%s, %s, %s, %s, %s, %s, %s)',
-                (code, amount, 0, message.from_user.id, max_uses, 0, True)
-            )
-            conn.commit()
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="finance_promo"))
-            
-            bot.reply_to(
-                message,
-                f"✅ Промокод создан!\n\n"
-                f"Код: {code}\n"
-                f"Сумма: {amount}₽\n"
-                f"Максимум использований: {max_uses}",
-                reply_markup=markup
-            )
-            
-        except Error as e:
-            if "duplicate key" in str(e).lower():
-                bot.reply_to(message, "❌ Промокод с таким кодом уже существует")
-            else:
-                bot.reply_to(message, f"❌ Ошибка создания промокода: {str(e)}")
-        finally:
-            cursor.close()
-            return_pg_connection(conn)
-            
-    except ValueError:
-        bot.reply_to(message, "❌ Неверный формат. Введите корректные числа")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
-
-
-def process_promo_create_timed(message):
-    """Process promo code creation with time limit"""
-    try:
-        parts = message.text.strip().split()
-        if len(parts) != 3:
-            bot.reply_to(message, "❌ Неверный формат. Используйте: КОД СУММА ДАТА_ОКОНЧАНИЯ")
-            return
-        
-        code = parts[0].upper()
-        amount = float(parts[1])
-        expiry_date_str = parts[2]
-        
-        if amount <= 0:
-            bot.reply_to(message, "❌ Сумма должна быть больше 0")
-            return
-        
-        # Parse expiry date (DD.MM.YYYY format)
-        try:
-            expiry_date = datetime.strptime(expiry_date_str, "%d.%m.%Y")
-            # Set time to end of day
-            expiry_date = expiry_date.replace(hour=23, minute=59, second=59)
-        except ValueError:
-            bot.reply_to(message, "❌ Неверный формат даты. Используйте: ДД.ММ.ГГГГ")
-            return
-        
-        # Check if date is in the future
-        if expiry_date <= datetime.now():
-            bot.reply_to(message, "❌ Дата окончания должна быть в будущем")
-            return
-        
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-        
-        try:
-            cursor = conn.cursor()
-            
-            # Check if all required columns exist, if not - create them
-            required_columns = ['amount', 'discount', 'is_used', 'created_by', 'used_by', 'used_at', 'max_uses', 'current_uses', 'expires_at', 'is_active']
-            for column in required_columns:
-                cursor.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'promo_codes' AND column_name = '{column}'
-                """)
-                
-                if not cursor.fetchone():
-                    # Column doesn't exist, add it
-                    if column == 'amount':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN amount NUMERIC(10, 2) DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET amount = 0 WHERE amount IS NULL")
-                    elif column == 'discount':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN discount NUMERIC(10, 2) DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET discount = 0 WHERE discount IS NULL")
-                    elif column == 'is_used':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN is_used BOOLEAN DEFAULT FALSE")
-                        cursor.execute("UPDATE promo_codes SET is_used = FALSE WHERE is_used IS NULL")
-                    elif column == 'created_by':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN created_by BIGINT DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET created_by = 0 WHERE created_by IS NULL")
-                    elif column == 'used_by':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN used_by BIGINT")
-                    elif column == 'used_at':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN used_at TIMESTAMP")
-                    elif column == 'max_uses':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN max_uses INTEGER DEFAULT NULL")
-                    elif column == 'current_uses':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN current_uses INTEGER DEFAULT 0")
-                    elif column == 'expires_at':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN expires_at TIMESTAMP DEFAULT NULL")
-                    elif column == 'is_active':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN is_active BOOLEAN DEFAULT TRUE")
-                    
-                    logger.info(f"✅ Added column {column} to promo_codes table during promo creation")
-            
-            # Now insert the promo code with time limit
-            cursor.execute(
-                'INSERT INTO promo_codes (code, amount, discount, created_by, expires_at, is_active) VALUES (%s, %s, %s, %s, %s, %s)',
-                (code, amount, 0, message.from_user.id, expiry_date, True)
-            )
-            conn.commit()
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="finance_promo"))
-            
-            bot.reply_to(
-                message,
-                f"✅ Промокод создан!\n\n"
-                f"Код: {code}\n"
-                f"Сумма: {amount}₽\n"
-                f"Действует до: {expiry_date.strftime('%d.%m.%Y')}",
-                reply_markup=markup
-            )
-            
-        except Error as e:
-            if "duplicate key" in str(e).lower():
-                bot.reply_to(message, "❌ Промокод с таким кодом уже существует")
-            else:
-                bot.reply_to(message, f"❌ Ошибка создания промокода: {str(e)}")
-        finally:
-            cursor.close()
-            return_pg_connection(conn)
-            
-    except ValueError:
-        bot.reply_to(message, "❌ Неверный формат. Введите корректные числа")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "service_distribution")
-def handle_distribution_service(call):
-    """Handle distribution service selection"""
-    user_id = call.from_user.id
-    
-    # Проверяем заполненность профиля перед началом дистрибуции
-    is_complete, missing_field = is_profile_complete(user_id)
-    if not is_complete:
-        if missing_field == "name":
-            bot.answer_callback_query(
-                call.id,
-                "❌ Перед отгрузкой необходимо заполнить профиль. Укажите ник артиста в разделе 'Профиль' → 'Редактировать профиль'",
-                show_alert=True
-            )
-            return
-        else:
-            bot.answer_callback_query(
-                call.id,
-                f"❌ Ошибка: {missing_field}",
-                show_alert=True
-            )
-            return
-    
-    show_distribution_agreement(call.message)
-
-
-def show_distribution_agreement(message):
-    """Show distribution agreement"""
-    agreement_text = (
-        "🎵 Дистрибуция музыки\n\n"
-        "Перед тем, как перейдем к отгрузке, необходимо согласиться с нижеследующим:\n\n"
-        "- Мною выкуплен бит и у меня есть договор с артистом (если бит куплен, но нет договора, дальше будет пример договора, по которому нужно будет заключить соглашение на бит). Без договора релиз отгрузить не получится.\n"
-        "- Я понимаю, что получение промо не гарантируется и является сугубо личным решением редакторов площадок, команда лейбла не может влиять на получение промо.\n"
-        "- Я осознаю, что для получения промо релиз должен отгружаться за 2 недели до выхода.\n\n"
-        "Вы согласны с этими условиями?"
-    )
-
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton("✅ Согласен", callback_data="distribution_agree"),
-        types.InlineKeyboardButton("❌ Не согласен", callback_data="distribution_disagree")
-    )
-
-    if hasattr(message, 'chat'):
-        bot.send_message(message.chat.id, agreement_text, reply_markup=markup)
-    else:
-        bot.edit_message_text(
-            agreement_text,
-            message.chat.id,
-            message.message_id,
-            reply_markup=markup
-        )
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "distribution_disagree")
-def handle_distribution_disagree(call):
-    """Handle disagreement with distribution terms"""
-    bot.edit_message_text(
-        "Для использования услуги дистрибуции необходимо согласие со всеми условиями. "
-        "Если у вас есть вопросы, обратитесь в поддержку.",
-        call.message.chat.id,
-        call.message.message_id
-    )
-
-
-def ask_release_type(message):
-    """Запрос типа релиза с кнопкой отмены"""
-    markup = create_options_keyboard(["Single", "Maxi Single", "EP", "ALBUM"])
-    msg = bot.send_message(
-        message.chat.id,
-        "2) Тип релиза:\n\n"
-        "📀 Выберите тип вашего музыкального релиза:\n\n"
-        "🎵 Single - одна композиция (1299₽)\n"
-        "🎶 Maxi Single - 1-3 композиции  (1799₽)\n"
-        "💿 EP - мини-альбом 2-5 треков (2399₽)\n"
-        "💽 ALBUM - полноценный альбом 6+ треков (2899₽)",
-        reply_markup=markup
-    )
-    bot.register_next_step_handler(msg, process_release_type)
-
-
-def process_release_type(message):
-    """Обработка типа релиза с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    release_type = message.text
-    user_id = message.from_user.id
-
-    # Инициализация данных пользователя
-    if not hasattr(bot, 'user_data'):
-        bot.user_data = {}
-    bot.user_data[user_id] = {'release_type': release_type}
-
-    # EP и Maxi Single ведём по трековому сценарию (как альбом)
-    if release_type == "ALBUM":
-        ask_track_count(message)
-    elif release_type == "EP":
-        # Запросим количество треков 2..5
-        ask_track_count(message)
-    elif release_type == "Maxi Single":
-        # Жёстко 2 трека
-        bot.user_data[user_id]['track_count'] = 2
-        bot.user_data[user_id]['current_track'] = 1
-        bot.user_data[user_id]['tracks'] = []
-        ask_album_info(message)
-    else:
-        # Single
-        ask_artist_name(message)
-
-
-def ask_track_count(message):
-    """Запрос количества треков с кнопкой отмены"""
-    msg = bot.send_message(
-        message.chat.id,
-        "3) Количество треков в релизе:\n\n"
-        "🔢 Укажите количество треков в вашем релизе:\n\n"
-        "💿 EP: 2-5 треков (2399₽)\n"
-        "💽 ALBUM: 6+ треков (2899₽)\n"
-        "🎶 Maxi Single: 1-3 трека (1799₽)\n\n"
-        "Введите количество треков:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(msg, process_track_count)
-
-
-def process_track_count(message):
-    """Обработка количества треков с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    try:
-        user_id = message.from_user.id
-        track_count = int(message.text)
-        release_type = bot.user_data[user_id].get('release_type')
-
-        # Валидация по типу
-        if release_type == "ALBUM":
-            if track_count < 6 or track_count > 50:
-                raise ValueError("Для альбома допустимо от 6 треков")
-        elif release_type == "EP":
-            if track_count < 2 or track_count > 5:
-                raise ValueError("Для EP допустимо от 2 до 5 треков")
-        elif release_type == "Maxi Single":
-            if track_count < 1 or track_count > 3:
-                raise ValueError("Для Maxi Single допустимо от 1 до 3 треков")
-        else:
-            if track_count < 1 or track_count > 1:
-                raise ValueError("Для Single допустимо только 1 трек")
-
-        bot.user_data[user_id]['track_count'] = track_count
-        bot.user_data[user_id]['current_track'] = 1
-        bot.user_data[user_id]['tracks'] = []
-
-        ask_album_info(message)
-
-    except (ValueError, TypeError) as e:
-        msg = bot.send_message(
-            message.chat.id,
-            f"❌ {str(e) if str(e) else 'Пожалуйста, введите корректное число треков'}",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_track_count)
-
-
-def ask_album_info(message):
-    """Запрос информации об альбоме с кнопкой отмены"""
-    user_id = message.from_user.id
-    current_track = bot.user_data[user_id]['current_track']
-
-    if current_track == 1:
-        bot.send_message(
-            message.chat.id,
-            "4) Название альбома:\n\n"
-            "📝 Введите название вашего альбома/EP/Maxi Single:\n\n"
-            "💡 Примеры:\n"
-            "• \"Мой Первый Альбом\"\n"
-            "• \"Летние Воспоминания EP\"\n"
-            "• \"Best Tracks Collection\"\n\n"
-            "Название должно быть уникальным и запоминающимся:",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(message, process_album_name)
-    else:
-        ask_track_info(message)
-
-
-def process_album_name(message):
-    """Обработка названия альбома с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    bot.user_data[user_id]['album_name'] = message.text
-
-    bot.send_message(
-        message.chat.id,
-        "5) Исполнитель(-и) альбома:\n\n"
-        "🎤 Укажите основного исполнителя или группу:\n\n"
-        "💡 Примеры:\n"
-        "• \"Иван Иванов\"\n"
-        "• \"The Best Band\"\n"
-        "• \"MC Rapper feat. Singer\"\n\n"
-        "📝 Если несколько исполнителей, перечислите через запятую:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_album_artist)
-
-
-def process_album_artist(message):
-    """Обработка исполнителя альбома с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    bot.user_data[user_id]['album_artist'] = message.text
-
-    ask_track_info(message)
-
-
-def ask_track_info(message):
-    """Запрос информации о треке с кнопкой отмены"""
-    user_id = message.from_user.id
-    current_track = bot.user_data[user_id]['current_track']
-    track_count = bot.user_data[user_id]['track_count']
-
-    bot.send_message(
-        message.chat.id,
-        f"ТРЕК {current_track}/{track_count}\n\n"
-        "6) Название трека:\n\n"
-        "🎵 Введите название этого трека:\n\n"
-        "💡 Примеры:\n"
-        "• \"Моя Песня\"\n"
-        "• \"Summer Vibes\"\n"
-        "• \"Love Story (Remix)\"\n\n"
-        "📝 Название должно точно соответствовать аудиофайлу:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_track_name)
-
-
-def process_track_name(message):
-    """Обработка названия трека с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    current_track = bot.user_data[user_id]['current_track']
-
-    # Инициализация данных трека
-    track_data = {
-        'track_name': message.text,
-        'track_number': current_track
-    }
-    bot.user_data[user_id]['tracks'].append(track_data)
-
-    bot.send_message(
-        message.chat.id,
-        f"7) Продюсер трека (prod. by):\n\n"
-        "🎛️ Укажите продюсера/битмейкера этого трека:\n\n"
-        "💡 Примеры:\n"
-        "• \"BeatMaker\"\n"
-        "• \"ProducerName\"\n"
-        "• \"DJ Producer\"\n\n"
-        "📝 Будет отображаться как: [prod. by ВашПродюсер]",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_track_producer)
-
-
-def process_track_producer(message):
-    """Обработка продюсера трека с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    current_track_idx = bot.user_data[user_id]['current_track'] - 1
-    bot.user_data[user_id]['tracks'][current_track_idx]['producer'] = message.text
-
-    bot.send_message(
-        message.chat.id,
-        "8) Жанр трека:\n\n"
-        "🎼 Укажите музыкальный жанр этого трека:\n\n"
-        "💡 Популярные жанры:\n"
-        "• Hip-Hop, Rap, Trap\n"
-        "• Pop, Dance, House\n"
-        "• Rock, Alternative, Indie\n"
-        "• R&B, Soul, Jazz\n"
-        "• Electronic, Techno, Dubstep\n\n"
-        "📝 Введите один основной жанр:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_track_genre)
-
-
-def process_track_genre(message):
-    """Обработка жанра трека с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    current_track_idx = bot.user_data[user_id]['current_track'] - 1
-    bot.user_data[user_id]['tracks'][current_track_idx]['genre'] = message.text
-
-    ask_track_audio(message)
-
-
-def ask_track_audio(message):
-    """Запрос аудио трека с кнопкой отмены"""
-    user_id = message.from_user.id
-    current_track = bot.user_data[user_id]['current_track']
-
-    bot.send_message(
-        message.chat.id,
-        f"9) Аудиофайл для трека {current_track} (WAV, STEREO):\n\n"
-        "Загрузите 1 файл поддерживаемого типа: audio. Размер файла – не более 100 MB.",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_track_audio)
-
-
-def process_track_audio(message):
-    """Process audio file for track and then ask for track contract"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    current_track = bot.user_data[user_id]['current_track']
-    track_count = bot.user_data[user_id]['track_count']
-
-    if message.audio:
-        # Обработка аудиофайла
-        file_id = message.audio.file_id
-        file_info = bot.get_file(file_id)
-        file_path = file_info.file_path
-
-        # Сохраняем аудиофайл
-        downloaded_file = bot.download_file(file_path)
-        audio_path = f"audio/{user_id}_{current_track}.mp3"
 import random
 from datetime import datetime, timedelta
 import json
@@ -4979,14 +1039,14 @@ def send_file_smart(chat_id, file_id, caption="", file_type_hint=None, user_id=N
     """
     Универсальная функция для отправки файлов.
     Автоматически определяет тип файла и использует соответствующий метод.
-    
+
     Args:
         chat_id: ID чата для отправки
         file_id: Telegram file_id
         caption: Подпись к файлу
         file_type_hint: Подсказка о типе файла ('photo', 'document', 'audio', 'video')
         user_id: ID пользователя для получения информации о типе файла из user_data
-    
+
     Returns:
         bool: True если файл отправлен успешно, False в случае ошибки
     """
@@ -4997,7 +1057,7 @@ def send_file_smart(chat_id, file_id, caption="", file_type_hint=None, user_id=N
             if 'cover_file_type' in user_data and user_data.get('cover_file_id') == file_id:
                 file_type_hint = user_data['cover_file_type']
                 logger.info(f"Using file type from user_data: {file_type_hint}")
-        
+
         if file_type_hint:
             # Если есть подсказка о типе, используем её
             if file_type_hint == 'photo':
@@ -5012,7 +1072,7 @@ def send_file_smart(chat_id, file_id, caption="", file_type_hint=None, user_id=N
             elif file_type_hint == 'video':
                 bot.send_video(chat_id, file_id, caption=caption)
                 return True
-        
+
         # Если подсказки нет, пытаемся определить тип по содержимому
         # Для этого нужно получить информацию о файле
         try:
@@ -5045,7 +1105,7 @@ def send_file_smart(chat_id, file_id, caption="", file_type_hint=None, user_id=N
             # Fallback - отправляем как документ
             bot.send_document(chat_id, file_id, caption=caption)
             return True
-            
+
     except Exception as e:
         logger.error(f"Error sending file {file_id}: {e}")
         # Пытаемся отправить как документ в случае ошибки
@@ -5065,13 +1125,11 @@ def send_file_smart(chat_id, file_id, caption="", file_type_hint=None, user_id=N
 
 
 def get_all_admins():
-    """Получить всех администраторов (постоянных + из БД)"""
-    return admin_access.get_all_admin_ids(PERMANENT_ADMINS, get_pg_connection, return_pg_connection, logger)
+    return runtime_helpers.get_all_admins()
 
 
 def is_admin(user_id):
-    """Проверить, является ли пользователь администратором"""
-    return admin_access.is_admin_user(user_id, PERMANENT_ADMINS, get_pg_connection, return_pg_connection, logger)
+    return runtime_helpers.is_admin(user_id)
 
 
 def debug_user_data(user_id, step_name="unknown"):
@@ -5290,7 +1348,7 @@ def init_database():
                 is_active BOOLEAN DEFAULT TRUE
             )
         ''')
-        
+
         # Create report requests table
         logger.info("Creating report requests table...")
         cursor.execute('''
@@ -5310,7 +1368,7 @@ def init_database():
                 notes TEXT
             )
         ''')
-        
+
         # Create contracts table
         logger.info("Creating contracts table...")
         cursor.execute('''
@@ -5327,7 +1385,7 @@ def init_database():
                 completed_at TIMESTAMP
             )
         ''')
-        
+
         # Create drafts table (черновики релизов)
         logger.info("Creating drafts table...")
         try:
@@ -5345,7 +1403,7 @@ def init_database():
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_drafts_user_id ON drafts(user_id)")
         except Exception as e:
             logger.warning(f"Could not create drafts table: {e}")
-        
+
         # Create user_discount_promos (промокоды на скидку, активированные пользователем)
         logger.info("Creating user_discount_promos table...")
         try:
@@ -5361,7 +1419,7 @@ def init_database():
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_discount_promos_user_id ON user_discount_promos(user_id)")
         except Exception as e:
             logger.warning(f"Could not create user_discount_promos table: {e}")
-        
+
         conn.commit()
         # Add comments to orders table
         try:
@@ -5398,7 +1456,7 @@ def init_database():
             "ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
             "ALTER TABLE report_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT"
         ]
-        
+
         # Modify existing columns
         report_columns_to_modify = [
             "ALTER TABLE report_requests ALTER COLUMN release_type DROP NOT NULL"
@@ -5424,40 +1482,40 @@ def init_database():
                 logger.info(f"✅ Modified column in report_requests table: {column_sql}")
             except Exception as e:
                 logger.warning(f"Could not modify column in report_requests table: {e}")
-        
+
         # Verify all required columns exist and set default values
         try:
             # Check if all required role columns exist
             required_role_columns = ['owner', 'creator']
             for column in required_role_columns:
                 cursor.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
+                    SELECT column_name
+                    FROM information_schema.columns
                     WHERE table_name = 'label' AND column_name = '{column}'
                 """)
-                
+
                 if not cursor.fetchone():
                     # Column doesn't exist, create it manually
                     cursor.execute(f"ALTER TABLE label ADD COLUMN {column} INTEGER DEFAULT 0")
                     logger.info(f"✅ Manually added column {column} to label table")
-                
+
                 # Update existing records to set default values
                 cursor.execute(f"UPDATE label SET {column} = 0 WHERE {column} IS NULL")
                 logger.info(f"✅ Updated default values for column {column}")
-            
+
             # Migrate old role columns to new ones if they exist
             old_role_columns = ['moderator', 'support', 'premium', 'verified', 'vip']
             for old_column in old_role_columns:
                 cursor.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
+                    SELECT column_name
+                    FROM information_schema.columns
                     WHERE table_name = 'label' AND column_name = '{old_column}'
                 """)
-                
+
                 if cursor.fetchone():
                     # Old column exists, migrate data and drop it
                     logger.info(f"🔄 Migrating data from {old_column} column...")
-                    
+
                     # Map old columns to new ones (you can customize this mapping)
                     if old_column == 'moderator':
                         cursor.execute("UPDATE label SET owner = moderator WHERE owner = 0 AND moderator = 1")
@@ -5469,11 +1527,11 @@ def init_database():
                         cursor.execute("UPDATE label SET shvepz = verified WHERE shvepz = 0 AND verified = 1")
                     elif old_column == 'vip':
                         cursor.execute("UPDATE label SET creator = vip WHERE creator = 0 AND vip = 1")
-                    
+
                     # Drop old column
                     cursor.execute(f"ALTER TABLE label DROP COLUMN {old_column}")
                     logger.info(f"✅ Dropped old column {old_column}")
-                
+
         except Exception as e:
             logger.warning(f"Could not verify role columns: {e}")
 
@@ -5524,11 +1582,11 @@ def init_database():
             required_columns = ['amount', 'discount', 'is_used', 'created_by']
             for column in required_columns:
                 cursor.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
+                    SELECT column_name
+                    FROM information_schema.columns
                     WHERE table_name = 'promo_codes' AND column_name = '{column}'
                 """)
-                
+
                 if not cursor.fetchone():
                     # Column doesn't exist, add it
                     if column == 'amount':
@@ -5543,11 +1601,11 @@ def init_database():
                     elif column == 'created_by':
                         cursor.execute("ALTER TABLE promo_codes ADD COLUMN created_by BIGINT DEFAULT 0")
                         cursor.execute("UPDATE promo_codes SET created_by = 0 WHERE created_by IS NULL")
-                    
+
                     logger.info(f"✅ Added column {column} to promo_codes table")
                 else:
                     logger.info(f"✅ Column {column} already exists in promo_codes table")
-                
+
         except Exception as e:
             logger.warning(f"Could not handle promo_codes table structure: {e}")
             # Try to recreate the table if there are issues
@@ -5644,18 +1702,18 @@ def fix_promo_codes_table():
     if not conn:
         logger.error("Cannot fix promo_codes table - no connection")
         return False
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Check if table exists
         cursor.execute("""
             SELECT EXISTS (
-                SELECT FROM information_schema.tables 
+                SELECT FROM information_schema.tables
                 WHERE table_name = 'promo_codes'
             )
         """)
-        
+
         if not cursor.fetchone()[0]:
             logger.info("Creating promo_codes table...")
             cursor.execute('''
@@ -5678,7 +1736,7 @@ def fix_promo_codes_table():
             conn.commit()
             logger.info("✅ promo_codes table created successfully")
             return True
-        
+
         # Add missing columns
         required_columns = {
             'amount': 'NUMERIC(10, 2) DEFAULT 0',
@@ -5692,22 +1750,22 @@ def fix_promo_codes_table():
             'expires_at': 'TIMESTAMP DEFAULT NULL',
             'is_active': 'BOOLEAN DEFAULT TRUE'
         }
-        
+
         for column, definition in required_columns.items():
             cursor.execute(f"""
-                SELECT column_name 
-                FROM information_schema.columns 
+                SELECT column_name
+                FROM information_schema.columns
                 WHERE table_name = 'promo_codes' AND column_name = '{column}'
             """)
-            
+
             if not cursor.fetchone():
                 logger.info(f"Adding missing column: {column}")
                 cursor.execute(f"ALTER TABLE promo_codes ADD COLUMN {column} {definition}")
-        
+
         conn.commit()
         logger.info("✅ promo_codes table structure fixed successfully")
         return True
-        
+
     except Exception as e:
         logger.error(f"Error fixing promo_codes table: {e}")
         if conn:
@@ -5737,8 +1795,8 @@ def check_database_integrity():
         ]
 
         cursor.execute("""
-            SELECT table_name 
-            FROM information_schema.tables 
+            SELECT table_name
+            FROM information_schema.tables
             WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
         """)
         existing_tables = [row[0] for row in cursor.fetchall()]
@@ -5756,19 +1814,19 @@ def check_database_integrity():
 
         # Check for required columns in critical tables
         cursor.execute("""
-            SELECT column_name 
-            FROM information_schema.columns 
+            SELECT column_name
+            FROM information_schema.columns
             WHERE table_name = 'label' AND table_schema = 'public'
         """)
         label_columns = [row[0] for row in cursor.fetchall()]
 
         required_label_columns = ['telegram_id', 'admin', 'balance', 'created_date', 'owner', 'creator']
         missing_label_columns = [col for col in required_label_columns if col not in label_columns]
-        
+
         if missing_label_columns:
             logger.warning(f"Missing columns in label table: {missing_label_columns}")
             logger.info("Adding missing columns to label table...")
-            
+
             # Add missing columns
             for column in missing_label_columns:
                 if column in ['owner', 'creator']:
@@ -5787,44 +1845,44 @@ def check_database_integrity():
                         logger.info(f"✅ Added column {column} to label table")
                     except Exception as e:
                         logger.warning(f"Could not add column {column}: {e}")
-            
+
             conn.commit()
             logger.info("✅ Label table structure updated")
-        
+
         # Check orders table structure
         cursor.execute("""
-            SELECT column_name 
-            FROM information_schema.columns 
+            SELECT column_name
+            FROM information_schema.columns
             WHERE table_name = 'orders' AND table_schema = 'public'
         """)
         orders_columns = [row[0] for row in cursor.fetchall()]
-        
+
         required_orders_columns = ['id', 'user_id', 'service_type', 'amount', 'status', 'payment_id', 'created_date']
         missing_orders_columns = [col for col in required_orders_columns if col not in orders_columns]
-        
+
         if missing_orders_columns:
             logger.warning(f"Missing columns in orders table: {missing_orders_columns}")
             return_pg_connection(conn)
             init_database()
             return True
-        
+
         # Check promo_codes table structure
         cursor.execute("""
-            SELECT column_name 
-            FROM information_schema.columns 
+            SELECT column_name
+            FROM information_schema.columns
             WHERE table_name = 'promo_codes' AND table_schema = 'public'
         """)
         promo_codes_columns = [row[0] for row in cursor.fetchall()]
-        
+
         required_promo_codes_columns = ['id', 'code', 'amount', 'is_used', 'created_by']
         missing_promo_codes_columns = [col for col in required_promo_codes_columns if col not in promo_codes_columns]
-        
+
         if missing_promo_codes_columns:
             logger.warning(f"Missing columns in promo_codes table: {missing_promo_codes_columns}")
             return_pg_connection(conn)
             init_database()
             return True
-        
+
         logger.info("✅ Database integrity check passed")
         return True
 
@@ -5879,2356 +1937,10 @@ def migrate_orders_data():
             return_pg_connection(conn)
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("distribution_pay_"))
-def handle_distribution_pay(call):
-    """Create payment for distribution based on calculated cost"""
-    try:
-        amount = int(call.data.split("_")[2])
-    except Exception:
-        bot.answer_callback_query(call.id, "❌ Неверная сумма", show_alert=True)
-        return
-
-    user_id = call.from_user.id
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute('SELECT COALESCE(balance, 0) FROM label WHERE telegram_id = %s', (user_id,))
-        row = cursor.fetchone()
-        current_balance = float(row[0]) if row else 0.0
-
-        if current_balance >= amount:
-            cursor.execute('UPDATE label SET balance = COALESCE(balance,0) - %s WHERE telegram_id = %s',
-                           (amount, user_id))
-            conn.commit()
-            user_data = bot.user_data.get(user_id, {})
-            promo_id = user_data.pop('distribution_promo_id', None)
-            user_data.pop('distribution_discount_pct', None)
-            if promo_id:
-                try:
-                    cursor.execute('DELETE FROM user_discount_promos WHERE user_id = %s AND promo_code_id = %s', (user_id, promo_id))
-                    cursor.execute(
-                        'INSERT INTO promo_code_usage (user_id, promo_code_id, promo_code, amount_added) SELECT %s, %s, code, 0 FROM promo_codes WHERE id = %s',
-                        (user_id, promo_id, promo_id)
-                    )
-                    conn.commit()
-                except Exception as e:
-                    logger.warning(f"Could not record discount promo usage: {e}")
-
-            try:
-                bot.edit_message_text(
-                    f"✅ Списано {amount}₽ с баланса. Отправляем релиз на модерацию...",
-                    call.message.chat.id,
-                    call.message.message_id
-                )
-            except Exception:
-                bot.send_message(call.message.chat.id, f"✅ Списано {amount}₽ с баланса. Отправляем релиз...")
-
-            # Сохранить релиз для пользователя
-            save_release_data_for_user(user_id, call.message.chat.id)
-        else:
-            needed = int(amount - current_balance)
-            markup = types.InlineKeyboardMarkup()
-            # Сохраняем ожидаемую операцию, чтобы после пополнения продолжить автоматически и не терять прогресс
-            bot.user_data.setdefault(user_id, {})['pending_operation'] = {
-                'type': 'distribution',
-                'amount': amount,
-                'needed': needed,
-                'resume': True
-            }
-            markup.add(
-                types.InlineKeyboardButton(f"Пополнить на {needed}₽", callback_data=f"topup_pay_{needed}"),
-                types.InlineKeyboardButton("Повторить оплату", callback_data=f"distribution_pay_{amount}")
-            )
-            bot.edit_message_text(
-                f"❌ Недостаточно средств. Требуется {amount}₽, на балансе {current_balance:,.2f}₽.\n\nПополните баланс и попробуйте снова.",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-    except Exception as e:
-        logger.error(f"Error in handle_distribution_pay: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка обработки оплаты", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-def save_release_data_for_user(user_id: int, chat_id: int) -> None:
-    """Save release using data from bot.user_data for specified user and notify."""
-    user_data = bot.user_data.get(user_id, {})
-    release_type = user_data.get('release_type', '')
-
-    # Отладочная информация
-    logger.info(f"Saving release for user {user_id}, release_type: {release_type}")
-    logger.info(f"User data cover_file_id: {user_data.get('cover_file_id')}")
-    logger.info(f"Full user_data keys: {list(user_data.keys())}")
-    debug_user_data(user_id, "before_release_save")
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.send_message(chat_id, "❌ Ошибка подключения к БД")
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        if release_type == "ALBUM" or release_type == "EP" or release_type == "Maxi Single":
-            # Сохранение записи альбома/мульти-трекового релиза как альбома
-            # Используем контракт первого трека для записи альбома
-            first_track_contract = (user_data.get('tracks') or [{}])[0].get('contract_file_id', 'N/A')
-            cursor.execute('''
-                INSERT INTO releases (
-                    user_id, release_type, artist_name, release_name,
-                    genre, cover_file_id, release_date, performer_name,
-                    music_author, contract_file_id, videoshot_url, explicit_content,
-                    lyrics_file_id, preview_start, yandex_soon, create_links,
-                    tiktok_commercial, tiktok_full_version, status, is_album
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                user_id,
-                "ALBUM",
-                user_data.get('album_artist') or user_data.get('artist_name'),
-                user_data.get('album_name') or user_data.get('release_name'),
-                (user_data.get('tracks') or [{}])[0].get('genre') or 'N/A',
-                user_data.get('cover_file_id'),
-                user_data.get('release_date'),
-                user_data.get('performer_name'),
-                user_data.get('music_author'),
-                first_track_contract,
-                user_data.get('videoshot_url'),
-                user_data.get('explicit_content', False),
-                user_data.get('lyrics_file_id'),
-                user_data.get('preview_start'),
-                user_data.get('yandex_soon', False),
-                user_data.get('create_links', False),
-                user_data.get('tiktok_commercial', False),
-                user_data.get('tiktok_full_version', False),
-                'pending',
-                True
-            ))
-            album_id = cursor.fetchone()[0]
-
-            # Сохранение треков
-            for track in user_data.get('tracks', []):
-                cursor.execute('''
-                    INSERT INTO releases (
-                        user_id, release_type, artist_name, release_name, producer, genre,
-                        audio_file_id, release_date, performer_name, music_author,
-                        contract_file_id, explicit_content, status, album_id, is_track, track_number,
-                        lyrics_file_id
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ''', (
-                    user_id,
-                    "TRACK",
-                    user_data.get('album_artist') or user_data.get('artist_name'),
-                    track.get('track_name'),
-                    track.get('producer'),
-                    track.get('genre') or 'N/A',
-                    track.get('audio_file_id'),
-                    user_data.get('release_date'),
-                    user_data.get('performer_name'),
-                    user_data.get('music_author'),
-                    track.get('contract_file_id'),
-                    user_data.get('explicit_content', False),
-                    'pending',
-                    album_id,
-                    True,
-                    track.get('track_number'),
-                    track.get('lyrics_file_id')
-                ))
-
-            release_name = user_data.get('album_name') or user_data.get('release_name') or 'Релиз'
-            conn.commit()
-            bot.send_message(chat_id, f"✅ Релиз «{release_name}» успешно отправлен на модерацию!",
-                             reply_markup=create_main_menu())
-            notify_admins_about_new_release(user_id, album_id)
-        else:
-            # Сохранение сингла
-            cursor.execute('''
-                INSERT INTO releases (
-                    user_id, release_type, artist_name, release_name, producer, genre,
-                    cover_file_id, audio_file_id, release_date, performer_name,
-                    music_author, contract_file_id, videoshot_url, explicit_content,
-                    lyrics_file_id, preview_start, yandex_soon, create_links,
-                    tiktok_commercial, tiktok_full_version, status, is_album
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                user_id,
-                user_data.get('release_type'),
-                user_data.get('artist_name'),
-                user_data.get('release_name'),
-                user_data.get('producer'),
-                user_data.get('genre') or 'N/A',
-                user_data.get('cover_file_id'),
-                user_data.get('audio_file_id'),
-                user_data.get('release_date'),
-                user_data.get('performer_name'),
-                user_data.get('music_author'),
-                user_data.get('contract_file_id'),
-                user_data.get('videoshot_url'),
-                user_data.get('explicit_content', False),
-                user_data.get('lyrics_file_id'),
-                user_data.get('preview_start'),
-                user_data.get('yandex_soon', False),
-                user_data.get('create_links', False),
-                user_data.get('tiktok_commercial', False),
-                user_data.get('tiktok_full_version', False),
-                'pending',
-                False
-            ))
-            release_id = cursor.fetchone()[0]
-            release_name = user_data.get('release_name') or 'Релиз'
-            conn.commit()
-            bot.send_message(chat_id, f"✅ Релиз «{release_name}» успешно отправлен на модерацию!",
-                             reply_markup=create_main_menu())
-            notify_admins_about_new_release(user_id, release_id)
-    except Exception as e:
-        logger.exception("Ошибка сохранения релиза после оплаты")
-        bot.send_message(chat_id, f"❌ Критическая ошибка: {str(e)}", reply_markup=create_main_menu())
-    finally:
-        # Не очищаем всю сессию пользователя, чтобы не терять прогресс при сценариях с пополнением
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-def ask_release_type(message):
-    """Запрос типа релиза с кнопкой отмены"""
-    markup = create_options_keyboard(["Single", "Maxi Single", "EP", "ALBUM"])
-    msg = bot.send_message(
-        message.chat.id,
-        "2) Тип релиза:\n\n"
-        "📀 Выберите тип вашего музыкального релиза:\n\n"
-        "🎵 Single - одна композиция (1299₽)\n"
-        "🎶 Maxi Single - 1-3 композиции (1799₽)\n"
-        "💿 EP - мини-альбом 2-5 треков (2399₽)\n"
-        "💽 ALBUM - полноценный альбом 6+ треков (2899₽)",
-        reply_markup=markup
-    )
-    bot.register_next_step_handler(msg, process_release_type)
-
-
-def process_release_type(message):
-    """Обработка типа релиза с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    release_type = message.text
-    user_id = message.from_user.id
-
-    # Инициализация данных пользователя
-    if not hasattr(bot, 'user_data'):
-        bot.user_data = {}
-    bot.user_data[user_id] = {'release_type': release_type}
-
-    # EP и Maxi Single ведём по трековому сценарию (как альбом)
-    if release_type == "ALBUM":
-        ask_track_count(message)
-    elif release_type == "EP":
-        # Запросим количество треков 2..5
-        ask_track_count(message)
-    elif release_type == "Maxi Single":
-        # Жёстко 2 трека
-        bot.user_data[user_id]['track_count'] = 2
-        bot.user_data[user_id]['current_track'] = 1
-        bot.user_data[user_id]['tracks'] = []
-        ask_album_info(message)
-    else:
-        # Single
-        ask_artist_name(message)
-
-
-def ask_track_count(message):
-    """Запрос количества треков с кнопкой отмены"""
-    msg = bot.send_message(
-        message.chat.id,
-        "3) Количество треков в релизе:\n\n"
-        "🔢 Укажите количество треков в вашем релизе:\n\n"
-        "💿 EP: 2-5 треков (2399₽)\n"
-        "💽 ALBUM: 6+ треков (2899₽)\n"
-        "🎶 Maxi Single: 1-3 трека (1799₽)\n\n"
-        "Введите количество треков:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(msg, process_track_count)
-
-
-def process_track_count(message):
-    """Обработка количества треков с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    try:
-        user_id = message.from_user.id
-        track_count = int(message.text)
-        release_type = bot.user_data[user_id].get('release_type')
-
-        # Валидация по типу
-        if release_type == "ALBUM":
-            if track_count < 6 or track_count > 50:
-                raise ValueError("Для альбома допустимо от 6 треков")
-        elif release_type == "EP":
-            if track_count < 2 or track_count > 5:
-                raise ValueError("Для EP допустимо от 2 до 5 треков")
-        elif release_type == "Maxi Single":
-            if track_count < 1 or track_count > 3:
-                raise ValueError("Для Maxi Single допустимо от 1 до 3 треков")
-        else:
-            if track_count < 1 or track_count > 1:
-                raise ValueError("Для Single допустимо только 1 трек")
-
-        bot.user_data[user_id]['track_count'] = track_count
-        bot.user_data[user_id]['current_track'] = 1
-        bot.user_data[user_id]['tracks'] = []
-
-        ask_album_info(message)
-
-    except (ValueError, TypeError) as e:
-        msg = bot.send_message(
-            message.chat.id,
-            f"❌ {str(e) if str(e) else 'Пожалуйста, введите корректное число треков'}",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_track_count)
-
-
-def ask_album_info(message):
-    """Запрос информации об альбоме с кнопкой отмены"""
-    user_id = message.from_user.id
-    current_track = bot.user_data[user_id]['current_track']
-
-    if current_track == 1:
-        bot.send_message(
-            message.chat.id,
-            "4) Название альбома:\n\n"
-            "📝 Введите название вашего альбома/EP/Maxi Single:\n\n"
-            "💡 Примеры:\n"
-            "• \"Мой Первый Альбом\"\n"
-            "• \"Летние Воспоминания EP\"\n"
-            "• \"Best Tracks Collection\"\n\n"
-            "Название должно быть уникальным и запоминающимся:",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(message, process_album_name)
-    else:
-        ask_track_info(message)
-
-
-def process_album_name(message):
-    """Обработка названия альбома с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    bot.user_data[user_id]['album_name'] = message.text
-
-    bot.send_message(
-        message.chat.id,
-        "5) Исполнитель(-и) альбома:\n\n"
-        "🎤 Укажите основного исполнителя или группу:\n\n"
-        "💡 Примеры:\n"
-        "• \"Иван Иванов\"\n"
-        "• \"The Best Band\"\n"
-        "• \"MC Rapper feat. Singer\"\n\n"
-        "📝 Если несколько исполнителей, перечислите через запятую:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_album_artist)
-
-
-def process_album_artist(message):
-    """Обработка исполнителя альбома с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    bot.user_data[user_id]['album_artist'] = message.text
-
-    ask_track_info(message)
-
-
-def ask_track_info(message):
-    """Запрос информации о треке с кнопкой отмены"""
-    user_id = message.from_user.id
-    current_track = bot.user_data[user_id]['current_track']
-    track_count = bot.user_data[user_id]['track_count']
-
-    bot.send_message(
-        message.chat.id,
-        f"ТРЕК {current_track}/{track_count}\n\n"
-        "6) Название трека:\n\n"
-        "🎵 Введите название этого трека:\n\n"
-        "💡 Примеры:\n"
-        "• \"Моя Песня\"\n"
-        "• \"Summer Vibes\"\n"
-        "• \"Love Story (Remix)\"\n\n"
-        "📝 Название должно точно соответствовать аудиофайлу:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_track_name)
-
-
-def process_track_name(message):
-    """Обработка названия трека с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    current_track = bot.user_data[user_id]['current_track']
-
-    # Инициализация данных трека
-    track_data = {
-        'track_name': message.text,
-        'track_number': current_track
-    }
-    bot.user_data[user_id]['tracks'].append(track_data)
-
-    bot.send_message(
-        message.chat.id,
-        f"7) Продюсер трека (prod. by):\n\n"
-        "🎛️ Укажите продюсера/битмейкера этого трека:\n\n"
-        "💡 Примеры:\n"
-        "• \"BeatMaker\"\n"
-        "• \"ProducerName\"\n"
-        "• \"DJ Producer\"\n\n"
-        "📝 Будет отображаться как: [prod. by ВашПродюсер]",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_track_producer)
-
-
-def process_track_producer(message):
-    """Обработка продюсера трека с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    current_track_idx = bot.user_data[user_id]['current_track'] - 1
-    bot.user_data[user_id]['tracks'][current_track_idx]['producer'] = message.text
-
-    bot.send_message(
-        message.chat.id,
-        "8) Жанр трека:\n\n"
-        "🎼 Укажите музыкальный жанр этого трека:\n\n"
-        "💡 Популярные жанры:\n"
-        "• Hip-Hop, Rap, Trap\n"
-        "• Pop, Dance, House\n"
-        "• Rock, Alternative, Indie\n"
-        "• R&B, Soul, Jazz\n"
-        "• Electronic, Techno, Dubstep\n\n"
-        "📝 Введите один основной жанр:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_track_genre)
-
-
-def process_track_genre(message):
-    """Обработка жанра трека с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    current_track_idx = bot.user_data[user_id]['current_track'] - 1
-    bot.user_data[user_id]['tracks'][current_track_idx]['genre'] = message.text
-
-    ask_track_audio(message)
-
-
-def ask_track_audio(message):
-    """Запрос аудио трека с кнопкой отмены"""
-    user_id = message.from_user.id
-    current_track = bot.user_data[user_id]['current_track']
-
-    bot.send_message(
-        message.chat.id,
-        f"9) Аудиофайл для трека {current_track} (WAV, STEREO):\n\n"
-        "Загрузите 1 файл поддерживаемого типа: audio. Размер файла – не более 100 MB.",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_track_audio)
-
-
-def process_track_audio(message):
-    """Process audio file for track and then ask for track contract"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    if not message.audio and not message.document:
-        msg = bot.send_message(
-            message.chat.id,
-            "Пожалуйста, загрузите аудиофайл",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_track_audio)
-        return
-
-    user_id = message.from_user.id
-    current_track_idx = bot.user_data[user_id]['current_track'] - 1
-
-    # Save audio file ID
-    if message.audio:
-        file_id = message.audio.file_id
-    else:
-        file_id = message.document.file_id
-
-    bot.user_data[user_id]['tracks'][current_track_idx]['audio_file_id'] = file_id
-
-    # After audio, ask for contract for this track
-    ask_track_contract(message)
-
-
-def ask_track_contract(message):
-    """Запрос договора на бит для текущего трека"""
-    user_id = message.from_user.id
-    current_track = bot.user_data[user_id]['current_track']
-
-    bot.send_message(
-        message.chat.id,
-        f"9.1) ДОГОВОР НА БИТ для трека {current_track}\n\n"
-        "Загрузите 1 файл поддерживаемого типа. Размер файла – не более 10 MB.",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_track_contract)
-
-
-def process_track_contract(message):
-    """Обработка договора на бит для текущего трека"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    # Используем универсальную функцию валидации
-    is_valid, error_message, file_id = validate_file_upload(
-        message, 
-        allowed_extensions=['.pdf', '.doc', '.docx', '.jpg', '.png'], 
-        max_size_mb=10, 
-        required_type="document"
-    )
-    
-    if not is_valid:
-        msg = bot.send_message(
-            message.chat.id,
-            error_message,
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_track_contract)
-        return
-
-    user_id = message.from_user.id
-    current_track_idx = bot.user_data[user_id]['current_track'] - 1
-    bot.user_data[user_id]['tracks'][current_track_idx]['contract_file_id'] = file_id
-
-    # После договора — спросим текст для ТЕКУЩЕГО трека
-    ask_track_lyrics(message)
-
-
-def ask_track_lyrics(message):
-    """Запрос текста (TXT-файл) для текущего трека"""
-    user_id = message.from_user.id
-    current_track = bot.user_data[user_id]['current_track']
-
-    bot.send_message(
-        message.chat.id,
-        f"9.2) Текст трека {current_track} файлом в формате .txt:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_track_lyrics)
-
-
-def process_track_lyrics(message):
-    """Обработка текста трека (ожидаем документ txt)"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    current_track_idx = bot.user_data[user_id]['current_track'] - 1
-
-    # Используем универсальную функцию валидации
-    is_valid, error_message, file_id = validate_file_upload(
-        message, 
-        allowed_extensions=['.txt'], 
-        max_size_mb=10, 
-        required_type="document"
-    )
-    
-    if not is_valid:
-        msg = bot.send_message(
-            message.chat.id,
-            error_message,
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_track_lyrics)
-        return
-
-    # Сохраняем file_id текста трека
-    bot.user_data[user_id]['tracks'][current_track_idx]['lyrics_file_id'] = file_id
-
-    # Переход к следующему треку или завершение
-    bot.user_data[user_id]['current_track'] += 1
-    track_count = bot.user_data[user_id]['track_count']
-
-    if bot.user_data[user_id]['current_track'] <= track_count:
-        ask_track_info(message)
-    else:
-        ask_album_cover(message)
-
-
-def ask_album_cover(message):
-    """Запрос обложки альбома с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "10) Обложка альбома (PNG, JPG 3000x3000):\n\n"
-        "🎨 Способы отправки обложки:\n"
-        "📷 Как фото (быстро, сжатое)\n"
-        "📎 Как документ (лучшее качество, несжатое)\n\n"
-        "💡 Для лучшего качества ОБЯЗАТЕЛЬНО отправляйте как документ:\n"
-        "• Нажмите на скрепку 📎\n"
-        "• Выберите 'Файл' или 'Документ'\n"
-        "• Выберите файл обложки\n\n"
-        "⚠️ ВАЖНО: Отправка как фото значительно снижает качество!\n"
-        "✅ Поддерживаемые форматы: PNG, JPG, JPEG, WEBP\n"
-        "📐 Рекомендуемый размер: 3000x3000 пикселей\n"
-        "💾 Максимальный размер файла: 100 MB",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_album_cover)
-
-
-def process_album_cover(message):
-    """Обработка обложки альбома с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-
-    try:
-        if message.photo:
-            # Принимаем сжатые изображения (фото)
-            file_id = message.photo[-1].file_id
-            logger.info(f"Received album photo cover, file_id: {file_id}")
-
-            # Проверяем и инициализируем user_data если нужно
-            if user_id not in bot.user_data:
-                logger.warning(f"User data not found for user {user_id}, reinitializing")
-                bot.user_data[user_id] = {}
-
-            bot.user_data[user_id]['cover_file_id'] = file_id
-            bot.user_data[user_id]['cover_file_type'] = 'photo'  # Сохраняем тип файла
-            logger.info(f"Saved album photo cover_file_id for user {user_id}: {file_id}")
-            debug_user_data(user_id, "after_album_photo_cover")
-
-            bot.send_message(
-                message.chat.id,
-                "✅ Обложка принята как фото!"
-            )
-            ask_album_release_date(message)
-            return
-
-        elif message.document:
-            file_name = (message.document.file_name or '').lower()
-            mime_type = (message.document.mime_type or '').lower()
-
-            allowed_extensions = ['.png', '.jpg', '.jpeg', '.webp']
-            # Проверяем MIME-тип, расширение файла и размер
-            if (mime_type.startswith('image/') or any(file_name.endswith(ext) for ext in allowed_extensions)) and message.document.file_size <= 100 * 1024 * 1024:  # 100 MB
-                file_id = message.document.file_id
-                logger.info(f"Received album document cover: {file_name} ({mime_type}), file_id: {file_id}")
-
-                # Проверяем и инициализируем user_data если нужно
-                if user_id not in bot.user_data:
-                    logger.warning(f"User data not found for user {user_id}, reinitializing")
-                    bot.user_data[user_id] = {}
-
-                bot.user_data[user_id]['cover_file_id'] = file_id
-                bot.user_data[user_id]['cover_file_type'] = 'document'  # Сохраняем тип файла
-                logger.info(f"Saved album cover_file_id for user {user_id}: {file_id}")
-                debug_user_data(user_id, "after_album_document_cover")
-
-                bot.send_message(
-                    message.chat.id,
-                    "✅ Обложка принята как документ (качество сохранено)!"
-                )
-                ask_album_release_date(message)
-                return
-
-        # Проверяем размер файла отдельно для более точного сообщения об ошибке
-        if message.document and message.document.file_size > 100 * 1024 * 1024:
-            error_msg = (
-                "❌ Файл слишком большой!\n\n"
-                f"📏 Размер файла: {message.document.file_size / (1024 * 1024):.1f} МБ\n"
-                "💾 Максимальный размер: 100 МБ\n\n"
-                "💡 Рекомендации:\n"
-                "• Сожмите изображение до размера менее 100 МБ\n"
-                "• Используйте формат JPG вместо PNG для уменьшения размера\n"
-                "• Отправьте как фото (📷) для автоматического сжатия\n\n"
-                "Попробуйте отправить обложку еще раз:"
-            )
-        else:
-            error_msg = (
-                "❌ Неверный формат обложки!\n\n"
-                "Поддерживаемые способы отправки:\n"
-                "📷 Как фото (сжатое)\n"
-                "📎 Как документ (несжатое, лучшее качество)\n\n"
-                "✅ Поддерживаемые форматы: PNG, JPG, JPEG, WEBP\n"
-                "💾 Максимальный размер: 100 МБ\n\n"
-                "Пожалуйста, отправьте обложку в правильном формате:"
-        )
-        msg = bot.send_message(message.chat.id, error_msg, reply_markup=create_cancel_keyboard())
-        bot.register_next_step_handler(msg, process_album_cover)
-
-    except Exception as e:
-        logger.error(f"Ошибка обработки обложки: {str(e)}")
-        error_msg = (
-            "❌ Ошибка обработки файла!\n\n"
-            "Проверьте что файл:\n"
-            "• Является изображением\n"
-            "• Имеет размер менее 100 МБ\n"
-            "• Имеет правильный формат (PNG/JPG/JPEG/WEBP)\n\n"
-            "💡 Рекомендации:\n"
-            "• Для лучшего качества отправляйте как документ (📎)\n"
-            "• Для быстрой загрузки отправляйте как фото (📷)\n"
-            "• Убедитесь, что файл не поврежден\n\n"
-            "Попробуйте отправить обложку еще раз:"
-        )
-        msg = bot.send_message(message.chat.id, error_msg, reply_markup=create_cancel_keyboard())
-        bot.register_next_step_handler(msg, process_album_cover)
-
-
-def ask_album_release_date(message):
-    """Запрос даты релиза альбома с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "11) Дата релиза альбома (в формате ДД.ММ.ГГГГ):\n\n"
-        "📅 Укажите дату выхода вашего альбома:\n\n"
-        "💡 Формат: ДД.ММ.ГГГГ (например: 15.03.2024)\n\n"
-        "⚠️ Важные моменты:\n"
-        "• Дата должна быть в будущем\n"
-        "• Для промо поддержки подавайте заявку за 2 недели до релиза\n"
-        "• Учитывайте время обработки альбома (7-14 дней)\n"
-        "• Все треки альбома выйдут в эту дату\n\n"
-        "📝 Введите дату релиза альбома:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_album_release_date)
-
-
-def process_album_release_date(message):
-    """Обработка даты релиза альбома с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    try:
-        release_date = datetime.strptime(message.text, "%d.%m.%Y").date()
-        user_id = message.from_user.id
-        bot.user_data[user_id]['release_date'] = release_date
-        ask_performer_name(message)
-    except ValueError:
-        msg = bot.send_message(
-            message.chat.id,
-            "Неверный формат даты. Используйте ДД.ММ.ГГГГ",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_album_release_date)
-
 
 # Обновленная функция process_track_audio (единая логика: после аудио спрашиваем текст трека)
-def process_track_audio(message):
-    """Process audio file for track and then ask for track contract"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    if not message.audio and not message.document:
-        msg = bot.send_message(message.chat.id, "Пожалуйста, загрузите аудиофайл")
-        bot.register_next_step_handler(msg, process_track_audio)
-        return
-
-    user_id = message.from_user.id
-    current_track_idx = bot.user_data[user_id]['current_track'] - 1
-
-    # Save audio file ID
-    if message.audio:
-        file_id = message.audio.file_id
-    else:
-        file_id = message.document.file_id
-
-    bot.user_data[user_id]['tracks'][current_track_idx]['audio_file_id'] = file_id
-
-    # After audio, ask for contract for this track
-    ask_track_contract(message)
-
-
-def ask_artist_name(message):
-    """Запрос имени артиста с кнопкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-    bot.user_data[message.from_user.id] = {'release_type': message.text}
-    bot.send_message(
-        message.chat.id,
-        "3) Исполнитель(-и):\n\n"
-        "🎤 Укажите основного исполнителя или группу:\n\n"
-        "💡 Примеры:\n"
-        "• \"Артист Исполнитель\"\n"
-        "• \"The Music Band\"\n"
-        "• \"Singer feat. Rapper\"\n\n"
-        "📝 Если несколько исполнителей, перечислите через запятую:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, ask_release_name)
-
-
-def ask_release_name(message):
-    """Запрос названия релиза с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    try:
-        bot.user_data[message.from_user.id]['artist_name'] = message.text
-        bot.send_message(
-            message.chat.id,
-            "4) Название релиза:\n\n"
-            "🎵 Введите название вашего сингла:\n\n"
-            "💡 Примеры:\n"
-            "• \"Моя Лучшая Песня\"\n"
-            "• \"Summer Hit 2024\"\n"
-            "• \"Love Ballad (Radio Edit)\"\n\n"
-            "📝 Название должно соответствовать аудиофайлу:",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(message, ask_producer)
-    except Exception as e:
-        logger.error(f"Error in ask_release_name: {e}")
-        bot.send_message(message.chat.id, "Произошла ошибка, пожалуйста, попробуйте снова.")
-
-
-@bot.message_handler(commands=['cancel'])
-def cancel_distribution(message):
-    """Отмена процесса создания релиза"""
-    user_id = message.from_user.id
-    if user_id in bot.user_data:
-        # Очищаем только контекст создания релиза, оставляя возможные pending операции
-        for key in list(bot.user_data[user_id].keys()):
-            if key not in ('pending_operation',):
-                bot.user_data[user_id].pop(key, None)
-    bot.send_message(message.chat.id, "❌ Процесс создания релиза отменён.", reply_markup=create_main_menu())
-
-
-def create_cancel_keyboard():
-    """Создает клавиатуру с кнопками отмены и сохранения черновика"""
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(
-        types.KeyboardButton("💾 Сохранить черновик"),
-        types.KeyboardButton("❌ Отмена")
-    )
-    return markup
-
-
-def create_options_keyboard(options):
-    """Создает клавиатуру с опциями, кнопкой отмены и сохранения черновика"""
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    buttons = [types.KeyboardButton(option) for option in options]
-    markup.add(*buttons)
-    markup.add(
-        types.KeyboardButton("💾 Сохранить черновик"),
-        types.KeyboardButton("❌ Отмена")
-    )
-    return markup
-
-
-def ask_producer(message):
-    """Запрос продюсера с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    bot.user_data[message.from_user.id]['release_name'] = message.text
-    bot.send_message(
-        message.chat.id,
-        "5) prod. by (будет указан в формате [prod.by yourbeatmaker]):\n\n"
-        "🎛️ Укажите продюсера/битмейкера:\n\n"
-        "💡 Примеры:\n"
-        "• \"BeatMaker\"\n"
-        "• \"ProducerName\"\n"
-        "• \"YourBeatMaker\"\n\n"
-        "📝 Будет отображаться как: [prod.by ВашПродюсер]",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, ask_genre)
-
-
-def ask_genre(message):
-    """Запрос жанра с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    bot.user_data[message.from_user.id]['producer'] = message.text
-    bot.send_message(
-        message.chat.id,
-        "6) Жанр релиза:\n\n"
-        "🎼 Укажите музыкальный жанр вашего релиза:\n\n"
-        "💡 Популярные жанры:\n"
-        "• Hip-Hop, Rap, Trap\n"
-        "• Pop, Dance, House\n"
-        "• Rock, Alternative, Indie\n"
-        "• R&B, Soul, Jazz\n"
-        "• Electronic, Techno, Dubstep\n\n"
-        "📝 Введите один основной жанр:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_genre)
-
-
-def process_genre(message):
-    """Обработка жанра с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    bot.user_data[message.from_user.id]['genre'] = message.text
-    ask_cover(message)
-
-
-def ask_cover(message):
-    """Запрос обложки с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "7) Обложка релиза (PNG, JPG 3000x3000):\n\n"
-        "🎨 Способы отправки обложки:\n"
-        "📷 Как фото (быстро, сжатое)\n"
-        "📎 Как документ (лучшее качество, несжатое)\n\n"
-        "💡 Для лучшего качества ОБЯЗАТЕЛЬНО отправляйте как документ:\n"
-        "• Нажмите на скрепку 📎\n"
-        "• Выберите 'Файл' или 'Документ'\n"
-        "• Выберите файл обложки\n\n"
-        "⚠️ ВАЖНО: Отправка как фото значительно снижает качество!\n"
-        "✅ Поддерживаемые форматы: PNG, JPG, JPEG, WEBP\n"
-        "📐 Рекомендуемый размер: 3000x3000 пикселей\n"
-        "💾 Максимальный размер файла: 100 MB",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_cover)
-
-
-def process_cover(message):
-    """Обработка обложки с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    if user_id not in bot.user_data:
-        bot.send_message(message.chat.id, "❌ Сессия создания релиза устарела. Начните заново.")
-        return
-
-    try:
-        if message.photo:
-            file_id = message.photo[-1].file_id
-            logger.info(f"Received photo cover: {file_id}")
-
-            # Проверяем и инициализируем user_data если нужно
-            if user_id not in bot.user_data:
-                logger.warning(f"User data not found for user {user_id}, reinitializing")
-                bot.user_data[user_id] = {}
-
-            bot.user_data[user_id]['cover_file_id'] = file_id
-            bot.user_data[user_id]['cover_file_type'] = 'photo'  # Сохраняем тип файла
-            logger.info(f"Saved photo cover_file_id for user {user_id}: {file_id}")
-            debug_user_data(user_id, "after_single_photo_cover")
-
-            bot.send_message(
-                message.chat.id,
-                "✅ Обложка принята как фото!"
-            )
-            ask_audio(message)
-            return
-
-        elif message.document:
-            file_name = (message.document.file_name or '').lower()
-            mime_type = (message.document.mime_type or '').lower()
-
-            allowed_extensions = ['.png', '.jpg', '.jpeg', '.webp']
-            if (mime_type.startswith('image/') or any(file_name.endswith(ext) for ext in allowed_extensions)) and message.document.file_size <= 100 * 1024 * 1024:  # 100 MB
-                file_id = message.document.file_id
-                logger.info(f"Received document cover: {file_name} ({mime_type}), file_id: {file_id}")
-
-                # Проверяем и инициализируем user_data если нужно
-                if user_id not in bot.user_data:
-                    logger.warning(f"User data not found for user {user_id}, reinitializing")
-                    bot.user_data[user_id] = {}
-
-                bot.user_data[user_id]['cover_file_id'] = file_id
-                bot.user_data[user_id]['cover_file_type'] = 'document'  # Сохраняем тип файла
-                logger.info(f"Saved cover_file_id for user {user_id}: {file_id}")
-                debug_user_data(user_id, "after_single_document_cover")
-
-                bot.send_message(
-                    message.chat.id,
-                    "✅ Обложка принята как документ (качество сохранено)!"
-                )
-                ask_audio(message)
-                return
-
-        # Проверяем размер файла отдельно для более точного сообщения об ошибке
-        if message.document and message.document.file_size > 100 * 1024 * 1024:
-            error_msg = (
-                "❌ Файл слишком большой!\n\n"
-                f"📏 Размер файла: {message.document.file_size / (1024 * 1024):.1f} МБ\n"
-                "💾 Максимальный размер: 100 МБ\n\n"
-                "💡 Рекомендации:\n"
-                "• Сожмите изображение до размера менее 100 МБ\n"
-                "• Используйте формат JPG вместо PNG для уменьшения размера\n"
-                "• Отправьте как фото (📷) для автоматического сжатия\n\n"
-                "Попробуйте отправить обложку еще раз:"
-            )
-        else:
-            error_msg = (
-                "❌ Неверный формат обложки!\n\n"
-                "Поддерживаемые способы отправки:\n"
-                "📷 Как фото (сжатое)\n"
-                "📎 Как документ (несжатое, лучшее качество)\n\n"
-                "✅ Поддерживаемые форматы: PNG, JPG, JPEG, WEBP\n"
-                "💾 Максимальный размер: 100 МБ\n\n"
-                "Пожалуйста, отправьте обложку в правильном формате:"
-        )
-        msg = bot.send_message(message.chat.id, error_msg, reply_markup=create_cancel_keyboard())
-        bot.register_next_step_handler(msg, process_cover)
-
-    except Exception as e:
-        logger.error(f"Error processing cover: {str(e)}")
-        error_msg = (
-            "❌ Ошибка обработки файла!\n\n"
-            "Проверьте что файл:\n"
-            "• Является изображением\n"
-            "• Имеет размер менее 100 МБ\n"
-            "• Имеет правильный формат (PNG/JPG/JPEG/WEBP)\n\n"
-            "💡 Рекомендации:\n"
-            "• Для лучшего качества отправляйте как документ (📎)\n"
-            "• Для быстрой загрузки отправляйте как фото (📷)\n"
-            "• Убедитесь, что файл не поврежден\n\n"
-            "Попробуйте отправить обложку еще раз:"
-        )
-        msg = bot.send_message(message.chat.id, error_msg, reply_markup=create_cancel_keyboard())
-        bot.register_next_step_handler(msg, process_cover)
-
-
-def ask_audio(message):
-    """Запрос аудиофайла с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "8) Файл трека (WAV, STEREO):\n\n"
-        "🎧 Загрузите аудиофайл вашего трека:\n\n"
-        "💡 Рекомендуемые форматы:\n"
-        "• WAV (несжатый, лучшее качество)\n"
-        "• MP3 (сжатый, меньший размер)\n"
-        "• FLAC (сжатый без потерь)\n\n"
-        "⚙️ Технические требования:\n"
-        "• Формат: STEREO (стерео)\n"
-        "• Качество: не менее 44.1 kHz / 16 bit\n"
-        "• Максимальный размер: 100 MB\n\n"
-        "📎 Отправьте файл как документ для сохранения качества:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_audio)
-
-
-def process_audio(message):
-    """Обработка аудиофайла с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    if not message.audio and not message.document:
-        msg = bot.send_message(
-            message.chat.id,
-            "Пожалуйста, загрузите аудиофайл",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_audio)
-        return
-
-    if message.audio:
-        file_id = message.audio.file_id
-    else:
-        file_id = message.document.file_id
-
-    bot.user_data[message.from_user.id]['audio_file_id'] = file_id
-    ask_release_date(message)
-
-
-def ask_release_date(message):
-    """Запрос даты релиза с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "9) Дата релиза (в формате ДД.ММ.ГГГГ):\n\n"
-        "📅 Укажите дату выхода вашего релиза:\n\n"
-        "💡 Формат: ДД.ММ.ГГГГ (например: 25.12.2024)\n\n"
-        "⚠️ Важные моменты:\n"
-        "• Дата должна быть в будущем\n"
-        "• Для промо поддержки подавайте заявку за 2 недели до релиза\n"
-        "• Учитывайте время обработки заявки (3-7 дней)\n\n"
-        "📝 Введите дату релиза:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_release_date)
-
-
-def process_release_date(message):
-    """Обработка даты релиза с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    try:
-        release_date = datetime.strptime(message.text, "%d.%m.%Y").date()
-        bot.user_data[message.from_user.id]['release_date'] = release_date
-        ask_performer_name(message)
-    except ValueError:
-        msg = bot.send_message(
-            message.chat.id,
-            "Неверный формат даты. Используйте ДД.ММ.ГГГГ",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_release_date)
-
-
-def ask_performer_name(message):
-    """Запрос ФИО исполнителя с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "10) ФИО Исполнителя (-ей):\n\n"
-        "👤 Укажите полное имя исполнителя для официальных документов:\n\n"
-        "💡 Примеры:\n"
-        "• \"Иванов Иван Иванович\"\n"
-        "• \"Петрова Анна Сергеевна\"\n"
-        "• \"Smith John Michael\"\n\n"
-        "📝 Важно:\n"
-        "• Указывайте реальное ФИО (как в паспорте)\n"
-        "• Если несколько исполнителей, перечислите через запятую\n"
-        "• Эта информация нужна для договоров с площадками:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, ask_music_author)
-
-
-def ask_music_author(message):
-    """Запрос автора музыки с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    bot.user_data[message.from_user.id]['performer_name'] = message.text
-    bot.send_message(
-        message.chat.id,
-        "11) ФИО Автора (-ов) музыки:\n\n"
-        "🎼 Укажите автора(ов) музыкальной композиции:\n\n"
-        "💡 Примеры:\n"
-        "• \"Композиторов Алексей Владимирович\"\n"
-        "• \"Musicmaker Ivan Petrov\"\n"
-        "• \"Иванов И.И., Петров П.П.\"\n\n"
-        "📝 Важные моменты:\n"
-        "• Автор музыки - тот, кто создал мелодию\n"
-        "• Может отличаться от исполнителя\n"
-        "• Если несколько авторов, перечислите через запятую\n"
-        "• Указывайте полные ФИО для авторских прав:",
-        reply_markup=create_cancel_keyboard()
-    )
-    # Всегда следующим шагом обрабатываем авторов в функции ask_contract,
-    # где будет ветвление: для мульти-трековых релизов пропускаем запрос договора
-    bot.register_next_step_handler(message, ask_contract)
-
-
-def ask_contract(message):
-    """Запрос договора с кнопкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    bot.user_data[user_id]['music_author'] = message.text
-    release_type = bot.user_data.get(user_id, {}).get('release_type')
-
-    # Для мульти-трековых релизов пропускаем запрос договора на уровне альбома — договоры собираются по трекам
-    if release_type in ("ALBUM", "EP", "Maxi Single"):
-        ask_videoshot(message)
-        return
-
-    bot.send_message(
-        message.chat.id,
-        "12) ДОГОВОР НА БИТ\n\n"
-        "📄 Загрузите договор на использование бита:\n\n"
-        "💡 Что это:\n"
-        "• Документ, подтверждающий права на использование инструментала\n"
-        "• Договор с битмейкером/продюсером\n"
-        "• Лицензия на бит\n\n"
-        "📎 Форматы файлов:\n"
-        "• PDF, DOC, DOCX, JPG, PNG\n"
-        "• Максимальный размер: 10 MB\n\n"
-        "⚠️ Важно: без этого документа релиз не может быть опубликован на площадках:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_contract)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "releases_approve" or call.data == "releases_reject")
-def handle_release_status_change(call):
-    """Handle release approval/rejection request"""
-    action = "approve" if call.data == "releases_approve" else "reject"
-    bot.edit_message_text(
-        "Введите ID релиза для изменения статуса:",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    bot.register_next_step_handler(call.message, process_release_id, action)
-
-
-def process_release_id(message, action):
-    """Process release ID input"""
-    try:
-        release_id = int(message.text)
-        bot.send_message(
-            message.chat.id,
-            "Выберите новый статус релиза:",
-            reply_markup=create_status_keyboard(release_id, action)
-        )
-    except ValueError:
-        msg = bot.send_message(message.chat.id, "❌ Неверный формат ID. Введите число:")
-        bot.register_next_step_handler(msg, process_release_id, action)
-
-
-def create_status_keyboard(release_id, action):
-    """Create keyboard with status options"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-
-    # For approve/reject show simplified options
-    if action == "approve":
-        markup.add(types.InlineKeyboardButton("✅ Принят", callback_data=f"status_update_{release_id}_принят"))
-    elif action == "reject":
-        markup.add(types.InlineKeyboardButton("❌ Отклонен", callback_data=f"status_update_{release_id}_отклонен"))
-
-    # Add all status options
-    for status in RELEASE_STATUSES:
-        if status not in ["принят", "отклонен"]:  # Already added
-            markup.add(types.InlineKeyboardButton(
-                f"🔄 {status.capitalize()}",
-                callback_data=f"status_update_{release_id}_{status}"
-            ))
-
-    return markup
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("status_update_"))
-def handle_status_update(call):
-    """Handle status update selection"""
-    parts = call.data.split("_")
-    release_id = int(parts[2])
-    new_status = "_".join(parts[3:])  # Reconstruct status name
-
-    # Update status in database
-    if update_release_status(release_id, new_status):
-        # Notify user
-        notify_user_about_status_change(release_id, new_status)
-
-        bot.answer_callback_query(
-            call.id,
-            f"✅ Статус обновлен на: {new_status}",
-            show_alert=True
-        )
-
-        # Return to release details
-        show_my_release_details(call, release_id, admin_mode=True)
-    else:
-        bot.answer_callback_query(
-            call.id,
-            "❌ Ошибка при обновлении статуса",
-            show_alert=True
-        )
-
-
-def update_release_status(release_id, new_status):
-    """Update release status in database"""
-    conn = get_pg_connection()
-    if not conn:
-        return False
-
-    try:
-        cursor = conn.cursor()
-        
-        # Check if this release is an album
-        cursor.execute('SELECT is_album FROM releases WHERE id = %s', (release_id,))
-        result = cursor.fetchone()
-        
-        if result and result[0]:  # If it's an album
-            # Update status for the album and all its tracks
-            cursor.execute('''
-                UPDATE releases 
-                SET status = %s 
-                WHERE id = %s OR album_id = %s
-            ''', (new_status, release_id, release_id))
-        else:
-            # Update status for single release only
-            cursor.execute(
-                'UPDATE releases SET status = %s WHERE id = %s',
-                (new_status, release_id)
-            )
-        
-        conn.commit()
-        return True
-    except Error as e:
-        logger.error(f"Error updating release status: {e}")
-        return False
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-def notify_user_about_status_change(release_id, new_status):
-    """Notify user about status change of their release"""
-    conn = get_pg_connection()
-    if not conn:
-        return
-
-    try:
-        cursor = conn.cursor()
-        # Get release info, user ID and platform links
-        cursor.execute('''
-            SELECT r.release_name, r.user_id, l.telegram_id, r.platform_links, r.artist_name
-            FROM releases r
-            JOIN label l ON r.user_id = l.telegram_id
-            WHERE r.id = %s
-        ''', (release_id,))
-        release_info = cursor.fetchone()
-
-        if release_info:
-            release_name, user_id, telegram_id, platform_links, artist_name = release_info
-            message = (
-                f"🔄 Статус вашего релиза обновлен!\n\n"
-                f"🎵 Релиз: {release_name}\n"
-                f"🆕 Новый статус: {new_status}\n\n"
-            )
-            
-            # При статусе "Релиз" добавляем ссылки на площадки
-            if new_status.lower() == "релиз" and platform_links:
-                try:
-                    links_data = platform_links
-                    if isinstance(platform_links, str):
-                        links_data = json.loads(platform_links)
-                    
-                    if links_data and isinstance(links_data, dict):
-                        message += "🎧 Ваш релиз доступен на площадках:\n\n"
-                        for platform_name, platform_url in links_data.items():
-                            if platform_url and platform_url.strip():
-                                message += f"• {platform_name}: {platform_url}\n"
-                        message += "\n🎉 Поздравляем с релизом!"
-                except Exception as parse_error:
-                    logger.warning(f"Could not parse platform_links for release {release_id}: {parse_error}")
-
-            try:
-                bot.send_message(telegram_id, message)
-                logger.info(f"Notified user {telegram_id} about release {release_id} status change to '{new_status}'")
-            except Exception as e:
-                logger.error(f"Failed to notify user {telegram_id}: {e}")
-    except Error as e:
-        logger.error(f"Database error in notify: {e}")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-def process_contract(message):
-    """Обработка договора с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    # Используем универсальную функцию валидации
-    is_valid, error_message, file_id = validate_file_upload(
-        message, 
-        allowed_extensions=['.pdf', '.doc', '.docx', '.jpg', '.png'], 
-        max_size_mb=10, 
-        required_type="document"
-    )
-    
-    if not is_valid:
-        msg = bot.send_message(
-            message.chat.id,
-            error_message,
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_contract)
-        return
-
-    bot.user_data[message.from_user.id]['contract_file_id'] = file_id
-    ask_videoshot(message)
-
-
-def ask_videoshot(message):
-    """Запрос видеошота с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "13) Ссылка на видеошот для Яндекс.Музыки (если нет, напишите 'нет'):\n\n"
-        "🎥 Видеошот - короткий вертикальный клип для промо:\n\n"
-        "💡 Что это:\n"
-        "• Короткое видео (15-30 сек) в вертикальном формате\n"
-        "• Используется для продвижения в Яндекс.Музыке\n"
-        "• Может содержать отрывок трека + визуал\n\n"
-        "📎 Как отправить:\n"
-        "• Загрузите видео на YouTube, VK, или другую платформу\n"
-        "• Отправьте ссылку на видео\n"
-        "• Если видеошота нет, напишите 'нет'\n\n"
-        "📝 Введите ссылку или 'нет':",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, ask_explicit_content)
-
-
-def process_explicit_response(message):
-    """Обработка контента для взрослых с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    bot.user_data[user_id]['explicit_content'] = message.text.lower() == 'да'
-
-    # Для многотрековых форматов (ALBUM, EP, Maxi Single) текст треков уже собран по каждому треку,
-    # поэтому переходим сразу к следующему шагу без вопроса "15) Текст трека ..."
-    if bot.user_data[user_id].get('release_type') in ['ALBUM', 'EP', 'Maxi Single']:
-        ask_preview_start(message)
-    else:
-        ask_lyrics(message)
-
-
-def ask_explicit_content(message):
-    """Запрос контента для взрослых с кнопкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    bot.user_data[user_id]['videoshot_url'] = message.text if message.text.lower() != 'нет' else None
-
-    markup = create_options_keyboard(["Да", "Нет"])
-    msg = bot.send_message(
-        message.chat.id,
-        "14) Нецензурная лексика в треке (маты):",
-        reply_markup=markup
-    )
-    bot.register_next_step_handler(msg, process_explicit_response)
-
-
-def ask_lyrics(message):
-    """Запрос текста песни с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "15) Текст трека файлом в формате txt:",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, process_lyrics)
-
-
-def process_lyrics(message):
-    """Обработка текста песни с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    # Используем универсальную функцию валидации
-    is_valid, error_message, file_id = validate_file_upload(
-        message, 
-        allowed_extensions=['.txt'], 
-        max_size_mb=10, 
-        required_type="document"
-    )
-    
-    if not is_valid:
-        msg = bot.send_message(
-            message.chat.id,
-            error_message,
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, process_lyrics)
-        return
-
-    bot.user_data[message.from_user.id]['lyrics_file_id'] = file_id
-    ask_preview_start(message)
-
-
-def ask_preview_start(message):
-    """Запрос времени предпрослушивания с кнопкой отмены"""
-    bot.send_message(
-        message.chat.id,
-        "16) Начало предпрослушивания (секунда начала звука, например 90 для 1:30):",
-        reply_markup=create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(message, ask_yandex_soon)
-
-
-def ask_yandex_soon(message):
-    """Запрос плашки 'Скоро' с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    try:
-        bot.user_data[message.from_user.id]['preview_start'] = int(message.text)
-        markup = create_options_keyboard(["Да", "Нет"])
-        msg = bot.send_message(
-            message.chat.id,
-            "17) Плашка 'скоро новый релиз' на Яндекс.Музыке:",
-            reply_markup=markup
-        )
-        bot.register_next_step_handler(msg, ask_create_links)
-    except ValueError:
-        msg = bot.send_message(
-            message.chat.id,
-            "Пожалуйста, введите число (секунды)",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(msg, ask_yandex_soon)
-
-
-def ask_create_links(message):
-    """Запрос создания ссылок с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    bot.user_data[message.from_user.id]['yandex_soon'] = message.text.lower() == 'да'
-    markup = create_options_keyboard(["Да", "Нет"])
-    msg = bot.send_message(
-        message.chat.id,
-        "18) Сделать ссылку на все площадки?",
-        reply_markup=markup
-    )
-    bot.register_next_step_handler(msg, ask_tiktok_features)
-
-
-def ask_tiktok_features(message):
-    """Запрос функций TikTok с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    bot.user_data[message.from_user.id]['create_links'] = message.text.lower() == 'да'
-    markup = create_options_keyboard(["Да", "Нет"])
-    msg = bot.send_message(
-        message.chat.id,
-        "19) Разрешить коммерческое использование в TikTok?",
-        reply_markup=markup
-    )
-    bot.register_next_step_handler(msg, process_tiktok_commercial)
-
-
-def process_tiktok_commercial(message):
-    """Обработка коммерческого использования TikTok с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    bot.user_data[message.from_user.id]['tiktok_commercial'] = message.text.lower() == 'да'
-    markup = create_options_keyboard(["Да", "Нет"])
-    msg = bot.send_message(
-        message.chat.id,
-        "20) Разрешить полную версию трека в TikTok?",
-        reply_markup=markup
-    )
-    bot.register_next_step_handler(msg, process_tiktok_full_version)
-
-
-def process_tiktok_full_version(message):
-    """Обработка полной версии в TikTok с проверкой отмены"""
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    user_id = message.from_user.id
-    bot.user_data[user_id]['tiktok_full_version'] = message.text.lower() == 'да'
-
-    # Вместо сохранения показываем предварительный просмотр (сохраняем клавиатуру «из черновика», если заходили из профиля)
-    ud = bot.user_data[user_id]
-    show_release_preview(message, ud, from_draft=ud.get('from_draft', False))
-
-
-def show_release_preview(message, user_data, from_draft=False):
-    """Показывает предварительный просмотр релиза перед сохранением. from_draft=True — заход из профиля (Черновики)."""
-    preview_text = "📝 ПРЕДВАРИТЕЛЬНЫЙ ПРОСМОТР РЕЛИЗА 📝\n\n"
-
-    if user_data.get('release_type') == 'ALBUM':
-        # Формирование текста для альбома
-        preview_text += f"💿 Тип: Альбом ({user_data['release_type']})\n"
-        preview_text += f"🎤 Исполнитель альбома: {user_data.get('album_artist', 'не указано')}\n"
-        preview_text += f"📀 Название альбома: {user_data.get('album_name', 'не указано')}\n"
-        preview_text += f"📅 Дата релиза: {user_data.get('release_date', 'не указана')}\n"
-        preview_text += f"🎵 Количество треков: {user_data.get('track_count', 0)}\n\n"
-
-        preview_text += "🎧 Треки:\n"
-        for i, track in enumerate(user_data.get('tracks', []), 1):
-            preview_text += f"{i}. {track.get('track_name', 'без названия')} "
-            preview_text += f"(prod. {track.get('producer', 'не указан')}) - "
-            preview_text += f"{track.get('genre', 'жанр не указан')}\n"
-    else:
-        # Формирование текста для сингла
-        preview_text += f"🎵 Тип: {user_data.get('release_type', 'не указан')}\n"
-        preview_text += f"🎤 Исполнитель: {user_data.get('artist_name', 'не указан')}\n"
-        preview_text += f"📀 Название релиза: {user_data.get('release_name', 'не указано')}\n"
-        preview_text += f"🎹 Продюсер: {user_data.get('producer', 'не указан')}\n"
-        preview_text += f"🎼 Жанр: {user_data.get('genre', 'не указан')}\n"
-        preview_text += f"📅 Дата релиза: {user_data.get('release_date', 'не указана')}\n"
-        preview_text += f"👤 ФИО Исполнителя: {user_data.get('performer_name', 'не указано')}\n"
-        preview_text += f"✍️ Автор музыки: {user_data.get('music_author', 'не указано')}\n"
-        preview_text += f"🔞 Эксплисит контент: {'Да' if user_data.get('explicit_content') else 'Нет'}\n"
-        preview_text += f"🕒 Начало превью: {user_data.get('preview_start', 'не указано')} сек.\n"
-        preview_text += f"🟢 Яндекс 'Скоро': {'Да' if user_data.get('yandex_soon') else 'Нет'}\n"
-        preview_text += f"🔗 Создать ссылки: {'Да' if user_data.get('create_links') else 'Нет'}\n"
-        preview_text += f"📱 TikTok коммерч.: {'Да' if user_data.get('tiktok_commercial') else 'Нет'}\n"
-        preview_text += f"🎵 TikTok полная версия: {'Да' if user_data.get('tiktok_full_version') else 'Нет'}\n"
-    user_id = message.from_user.id
-    conn = get_pg_connection()
-    is_artist = False
-    
-    if conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute('SELECT artist FROM label WHERE telegram_id = %s', (user_id,))
-            result = cursor.fetchone()
-            if result and result[0] == 1:
-                is_artist = True
-        except Exception:
-            pass
-        finally:
-            return_pg_connection(conn)
-
-    # Расчёт стоимости
-    cost_text = ""
-    release_type = user_data.get('release_type')
-    if is_artist:
-        total_cost = 0
-        cost_text = "\n\n🎉 БЕСПЛАТНО! У вас статус Artist"
-    else:
-        if release_type == "Single":
-            total_cost = 1299
-            cost_text = f"\n\n💵 Стоимость: 1299₽ (Single)"
-        elif release_type == "Maxi Single":
-            total_cost = 1799
-            cost_text = f"\n\n💵 Стоимость: 1799₽ (Maxi Single)"
-        elif release_type == "EP":
-            total_cost = 2399
-            cost_text = f"\n\n💵 Стоимость: 2399₽ (EP)"
-        elif release_type == "ALBUM":
-            total_cost = 2899
-            cost_text = f"\n\n💵 Стоимость: 2899₽ (Альбом)"
-        else:
-            total_cost = 1299
-            cost_text = ""
-
-    if not hasattr(bot, 'user_data'):
-        bot.user_data = {}
-    bot.user_data[user_id]['calculated_cost'] = total_cost
-    bot.user_data[user_id]['is_artist'] = is_artist
-    bot.user_data[user_id]['from_draft'] = from_draft
-
-    preview_text += cost_text
-    preview_text += "\n\nВсё верно? Подтвердите сохранение релиза."
-
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    if is_artist:
-        markup.add("✅ Отправить бесплатно")
-    else:
-        markup.add("✅ Оплатить и отправить")
-    if not from_draft:
-        markup.add("💾 Сохранить как черновик")
-    markup.add("✏️ Нет, изменить данные")
-    markup.add("◀️ Назад в меню" if from_draft else "❌ Отменить создание")
-
-    bot.send_message(message.chat.id, preview_text, reply_markup=markup)
-
-    release_type = user_data.get("release_type")
-    tracks = user_data.get("tracks") or []
-
-    # Альбом / EP / Maxi Single с несколькими треками — название трека отдельным сообщением, под ним кнопка «Посмотреть вложения»
-    if release_type in ("ALBUM", "EP", "Maxi Single") and tracks:
-        if user_data.get("cover_file_id"):
-            attach_m = types.InlineKeyboardMarkup()
-            attach_m.add(types.InlineKeyboardButton("🖼 Обложка релиза", callback_data="preview_cover"))
-            bot.send_message(message.chat.id, "📎 Обложка релиза:", reply_markup=attach_m)
-        for i, track in enumerate(tracks):
-            track_name = track.get("track_name") or f"Трек {i + 1}"
-            # Название трека — отдельное сообщение
-            bot.send_message(message.chat.id, f"🎵 Трек {i + 1}: {track_name}")
-            # Под ним — кнопка «Посмотреть вложения» (отправит все вложения трека и аудио)
-            track_markup = types.InlineKeyboardMarkup()
-            track_markup.add(types.InlineKeyboardButton("📎 Посмотреть вложения", callback_data=f"preview_track_{i}"))
-            bot.send_message(message.chat.id, "📎 Вложения трека:", reply_markup=track_markup)
-    else:
-        # Сингл — одна кнопка «Посмотреть вложения» (обложка, трек, договор)
-        attach_buttons = []
-        if user_data.get("cover_file_id"):
-            attach_buttons.append(types.InlineKeyboardButton("🖼 Обложка", callback_data="preview_cover"))
-        if user_data.get("audio_file_id"):
-            attach_buttons.append(types.InlineKeyboardButton("🎵 Трек", callback_data="preview_audio"))
-        if user_data.get("contract_file_id"):
-            attach_buttons.append(types.InlineKeyboardButton("📄 Договор", callback_data="preview_contract"))
-        if attach_buttons:
-            attach_markup = types.InlineKeyboardMarkup(row_width=2)
-            attach_markup.add(*attach_buttons)
-            bot.send_message(
-                message.chat.id,
-                "📎 Посмотреть вложения:",
-                reply_markup=attach_markup
-            )
-
-    bot.register_next_step_handler(message, process_preview_confirmation)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "preview_cover")
-def handle_preview_cover(call):
-    """Отправить обложку релиза по нажатию «Обложка» под превью."""
-    user_id = call.from_user.id
-    user_data = bot.user_data.get(user_id, {})
-    file_id = user_data.get("cover_file_id")
-    if not file_id:
-        bot.answer_callback_query(call.id, "Обложка не загружена", show_alert=True)
-        return
-    try:
-        bot.send_photo(call.message.chat.id, file_id, caption="🖼 Обложка релиза")
-        bot.answer_callback_query(call.id)
-    except Exception as e:
-        logger.error(f"Error sending preview cover: {e}")
-        bot.answer_callback_query(call.id, "Не удалось отправить обложку", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "preview_audio")
-def handle_preview_audio(call):
-    """Отправить трек по нажатию «Трек» под превью."""
-    user_id = call.from_user.id
-    user_data = bot.user_data.get(user_id, {})
-    file_id = user_data.get("audio_file_id")
-    if not file_id:
-        bot.answer_callback_query(call.id, "Трек не загружен", show_alert=True)
-        return
-    try:
-        bot.send_audio(call.message.chat.id, file_id, caption="🎵 Трек")
-        bot.answer_callback_query(call.id)
-    except Exception as e:
-        logger.error(f"Error sending preview audio: {e}")
-        bot.answer_callback_query(call.id, "Не удалось отправить трек", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "preview_contract")
-def handle_preview_contract(call):
-    """Отправить договор по нажатию «Договор» под превью."""
-    user_id = call.from_user.id
-    user_data = bot.user_data.get(user_id, {})
-    file_id = user_data.get("contract_file_id")
-    if not file_id:
-        bot.answer_callback_query(call.id, "Договор не загружен", show_alert=True)
-        return
-    try:
-        bot.send_document(call.message.chat.id, file_id, caption="📄 Договор")
-        bot.answer_callback_query(call.id)
-    except Exception as e:
-        logger.error(f"Error sending preview contract: {e}")
-        bot.answer_callback_query(call.id, "Не удалось отправить договор", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("preview_track_"))
-def handle_preview_track(call):
-    """По нажатию «Посмотреть вложения» отправить все вложения этого трека и сам аудиофайл."""
-    user_id = call.from_user.id
-    user_data = bot.user_data.get(user_id, {})
-    tracks = user_data.get("tracks") or []
-    try:
-        idx = int(call.data.replace("preview_track_", "", 1).strip())
-    except ValueError:
-        bot.answer_callback_query(call.id, "Ошибка", show_alert=True)
-        return
-    if idx < 0 or idx >= len(tracks):
-        bot.answer_callback_query(call.id, "Трек не найден", show_alert=True)
-        return
-    track = tracks[idx]
-    track_name = track.get("track_name") or f"Трек {idx + 1}"
-    chat_id = call.message.chat.id
-    sent = False
-    try:
-        # Сначала аудиофайл
-        if track.get("audio_file_id"):
-            bot.send_audio(chat_id, track["audio_file_id"], caption=f"🎵 {track_name}")
-            sent = True
-        # Затем все остальные вложения трека
-        if track.get("contract_file_id"):
-            bot.send_document(chat_id, track["contract_file_id"], caption=f"📄 Договор: {track_name}")
-            sent = True
-        if track.get("lyrics_file_id"):
-            bot.send_document(chat_id, track["lyrics_file_id"], caption=f"📝 Текст: {track_name}")
-            sent = True
-        if not sent:
-            bot.answer_callback_query(call.id, "Нет вложений для этого трека", show_alert=True)
-            return
-        bot.answer_callback_query(call.id)
-    except Exception as e:
-        logger.error(f"Error sending track attachments: {e}")
-        bot.answer_callback_query(call.id, "Не удалось отправить вложения", show_alert=True)
-
-
-def process_preview_confirmation(message):
-    """Обрабатывает подтверждение предварительного просмотра"""
-    user_id = message.from_user.id
-    user_data = bot.user_data.get(user_id, {})
-
-    if message.text == "✅ Оплатить и отправить":
-        # Предложим подтвердить списание и перейти к оплате
-        total_cost = user_data.get('calculated_cost', 1299)
-        release_type = user_data.get('release_type', 'Single')
-        bot.user_data.setdefault(user_id, {})['calculated_cost'] = total_cost
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("Подтвердить оплату", callback_data=f"distribution_pay_{total_cost}"))
-        markup.add(types.InlineKeyboardButton("🎟 Использовать промокод", callback_data="use_promo_distribution"))
-        bot.send_message(
-            message.chat.id,
-            f"Подтвердите списание {total_cost}₽ за {release_type}.",
-            reply_markup=markup
-        )
-    elif message.text == "✅ Отправить бесплатно":
-        # Для пользователей со статусом artist - сразу сохраняем релиз
-        bot.send_message(
-            message.chat.id,
-            "🎉 Отправляем релиз бесплатно! Сохраняем данные...",
-            reply_markup=types.ReplyKeyboardRemove()
-        )
-        save_release_data_for_user(user_id, message.chat.id)
-    elif message.text == "💾 Сохранить как черновик":
-        try:
-            conn = get_pg_connection()
-            if conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    'INSERT INTO drafts (user_id, draft_type, data, current_step, created_at, updated_at) VALUES (%s, %s, %s, %s, NOW(), NOW())',
-                    (message.from_user.id, 'distribution_legacy', json.dumps(user_data, ensure_ascii=False, default=str), 0)
-                )
-                conn.commit()
-                cursor.close()
-                return_pg_connection(conn)
-            bot.user_data.pop(message.from_user.id, None)
-            bot.send_message(
-                message.chat.id,
-                "💾 Черновик сохранён!\n\nВы можете продолжить заполнение позже из раздела «Черновики» в профиле.",
-                reply_markup=create_main_menu()
-            )
-        except Exception as e:
-            logger.error(f"Error saving draft (reply flow): {e}")
-            bot.send_message(message.chat.id, "❌ Ошибка сохранения черновика. Попробуйте позже.")
-            bot.register_next_step_handler(message, process_preview_confirmation)
-    elif message.text == "✏️ Нет, изменить данные":
-        # Предлагаем выбрать что изменить
-        ask_what_to_edit(message, user_data)
-    elif message.text == "❌ Отменить создание":
-        cancel_distribution(message)
-    elif message.text == "◀️ Назад в меню":
-        # Заход из черновиков — сохраняем текущие данные в черновик и возврат в меню
-        uid = message.from_user.id
-        current = bot.user_data.get(uid, {})
-        save_draft_to_db(uid, current)
-        bot.user_data.pop(uid, None)
-        bot.send_message(message.chat.id, "Возврат в меню.", reply_markup=create_main_menu())
-    else:
-        bot.send_message(message.chat.id, "Пожалуйста, выберите вариант из меню.")
-        bot.register_next_step_handler(message, process_preview_confirmation)
-
-
-def save_draft_to_db(user_id, user_data):
-    """Обновить черновик в БД, если user_data пришёл из черновика (есть draft_id)."""
-    draft_id = user_data.get("draft_id") if user_data else None
-    if draft_id is None:
-        return
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            return
-        cursor = conn.cursor()
-        cursor.execute(
-            'UPDATE drafts SET data = %s, updated_at = NOW() WHERE id = %s AND user_id = %s',
-            (json.dumps(user_data, ensure_ascii=False, default=str), draft_id, user_id)
-        )
-        conn.commit()
-        cursor.close()
-        return_pg_connection(conn)
-    except Exception as e:
-        logger.error(f"Error saving draft to DB: {e}")
-
 
 # Редактирование одного поля: после ввода нового значения сразу показываем превью (не цепочку шагов)
-EDIT_FIELD_CONFIG = {
-    "Исполнитель": ("artist_name", "🎤 Введите нового исполнителя (-ей):", "text"),
-    "Название релиза": ("release_name", "💿 Введите новое название релиза:", "text"),
-    "Продюсер": ("producer", "🎹 Введите продюсера/битмейкера:", "text"),
-    "Жанр": ("genre", "🎶 Введите жанр:", "text"),
-    "Дата релиза": ("release_date", "📅 Введите дату релиза (ДД.ММ.ГГГГ):", "text"),
-    "ФИО Исполнителя": ("performer_name", "👤 Введите ФИО исполнителя:", "text"),
-    "Автор музыки": ("music_author", "✍️ Введите автора музыки:", "text"),
-    "Обложка": ("cover", "🖼 Загрузите новую обложку (фото):", "photo"),
-    "Аудиофайл": ("audio", "🎵 Загрузите новый аудиофайл:", "audio"),
-    "Договор": ("contract", "📄 Загрузите новый договор (документ):", "document"),
-    "Видеошот": ("videoshot_url", "🎥 Введите ссылку на видеошот или «нет»:", "text"),
-    "Начало превью": ("preview_start", "⏱ Введите секунду начала превью (например 90):", "text"),
-}
-EDIT_FIELD_YES_NO = {
-    "Эксплисит контент": "explicit_content",
-    "Яндекс 'Скоро'": "yandex_soon",
-    "Создать ссылки": "create_links",
-    "TikTok коммерч.": "tiktok_commercial",
-    "TikTok полная версия": "tiktok_full_version",
-}
-
-
-def _prompt_edit_one_field_and_register(message, user_data, prompt_text, field_key, value_type, reply_markup=None):
-    """Отправить запрос нового значения и зарегистрировать обработчик — после ответа сохранить поле и показать превью."""
-    msg = bot.send_message(
-        message.chat.id,
-        prompt_text,
-        reply_markup=reply_markup or create_cancel_keyboard()
-    )
-    bot.register_next_step_handler(
-        msg,
-        lambda m: process_edit_one_value(m, user_data, field_key, value_type)
-    )
-
-
-def process_edit_one_value(message, user_data, field_key, value_type):
-    """Сохранить новое значение одного поля и сразу показать превью (без цепочки шагов)."""
-    user_id = message.from_user.id
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-
-    try:
-        if value_type == "text":
-            user_data[field_key] = (message.text or "").strip()
-        elif value_type == "photo":
-            if message.photo:
-                user_data["cover_file_id"] = message.photo[-1].file_id
-                user_data["cover_file_type"] = "photo"
-            else:
-                bot.send_message(message.chat.id, "Отправьте фото обложки.")
-                _prompt_edit_one_field_and_register(message, user_data, "🖼 Загрузите обложку (фото):", field_key, value_type)
-                return
-        elif value_type == "audio":
-            if message.audio:
-                user_data["audio_file_id"] = message.audio.file_id
-            elif message.document:
-                user_data["audio_file_id"] = message.document.file_id
-            else:
-                bot.send_message(message.chat.id, "Отправьте аудио или документ.")
-                _prompt_edit_one_field_and_register(message, user_data, "🎵 Загрузите аудиофайл:", field_key, value_type)
-                return
-        elif value_type == "document":
-            if message.document:
-                user_data["contract_file_id"] = message.document.file_id
-            else:
-                bot.send_message(message.chat.id, "Отправьте документ.")
-                _prompt_edit_one_field_and_register(message, user_data, "📄 Загрузите договор (документ):", field_key, value_type)
-                return
-        elif value_type == "yes_no":
-            user_data[field_key] = (message.text or "").strip().lower() == "да"
-        else:
-            user_data[field_key] = (message.text or "").strip()
-    except Exception as e:
-        logger.error(f"Error saving edit: {e}")
-        bot.send_message(message.chat.id, "Ошибка сохранения. Попробуйте снова.")
-        ask_what_to_edit(message, user_data)
-        return
-
-    bot.user_data[user_id] = user_data
-    save_draft_to_db(user_id, user_data)
-    show_release_preview(message, user_data, from_draft=user_data.get("from_draft", False))
-
-
-RELEASE_TYPES = ("Single", "Maxi Single", "EP", "ALBUM")
-
-
-def process_edit_release_type(message, user_data):
-    """Обработка смены типа релиза: выбор из кнопок, сброс несовместимых полей, превью."""
-    user_id = message.from_user.id
-    if is_cancel_message(message):
-        return cancel_distribution(message)
-    if message.text == "◀️ Назад в меню":
-        save_draft_to_db(user_id, user_data)
-        bot.user_data.pop(user_id, None)
-        bot.send_message(message.chat.id, "Возврат в меню.", reply_markup=create_main_menu())
-        return
-
-    if message.text not in RELEASE_TYPES:
-        bot.send_message(message.chat.id, "Выберите тип релиза кнопкой ниже.")
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        for t in RELEASE_TYPES:
-            markup.add(t)
-        markup.add("◀️ Назад в меню" if user_data.get("from_draft") else "❌ Отмена")
-        bot.register_next_step_handler(message, lambda m: process_edit_release_type(m, user_data))
-        return
-
-    new_type = message.text
-    old_type = user_data.get("release_type")
-
-    user_data["release_type"] = new_type
-
-    # При смене типа сбрасываем поля, которые не подходят новому типу (чтобы логика была корректной)
-    if new_type == "ALBUM":
-        # Было Single/EP/Maxi — очищаем сингловые поля, альбомные заполнятся заново
-        for key in ("artist_name", "release_name", "producer", "genre", "cover_file_id", "audio_file_id",
-                    "contract_file_id", "videoshot_url", "explicit_content", "preview_start", "yandex_soon",
-                    "create_links", "tiktok_commercial", "tiktok_full_version", "performer_name", "music_author"):
-            user_data.pop(key, None)
-        user_data.setdefault("album_artist", "")
-        user_data.setdefault("album_name", "")
-        user_data.setdefault("tracks", [])
-    else:
-        # Было ALBUM или другой — очищаем альбомные поля
-        for key in ("album_artist", "album_name", "tracks", "track_count", "current_track"):
-            user_data.pop(key, None)
-        user_data.setdefault("artist_name", user_data.get("artist_name", ""))
-        user_data.setdefault("release_name", user_data.get("release_name", ""))
-
-    bot.user_data[user_id] = user_data
-    save_draft_to_db(user_id, user_data)
-    show_release_preview(message, user_data, from_draft=user_data.get("from_draft", False))
-
-
-def ask_what_to_edit(message, user_data):
-    """Спрашивает пользователя, какие данные он хочет изменить"""
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-
-    if user_data.get('release_type') == 'ALBUM':
-        # Для альбома
-        items = [
-            "Исполнитель альбома", "Название альбома", "Дата релиза",
-            "ФИО Исполнителя", "Автор музыки", "Трек-лист", "Обложка"
-        ]
-    else:
-        # Для сингла
-        items = [
-            "Тип релиза", "Исполнитель", "Название релиза", "Продюсер",
-            "Жанр", "Дата релиза", "ФИО Исполнителя", "Автор музыки",
-            "Обложка", "Аудиофайл", "Договор", "Видеошот", "Эксплисит контент",
-            "Начало превью", "Яндекс 'Скоро'", "Создать ссылки", "TikTok коммерч.", "TikTok полная версия"
-        ]
-
-    for item in items:
-        markup.add(item)
-    markup.add("◀️ Назад в меню" if user_data.get('from_draft') else "❌ Отменить создание")
-
-    bot.send_message(
-        message.chat.id,
-        "Что вы хотите изменить?",
-        reply_markup=markup
-    )
-    bot.register_next_step_handler(message, lambda msg: process_edit_choice(msg, user_data))
-
-
-def process_edit_choice(message, user_data):
-    """Обрабатывает выбор данных для редактирования"""
-    choice = message.text
-    user_id = message.from_user.id
-
-    if choice == "❌ Отменить создание":
-        return cancel_distribution(message)
-    if choice == "◀️ Назад в меню":
-        save_draft_to_db(user_id, user_data)
-        bot.user_data.pop(user_id, None)
-        bot.send_message(message.chat.id, "Возврат в меню.", reply_markup=create_main_menu())
-        return
-
-    # Сохраняем текущие данные
-    bot.user_data[user_id] = user_data
-
-    # Тип релиза — отдельно: сообщение «Выберите тип релиза» и кнопки Single, Maxi Single, EP, ALBUM
-    if choice == "Тип релиза":
-        markup_rt = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup_rt.add("Single", "Maxi Single", "EP", "ALBUM")
-        markup_rt.add("◀️ Назад в меню" if user_data.get("from_draft") else "❌ Отмена")
-        bot.send_message(message.chat.id, "Выберите тип релиза:", reply_markup=markup_rt)
-        bot.register_next_step_handler(message, lambda m: process_edit_release_type(m, user_data))
-        return
-
-    # Редактирование одного поля: один запрос → сохранить → сразу превью (без цепочки шагов)
-    if choice in EDIT_FIELD_CONFIG:
-        field_key, prompt_text, value_type = EDIT_FIELD_CONFIG[choice]
-        _prompt_edit_one_field_and_register(message, user_data, prompt_text, field_key, value_type)
-        return
-    if choice in EDIT_FIELD_YES_NO:
-        field_key = EDIT_FIELD_YES_NO[choice]
-        markup_yn = create_options_keyboard(["Да", "Нет"])
-        msg = bot.send_message(
-            message.chat.id,
-            f"Новое значение для «{choice}»:",
-            reply_markup=markup_yn
-        )
-        bot.register_next_step_handler(msg, lambda m: process_edit_one_value(m, user_data, field_key, "yes_no"))
-        return
-
-    # Сложные/альбомные поля — оставляем старый поток
-    if choice == "Тип релиза":
-        ask_release_type(message)
-    elif choice == "Исполнитель":
-        ask_artist_name(message)
-    elif choice == "Название релиза":
-        ask_release_name(message)
-    elif choice == "Продюсер":
-        ask_producer(message)
-    elif choice == "Жанр":
-        ask_genre(message)
-    elif choice == "Дата релиза":
-        ask_release_date(message)
-    elif choice == "ФИО Исполнителя":
-        ask_performer_name(message)
-    elif choice == "Автор музыки":
-        ask_music_author(message)
-    elif choice == "Обложка":
-        if user_data.get('release_type') == 'ALBUM':
-            ask_album_cover(message)
-        else:
-            ask_cover(message)
-    elif choice == "Аудиофайл":
-        if user_data.get('release_type') == 'ALBUM':
-            bot.user_data[user_id]['current_track'] = 1
-            ask_track_audio(message)
-        else:
-            ask_audio(message)
-    elif choice == "Договор":
-        ask_contract(message)
-    elif choice == "Видеошот":
-        ask_videoshot(message)
-    elif choice == "Эксплисит контент":
-        markup = create_options_keyboard(["Да", "Нет"])
-        msg = bot.send_message(
-            message.chat.id,
-            "14) Нецензурная лексика в треке (маты):",
-            reply_markup=markup
-        )
-        bot.register_next_step_handler(msg, process_explicit_response)
-    elif choice == "Начало превью":
-        ask_preview_start(message)
-    elif choice == "Яндекс 'Скоро'":
-        markup = create_options_keyboard(["Да", "Нет"])
-        msg = bot.send_message(
-            message.chat.id,
-            "17) Плашка 'скоро новый релиз' на Яндекс.Музыке:",
-            reply_markup=markup
-        )
-        bot.register_next_step_handler(msg, ask_create_links)
-    elif choice == "Создать ссылки":
-        markup = create_options_keyboard(["Да", "Нет"])
-        msg = bot.send_message(
-            message.chat.id,
-            "18) Сделать ссылку на все площадки?",
-            reply_markup=markup
-        )
-        bot.register_next_step_handler(msg, ask_tiktok_features)
-    elif choice == "TikTok коммерч.":
-        markup = create_options_keyboard(["Да", "Нет"])
-        msg = bot.send_message(
-            message.chat.id,
-            "19) Разрешить коммерческое использование в TikTok?",
-            reply_markup=markup
-        )
-        bot.register_next_step_handler(msg, process_tiktok_commercial)
-    elif choice == "TikTok полная версия":
-        markup = create_options_keyboard(["Да", "Нет"])
-        msg = bot.send_message(
-            message.chat.id,
-            "20) Разрешить полную версию трека в TikTok?",
-            reply_markup=markup
-        )
-        bot.register_next_step_handler(msg, process_tiktok_full_version)
-    elif choice == "Трек-лист":
-        bot.send_message(message.chat.id, "Начинаем редактирование треков...")
-        bot.user_data[user_id]['current_track'] = 1
-        ask_track_info(message)
-    elif choice == "Исполнитель альбома":
-        bot.send_message(
-            message.chat.id,
-            "5) Исполнитель(-и) альбома:",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(message, process_album_artist)
-    elif choice == "Название альбома":
-        bot.send_message(
-            message.chat.id,
-            "4) Название альбома:",
-            reply_markup=create_cancel_keyboard()
-        )
-        bot.register_next_step_handler(message, process_album_name)
-    else:
-        bot.send_message(message.chat.id, "Неверный выбор. Пожалуйста, попробуйте снова.")
-        ask_what_to_edit(message, user_data)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "distribution_agree")
-def handle_distribution_agree(call):
-    """Handle agreement with distribution terms"""
-    conn = None
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "Ошибка подключения к базе данных", show_alert=True)
-            return
-
-        with conn.cursor() as cursor:
-            cursor.execute(
-                'INSERT INTO distribution_agreements (user_id, agreed) VALUES (%s, %s)',
-                (call.from_user.id, True)
-            )
-            conn.commit()
-
-        ask_release_type(call.message)
-    except Exception as e:
-        logger.error(f"Error saving distribution agreement: {e}")
-        bot.answer_callback_query(call.id, f"Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            return_pg_connection(conn)
-
-
-def save_release_data(message):
-    user_id = message.from_user.id
-    user_data = bot.user_data.get(user_id, {})
-    release_type = user_data.get('release_type', '')
-
-    # Отладочная информация
-    logger.info(f"Saving release data for user {user_id}, release_type: {release_type}")
-    logger.info(f"User data cover_file_id: {user_data.get('cover_file_id')}")
-    logger.info(f"Full user_data keys: {list(user_data.keys())}")
-    debug_user_data(user_id, "before_save_release_data")
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.send_message(message.chat.id, "❌ Ошибка подключения к БД")
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        if release_type == "ALBUM" or release_type == "EP" or release_type == "Maxi Single":
-            # Сохранение альбома
-            # Используем контракт первого трека для записи альбома
-            first_track_contract = (user_data.get('tracks') or [{}])[0].get('contract_file_id', 'N/A')
-            cursor.execute('''
-                INSERT INTO releases (
-                    user_id, release_type, artist_name, release_name, 
-                    genre, cover_file_id, release_date, performer_name,
-                    music_author, contract_file_id, videoshot_url, explicit_content,
-                    lyrics_file_id, preview_start, yandex_soon, create_links,
-                    tiktok_commercial, tiktok_full_version, status, is_album
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                user_id,
-                "ALBUM",
-                user_data.get('album_artist') or user_data.get('artist_name'),
-                user_data.get('album_name') or user_data.get('release_name'),
-                (user_data.get('tracks') or [{}])[0].get('genre') or 'N/A',
-                user_data.get('cover_file_id'),
-                user_data.get('release_date'),
-                user_data.get('performer_name'),
-                user_data.get('music_author'),
-                first_track_contract,
-                user_data.get('videoshot_url'),
-                user_data.get('explicit_content', False),
-                user_data.get('lyrics_file_id'),
-                user_data.get('preview_start'),
-                user_data.get('yandex_soon', False),
-                user_data.get('create_links', False),
-                user_data.get('tiktok_commercial', False),
-                user_data.get('tiktok_full_version', False),
-                'pending',
-                True
-            ))
-            album_id = cursor.fetchone()[0]
-
-            # Сохранение треков
-            for track in user_data.get('tracks', []):
-                cursor.execute('''
-                    INSERT INTO releases (
-                        user_id, release_type, artist_name, release_name, producer, genre,
-                        audio_file_id, release_date, performer_name, music_author,
-                        contract_file_id, explicit_content, status, album_id, is_track, track_number,
-                        lyrics_file_id
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ''', (
-                    user_id,
-                    "TRACK",
-                    user_data.get('album_artist') or user_data.get('artist_name'),
-                    track.get('track_name'),
-                    track.get('producer'),
-                    track.get('genre') or 'N/A',
-                    track.get('audio_file_id'),
-                    user_data.get('release_date'),
-                    user_data.get('performer_name'),
-                    user_data.get('music_author'),
-                    track.get('contract_file_id'),
-                    user_data.get('explicit_content', False),
-                    'pending',
-                    album_id,
-                    True,
-                    track.get('track_number'),
-                    track.get('lyrics_file_id')
-                ))
-
-            release_name = user_data.get('album_name') or user_data.get('release_name') or 'Релиз'
-
-        else:
-            # Сохранение сингла
-            cursor.execute('''
-                INSERT INTO releases (
-                    user_id, release_type, artist_name, release_name, producer, genre,
-                    cover_file_id, audio_file_id, release_date, performer_name,
-                    music_author, contract_file_id, videoshot_url, explicit_content,
-                    lyrics_file_id, preview_start, yandex_soon, create_links,
-                    tiktok_commercial, tiktok_full_version, status, is_album
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                user_id,
-                user_data.get('release_type'),
-                user_data.get('artist_name'),
-                user_data.get('release_name'),
-                user_data.get('producer'),
-                user_data.get('genre') or 'N/A',
-                user_data.get('cover_file_id'),
-                user_data.get('audio_file_id'),
-                user_data.get('release_date'),
-                user_data.get('performer_name'),
-                user_data.get('music_author'),
-                user_data.get('contract_file_id'),
-                user_data.get('videoshot_url'),
-                user_data.get('explicit_content', False),
-                user_data.get('lyrics_file_id'),
-                user_data.get('preview_start'),
-                user_data.get('yandex_soon', False),
-                user_data.get('create_links', False),
-                user_data.get('tiktok_commercial', False),
-                user_data.get('tiktok_full_version', False),
-                'pending',
-                False  # not album
-            ))
-            release_id = cursor.fetchone()[0]
-            release_name = user_data['release_name']
-
-        conn.commit()
-
-        # Уведомление пользователя
-        bot.send_message(
-            message.chat.id,
-            f"✅ Релиз «{release_name}» успешно отправлен на модерацию!",
-            reply_markup=create_main_menu()
-        )
-
-        # Уведомление админов
-        notify_admins_about_new_release(user_id, release_id if release_type != "ALBUM" else album_id)
-
-    except Exception as e:
-        logger.exception(f"Ошибка сохранения релиза")
-        bot.send_message(
-            message.chat.id,
-            f"❌ Критическая ошибка: {str(e)}",
-            reply_markup=create_main_menu()
-        )
-    finally:
-        if user_id in bot.user_data:
-            del bot.user_data[user_id]
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
 def create_admin_notification(release_info):
     """Create detailed notification message for admins"""
     return notifications.create_admin_notification_message(release_info, BOT_TOKEN)
@@ -8238,19 +1950,6 @@ def notify_all_admins(message_text):
     """Send notification to all admins"""
     notifications.notify_all_admins(bot, get_all_admins(), message_text, logger)
 
-
-def notify_admins(user_id, release_id):
-    """Notify admins about new release"""
-    notifications.notify_release_admins(
-        bot,
-        user_id,
-        release_id,
-        get_pg_connection,
-        return_pg_connection,
-        get_all_admins,
-        logger,
-        escape_markdown,
-    )
 
 
 def create_main_menu():
@@ -8267,36 +1966,6 @@ def create_main_menu():
     markup.add(*[types.KeyboardButton(btn) for btn in buttons])
     return markup
 
-
-def notify_admins_about_new_release(user_id):
-    """Notify admins about new release submission"""
-    conn = get_pg_connection()
-    if not conn:
-        return
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute('SELECT name, tg FROM label WHERE telegram_id = %s', (user_id,))
-        user_info = cursor.fetchone()
-
-        if user_info:
-            artist_name, username = user_info
-            message = f"🎵 Новый релиз от {artist_name} (@{username})"
-
-            # Отправляем всем админам
-            cursor.execute('SELECT telegram_id FROM label WHERE admin = 1')
-            for admin in cursor.fetchall():
-                try:
-                    bot.send_message(admin[0], message)
-                except Exception as e:
-                    logger.error(f"Failed to notify admin: {e}")
-
-    except Exception as e:
-        logger.error(f"Admin notification error: {e}")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
 
 
 def notify_admins_about_new_release(user_id, release_id):
@@ -8324,67 +1993,6 @@ def notify_admins_about_report_request(user_id, report_id, user_name, username):
         logger,
     )
 
-
-@bot.callback_query_handler(func=lambda call: False and call.data.startswith("admin_view_release_"))
-def handle_admin_view_release(call):
-    """Handle admin request to view release attachments"""
-    try:
-        # Extract release ID from callback data
-        release_id = call.data.split("_")[-1]
-        logger.info(f"Admin requested attachments for release: {release_id}")
-
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Database connection error", show_alert=True)
-            return
-
-        cursor = conn.cursor()
-
-        # Get release details
-        cursor.execute('''
-            SELECT cover_file_id, audio_file_id, contract_file_id, lyrics_file_id
-            FROM releases 
-            WHERE id = %s
-        ''', (release_id,))
-        release_files = cursor.fetchone()
-
-        if not release_files:
-            bot.answer_callback_query(call.id, "❌ Release not found", show_alert=True)
-            return
-
-        # Send files if available
-        if release_files[0]:  # Cover
-                            send_file_smart(call.message.chat.id, release_files[0], caption="🎨 Release Cover", file_type_hint='photo')
-
-        if release_files[1]:  # Audio
-            bot.send_audio(call.message.chat.id, release_files[1], caption="🎧 Audio Track")
-
-        if release_files[2]:  # Contract
-            bot.send_document(call.message.chat.id, release_files[2], caption="📝 Beat Contract")
-
-        if release_files[3]:  # Lyrics
-            bot.send_document(call.message.chat.id, release_files[3], caption="📜 Song Lyrics")
-
-        # Confirm to admin
-        bot.answer_callback_query(call.id, "✅ Attachments sent")
-
-    except Exception as e:
-        logger.error(f"Error in handle_admin_view_release: {e}")
-        bot.answer_callback_query(call.id, f"❌ Error: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-def check_subscription(user_id):
-    """Check if user is subscribed to the required channel"""
-    try:
-        member = bot.get_chat_member(chat_id=-1002021934191, user_id=user_id)
-        return member is not None
-    except Exception as e:
-        print(e)
-        return False
 
 
 def has_access_level(user_id, required_levels):
@@ -8426,130 +2034,6 @@ def has_access_level(user_id, required_levels):
             pass
 
 
-@bot.message_handler(commands=['start'])
-@require_channel_subscription
-def start(message):
-    """Handle /start command"""
-    user_id = message.from_user.id
-    username = message.from_user.username
-
-    # Извлекаем реферальный код из команды /start REFERRAL_CODE
-    referral_code = None
-    if message.text and len(message.text.split()) > 1:
-        referral_code = message.text.split()[1].strip()
-
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "Извините, произошла ошибка при подключении к базе данных.")
-            return
-
-        cursor = conn.cursor()
-
-        # Ищем пользователя по telegram_id и обновляем username (tg), если он указан
-        cursor.execute('SELECT id, tg FROM label WHERE telegram_id = %s', (user_id,))
-        row = cursor.fetchone()
-
-        is_new_user = False
-        if row:
-            current_tg = row[1]
-            if username and current_tg != username:
-                cursor.execute('UPDATE label SET tg = %s WHERE telegram_id = %s', (username, user_id))
-            bot.reply_to(message, "С возвращением!")
-        else:
-            # Пользователь не найден по telegram_id — регистрируем нового
-            is_new_user = True
-            cursor.execute('SELECT COALESCE(MAX(id), 0) + 1 FROM label')
-            result = cursor.fetchone()
-            new_id = result[0] if result else 1
-
-            cursor.execute(
-                'INSERT INTO label (id, tg, telegram_id, admin, artist, created_date) VALUES (%s, %s, %s, %s, %s, %s)',
-                (new_id, username, user_id, 0, 0, datetime.now())
-            )
-            bot.reply_to(message, "Добро пожаловать! Вы успешно зарегистрированы в системе.")
-            logger.info(f"New user registered: {user_id} (username: {username or 'не указан'}) with ID {new_id}")
-
-        conn.commit()
-
-        # Обрабатываем реферальный код
-        if referral_code:
-            try:
-                if is_new_user:
-                    cursor.execute('SELECT id FROM referrals WHERE referred_id = %s', (user_id,))
-                    existing_referral = cursor.fetchone()
-                    if not existing_referral:
-                        handle_referral_registration(cursor, user_id, referral_code, conn)
-                        conn.commit()
-                        logger.info(f"Referral code {referral_code} processed for new user {user_id}")
-                    else:
-                        notify_referrer_about_visit(referral_code, user_id, username)
-                else:
-                    notify_referrer_about_visit(referral_code, user_id, username)
-            except Exception as e:
-                logger.error(f"Error processing referral code {referral_code} for user {user_id}: {e}")
-                if is_new_user:
-                    conn.rollback()
-
-    except Error as e:
-        logger.error(f"Database error in start handler: {e}")
-        bot.reply_to(message, "Произошла ошибка при обработке вашего запроса.")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-    # Создаем клавиатуру
-    markup = create_main_menu()
-
-    # Отправляем приветственное сообщение
-    welcome_text = (
-        "Добро пожаловать в talk with a star // label  ⭐️\n\n"
-        "Мы - музыкальный лейбл и мы поможем вам:\n"
-        "• Выпустить трек на все площадки 🎧\n"
-        "• Создать обложку для релиза 🎨\n"
-        "• Заказать историю к релизу\n"
-        "• Получить продвижение 📈\n\n"
-        "Используйте меню ниже для навигации 👇\n\n"
-        "💡 Команды:\n"
-        "/start - Главная страница\n"
-        "/main - Вернуться в главное меню\n"
-        "/cancel - Отменить текущую операцию"
-    )
-
-    bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
-
-
-@bot.message_handler(commands=['main'], func=lambda message: LEGACY_INFO_ENABLED)
-def main_menu(message):
-    """Handle /main command - return to main menu"""
-    user_id = message.from_user.id
-    
-    # Создаем клавиатуру главного меню
-    markup = create_main_menu()
-    
-    # Отправляем сообщение с главным меню
-    menu_text = (
-        "🏠 Главное меню\n\n"
-        "Выберите нужную опцию из меню ниже 👇"
-    )
-    
-    bot.send_message(message.chat.id, menu_text, reply_markup=markup)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "check_subscription")
-def callback_check_subscription(call):
-    """Handle subscription check callback"""
-    if check_subscription(call.from_user.id):
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        start(call.message)
-    else:
-        bot.answer_callback_query(
-            call.id,
-            "Окак вы все еще не подписаны на канал. Подпишитесь для использования бота.",
-            show_alert=True
-        )
-
 
 # Дублированная функция admin_panel удалена - используется admin_panel на строке 3372
 
@@ -8577,290 +2061,6 @@ def handle_admin_reviews(call):
         reply_markup=markup
     )
 
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REVIEWS_ENABLED and call.data in ("admin_reviews_pending", "admin_reviews_all"))
-def handle_admin_reviews_list(call):
-    """Show pending or all reviews to admin"""
-    show_pending = call.data.endswith("pending")
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-
-    try:
-        cursor = conn.cursor()
-        if show_pending:
-            cursor.execute('''
-                SELECT r.id, l.name, r.service_type, r.rating, r.text, r.created_date
-                FROM reviews r
-                JOIN label l ON r.user_id = l.telegram_id
-                WHERE r.status = 'pending'
-                ORDER BY r.created_date DESC
-                LIMIT 20
-            ''')
-            title = "⏳ Отзывы на модерации"
-        else:
-            cursor.execute('''
-                SELECT r.id, l.name, r.service_type, r.rating, r.text, r.created_date, r.status
-                FROM reviews r
-                JOIN label l ON r.user_id = l.telegram_id
-                ORDER BY r.created_date DESC
-                LIMIT 20
-            ''')
-            title = "📚 Все отзывы"
-
-        rows = cursor.fetchall()
-
-        if not rows:
-            text = f"{title}\n\nПока пусто."
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_reviews"))
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-            return
-
-        messages = []
-        for row in rows:
-            if show_pending:
-                review_id, artist_name, service_type, rating, text_body, created_date = row
-                stars = "⭐️" * rating
-                text = (
-                    f"{title}\n\n"
-                    f"ID: {review_id}\n"
-                    f"👤 {artist_name}\n"
-                    f"📂 {service_type}\n"
-                    f"{stars}\n"
-                    f"💬 {text_body[:300]}{'...' if len(text_body) > 300 else ''}\n"
-                    f"📅 {created_date.strftime('%d.%m.%Y')}"
-                )
-                markup = types.InlineKeyboardMarkup()
-                markup.row(
-                    types.InlineKeyboardButton("✅ Одобрить", callback_data=f"review_approve_{review_id}"),
-                    types.InlineKeyboardButton("❌ Отклонить", callback_data=f"review_reject_{review_id}")
-                )
-                markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_reviews"))
-                messages.append((text, markup))
-            else:
-                review_id, artist_name, service_type, rating, text_body, created_date, status = row
-                stars = "⭐️" * rating
-                text = (
-                    f"ID: {review_id} • {status}\n"
-                    f"👤 {artist_name}\n"
-                    f"📂 {service_type}\n"
-                    f"{stars}\n"
-                    f"💬 {text_body[:300]}{'...' if len(text_body) > 300 else ''}\n"
-                    f"📅 {created_date.strftime('%d.%m.%Y')}"
-                )
-                messages.append((text, None))
-
-        # Если pending — редактируем текущий; если все отзывы — отправим серией сообщений
-        if show_pending:
-            text, markup = messages[0]
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-            # остальные (если есть) отправим отдельно ниже
-            for text, markup in messages[1:]:
-                bot.send_message(call.message.chat.id, text, reply_markup=markup)
-        else:
-            bot.edit_message_text(f"{title}", call.message.chat.id, call.message.message_id)
-            for text, _ in messages:
-                bot.send_message(call.message.chat.id, text)
-
-    except Error as e:
-        logger.error(f"Database error in handle_admin_reviews_list: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при загрузке отзывов", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-def handle_admin_broadcast(call):
-    """Handle broadcast message creation"""
-    logger.info(f"Broadcast handler called with data: {call.data}")
-
-    # Инициализируем broadcast_levels, если его нет
-    if not hasattr(bot, 'broadcast_levels'):
-        bot.broadcast_levels = {}
-
-    # Получаем текущие выбранные уровни для этого пользователя
-    user_id = call.from_user.id
-    if user_id not in bot.broadcast_levels:
-        bot.broadcast_levels[user_id] = []
-
-    # Проверяем, является ли это переключением уровня
-    if call.data.startswith("broadcast_level_"):
-        level = call.data.split("_")[2]
-        logger.info(f"Toggling level: {level} for user {user_id}")
-
-        # Переключаем уровень
-        if level in bot.broadcast_levels[user_id]:
-            bot.broadcast_levels[user_id].remove(level)
-            logger.info(f"Removed level {level}")
-        else:
-            bot.broadcast_levels[user_id].append(level)
-            logger.info(f"Added level {level}")
-
-    # Создаем разметку с уровнями
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    levels = ["artist", "admin", "owner", "creator"]
-
-    for level in levels:
-        # Определяем статус уровня
-        is_selected = level in bot.broadcast_levels[user_id]
-        button_text = f"{'✅' if is_selected else '❌'} {level}"
-        markup.add(types.InlineKeyboardButton(
-            button_text,
-            callback_data=f"broadcast_level_{level}"
-        ))
-
-    # Добавляем кнопки создания рассылки и ввода сообщения
-    markup.add(
-        types.InlineKeyboardButton("✏️ Создать рассылку", callback_data="broadcast_create"),
-        types.InlineKeyboardButton("◀️ Назад", callback_data="admin_back")
-    )
-
-    try:
-        bot.edit_message_text(
-            "Выберите уровни пользователей для рассылки:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-    except Exception as e:
-        logger.error(f"Error in broadcast handler: {e}")
-        bot.answer_callback_query(call.id, f"Ошибка: {str(e)}", show_alert=True)
-
-
-@bot.callback_query_handler(
-    func=lambda call: call.data.startswith("broadcast_level_") or call.data == "broadcast_create")
-def handle_broadcast_callback(call):
-    """Handle broadcast level selection and creation"""
-    if call.data.startswith("broadcast_level_"):
-        handle_admin_broadcast(call)
-    elif call.data == "broadcast_create":
-        start_broadcast_message(call)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "broadcast_create")
-def start_broadcast_message(call):
-    """Start creating broadcast message"""
-    user_id = call.from_user.id
-
-    # Проверяем, что выбраны уровни
-    if not hasattr(bot, 'broadcast_levels') or user_id not in bot.broadcast_levels or not bot.broadcast_levels[user_id]:
-        bot.answer_callback_query(call.id, "❌ Сначала выберите уровни пользователей!", show_alert=True)
-        return
-
-    bot.edit_message_text(
-        "Введите сообщение для рассылки:",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    bot.register_next_step_handler(call.message, process_broadcast_message)
-
-
-def process_broadcast_message(message):
-    """Process and send broadcast message"""
-    user_id = message.from_user.id
-    broadcast_text = message.text.strip()
-
-    if not broadcast_text:
-        bot.reply_to(message, "❌ Сообщение не может быть пустым. Попробуйте снова.")
-        bot.register_next_step_handler(message, process_broadcast_message)
-        return
-
-    # Получаем выбранные уровни
-    selected_levels = bot.broadcast_levels.get(user_id, [])
-    logger.error(f"DEBUG: Broadcast initiated by {user_id}. Selected levels: {selected_levels}")
-
-    # Проверка наличия выбранных уровней
-    if not selected_levels:
-        bot.send_message(user_id, "❌ Не выбраны уровни для рассылки. Пожалуйста, выберите хотя бы один уровень.")
-        return
-
-    # Подключаемся к базе данных PostgreSQL
-    conn = get_pg_connection()
-    if not conn:
-        bot.send_message(user_id, "❌ Ошибка подключения к базе данных.")
-        return
-
-    # Счетчики для статистики
-    total_sent = 0
-    total_skipped = 0
-    detailed_log = []
-
-    try:
-        cursor = conn.cursor()
-
-        # ИСПРАВЛЕННЫЙ ЗАПРОС - получаем все роли пользователя
-        cursor.execute('''
-            SELECT telegram_id, artist, admin, owner, steezy, bibi, shvepz, creator 
-            FROM label 
-            WHERE telegram_id IS NOT NULL
-        ''')
-        users = cursor.fetchall()
-        logger.error(f"DEBUG: Total users found: {len(users)}")
-
-        for user_row in users:
-            try:
-                # Распаковываем данные пользователя
-                user_id_db = user_row[0]
-                roles = {
-                    'artist': user_row[1],
-                    'admin': user_row[2],
-                    'owner': user_row[3],
-                    'steezy': user_row[4],
-                    'bibi': user_row[5],
-                    'shvepz': user_row[6],
-                    'creator': user_row[7]
-                }
-
-                # Определяем активные роли пользователя
-                active_roles = [role for role, active in roles.items() if active == 1]
-
-                # Проверяем совпадение с выбранными уровнями
-                send_message = any(role in selected_levels for role in active_roles)
-
-                if send_message:
-                    try:
-                        bot.send_message(user_id_db, broadcast_text)
-                        total_sent += 1
-                        detailed_log.append(f"✅ Отправлено {user_id_db} (роли: {', '.join(active_roles)})")
-                        logger.error(f"DEBUG: Message sent to user {user_id_db}, roles: {active_roles}")
-                    except Exception as send_error:
-                        total_skipped += 1
-                        detailed_log.append(f"❌ Не отправлено {user_id_db}: {str(send_error)}")
-                        logger.error(f"DEBUG: Failed to send message to user {user_id_db}: {send_error}")
-                else:
-                    total_skipped += 1
-                    detailed_log.append(f"⏩ Пропущено {user_id_db}: нет совпадения ролей")
-                    logger.error(f"DEBUG: User {user_id_db} skipped: no role match")
-
-            except Exception as user_error:
-                total_skipped += 1
-                detailed_log.append(f"❌ Ошибка обработки {user_row}: {str(user_error)}")
-                logger.error(f"DEBUG: Error processing user {user_row}: {user_error}")
-
-        # Отправляем подробный отчет администратору
-        report_text = (
-                "📢 Рассылка завершена:\n"
-                f"✅ Отправлено: {total_sent}\n"
-                f"❌ Не отправлено: {total_skipped}\n"
-                f"Уровни: {', '.join(selected_levels)}\n\n"
-                "Подробности:\n" +
-                "\n".join(detailed_log[:20])  # Ограничиваем количество строк
-        )
-
-        bot.send_message(message.from_user.id, report_text)
-        logger.error(f"DEBUG: Broadcast report sent. Total sent: {total_sent}, Skipped: {total_skipped}")
-
-    except Exception as e:
-        logger.error(f"CRITICAL error in broadcast: {e}")
-        bot.send_message(message.from_user.id, f"❌ Произошла критическая ошибка при рассылке: {e}")
-
-    finally:
-        if conn:
-            return_pg_connection(conn)
 
 
 def handle_admin_stats(call):
@@ -8955,378 +2155,7 @@ def handle_admin_stats(call):
             return_pg_connection(conn)
 
 
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_RELEASES_ENABLED and call.data == "admin_releases")
-def handle_admin_releases(call):
-    """Handle releases management - show list of users"""
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
 
-    try:
-        cursor = conn.cursor()
-        cursor.execute('SELECT telegram_id, tg, name FROM label ORDER BY name')
-        users = cursor.fetchall()
-
-        if not users:
-            message_text = "🤷‍♀️ В базе данных нет зарегистрированных пользователей."
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_back"))
-            bot.edit_message_text(message_text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-            return
-
-        markup = types.InlineKeyboardMarkup(row_width=1)
-
-        for user_id, username, name in users:
-            display_name = f"{name} (@{username})" if name and username else f"ID: {user_id}"
-            callback_data = f"user_releases_{user_id}"
-            markup.add(types.InlineKeyboardButton(display_name, callback_data=callback_data))
-
-        markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_back"))
-
-        bot.edit_message_text(
-            "💿 Управление релизами\n\nВыберите пользователя для просмотра его релизов:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-    except Error as e:
-        logger.error(f"PostgreSQL error in handle_admin_releases: {e}")
-        bot.answer_callback_query(call.id, "❌ Произошла ошибка при получении списка пользователей.", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "releases_change_status")
-def handle_change_status(call):
-    """Handle change status request"""
-    bot.edit_message_text(
-        "Введите ID релиза для изменения статуса:",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    bot.register_next_step_handler(call.message, process_release_id_for_status)
-
-
-def process_release_id_for_status(message):
-    """Process release ID for status change"""
-    try:
-        release_id = int(message.text)
-        bot.send_message(
-            message.chat.id,
-            "Выберите новый статус релиза:",
-            reply_markup=create_full_status_keyboard(release_id)
-        )
-    except ValueError:
-        msg = bot.send_message(message.chat.id, "❌ Неверный формат ID. Введите число:")
-        bot.register_next_step_handler(msg, process_release_id_for_status)
-
-
-def create_full_status_keyboard(release_id):
-    """Create keyboard with all status options"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    for status in RELEASE_STATUSES:
-        markup.add(types.InlineKeyboardButton(
-            f"🔄 {status.capitalize()}",
-            callback_data=f"status_update_{release_id}_{status}"
-        ))
-    return markup
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "releases_all")
-def show_all_releases(call):
-    """Show paginated list of all releases"""
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT r.artist_name, r.release_name, r.release_date, r.status, l.tg
-            FROM releases r
-            JOIN label l ON r.user_id = l.telegram_id
-            ORDER BY r.release_date DESC
-            LIMIT 10
-        ''')
-
-        releases = cursor.fetchall()
-
-        if not releases:
-            bot.edit_message_text(
-                "❌ В базе нет релизов",
-                call.message.chat.id,
-                call.message.message_id
-            )
-            return
-
-        releases_text = "📀 Последние 10 релизов:\n\n"
-        for artist, name, date, status, username in releases:
-            releases_text += (
-                f"🎤 <b>{escape_html(artist)}</b> (@{escape_html(username) if username else 'нет username'})\n"
-                f"🎵 {escape_html(name)}\n"
-                f"📅 {date.strftime('%d.%m.%Y') if date else 'нет даты'}\n"
-                f"🟢 {escape_html(status)}\n\n"
-            )
-
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_releases"))
-
-        bot.edit_message_text(
-            releases_text,
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode='HTML',
-            reply_markup=markup
-        )
-
-    except Error as e:
-        logger.error(f"Error in show_all_releases: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "releases_artists")
-def show_artists_list(call):
-    """Show list of all artists"""
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        # Получаем список всех исполнителей из таблицы releases
-        cursor.execute('''
-            SELECT DISTINCT artist_name 
-            FROM releases 
-            ORDER BY artist_name
-        ''')
-        artists = cursor.fetchall()
-
-        if not artists:
-            bot.edit_message_text(
-                "❌ Нет исполнителей в базе данных",
-                call.message.chat.id,
-                call.message.message_id
-            )
-            return
-
-        markup = types.InlineKeyboardMarkup(row_width=2)
-
-        # Добавляем кнопки для каждого исполнителя
-        for artist in artists:
-            artist_name = artist[0]
-            markup.add(types.InlineKeyboardButton(
-                artist_name,
-                callback_data=f"artist_{artist_name}"
-            ))
-
-        markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_releases"))
-
-        bot.edit_message_text(
-            "👥 Список исполнителей:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-
-    except Error as e:
-        logger.error(f"Error in show_artists_list: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("artist_"))
-def show_artist_info(call):
-    """Show artist information and releases"""
-    artist_name = call.data.split("_", 1)[1]
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        # Получаем информацию об исполнителе
-        cursor.execute('''
-            SELECT COUNT(*) as release_count, 
-                   MIN(release_date) as first_release,
-                   MAX(release_date) as last_release
-            FROM releases
-            WHERE artist_name = %s
-        ''', (artist_name,))
-
-        stats = cursor.fetchone()
-        release_count = stats[0] if stats else 0
-        first_release = stats[1] if stats and stats[1] else "нет данных"
-        last_release = stats[2] if stats and stats[2] else "нет данных"
-
-        # Формируем сообщение с информацией об исполнителе
-        artist_info = (
-            f"🎤 Исполнитель: {artist_name}\n\n"
-            f"📀 Всего релизов: {release_count}\n"
-            f"📅 Первый релиз: {first_release}\n"
-            f"📅 Последний релиз: {last_release}"
-        )
-
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton("📀 Релизы исполнителя", callback_data=f"artist_releases_{artist_name}"),
-            types.InlineKeyboardButton("◀️ Назад к списку", callback_data="releases_artists")
-        )
-
-        bot.edit_message_text(
-            artist_info,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-
-    except Error as e:
-        logger.error(f"Error in show_artist_info: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("artist_releases_"))
-def show_artist_releases(call):
-    """Show releases for specific artist"""
-    artist_name = call.data.split("_", 2)[2]
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        # Получаем релизы исполнителя
-        cursor.execute('''
-            SELECT release_name, release_date, status 
-            FROM releases 
-            WHERE artist_name = %s
-            ORDER BY release_date DESC
-            LIMIT 10
-        ''', (artist_name,))
-
-        releases = cursor.fetchall()
-
-        if not releases:
-            bot.edit_message_text(
-                f"❌ У исполнителя {artist_name} нет релизов",
-                call.message.chat.id,
-                call.message.message_id
-            )
-            return
-
-        # Формируем сообщение со списком релизов
-        releases_text = f"📀 Релизы исполнителя {artist_name}:\n\n"
-        for release in releases:
-            release_name, release_date, status = release
-            releases_text += (
-                f"🎵 {release_name}\n"
-                f"📅 {release_date}\n"
-                f"🟢 {status}\n\n"
-            )
-
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton("◀️ Назад к исполнителю", callback_data=f"artist_{artist_name}"),
-            types.InlineKeyboardButton("◀️ Назад к списку", callback_data="releases_artists")
-        )
-
-        bot.edit_message_text(
-            releases_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-
-    except Error as e:
-        logger.error(f"Error in show_artist_releases: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_MENU_ENABLED and call.data == "admin_back")
-def handle_admin_back(call):
-    """Handle back button in admin panel"""
-    logger.info(f"admin_back called by user {call.from_user.id}")
-    
-    # Проверяем права доступа
-    user_id = call.from_user.id
-    if user_id not in PERMANENT_ADMINS:
-        # Проверяем в базе данных
-        conn = get_pg_connection()
-        if not conn:
-            logger.error("Failed to get DB connection in admin_back")
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-            return
-        
-        try:
-            cursor = conn.cursor()
-            cursor.execute('SELECT admin FROM label WHERE telegram_id = %s', (user_id,))
-            result = cursor.fetchone()
-            logger.info(f"Admin check result for user {user_id}: {result}")
-            
-            if not result or result[0] != 1:
-                logger.warning(f"User {user_id} tried to access admin_back without rights")
-                bot.answer_callback_query(call.id, "❌ У вас нет доступа к этой функции", show_alert=True)
-                return
-        except Exception as e:
-            logger.error(f"Error checking admin rights: {e}")
-            bot.answer_callback_query(call.id, "❌ Ошибка проверки прав доступа", show_alert=True)
-            return
-        finally:
-            if conn:
-                cursor.close()
-                return_pg_connection(conn)
-
-    logger.info(f"User {user_id} has admin access, showing admin panel")
-    
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
-        types.InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast"),
-        types.InlineKeyboardButton("💿 Релизы", callback_data="admin_releases"),
-        types.InlineKeyboardButton("👥 Пользователи", callback_data="admin_users"),
-        types.InlineKeyboardButton("📝 Отзывы", callback_data="admin_reviews"),
-        types.InlineKeyboardButton("💰 Финансы", callback_data="admin_finance"),
-        types.InlineKeyboardButton("🆘 Поддержка", callback_data="admin_support"),
-        types.InlineKeyboardButton("🛒 Заказы", callback_data="admin_orders")
-    )
-
-    try:
-        bot.edit_message_text(
-            "🔐 Панель администратора:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        logger.info("Admin panel successfully displayed")
-    except Exception as e:
-        logger.error(f"Error displaying admin panel: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
 
 
 def handle_level_management(call):
@@ -9506,48 +2335,6 @@ def show_users_by_level(message):
 
 
 # Кнопки главного меню — для проверки выхода из пошагового ввода поддержки
-_MAIN_MENU_BUTTONS = [
-    "🎵 Наши услуги",
-    "👤 Мой профиль",
-    "⭐️ Отзывы",
-    "❓ Помощь/вопросы",
-    "🌐 Открыть приложение",
-    "📊 Статистика",
-    "📞 Поддержка",
-    "ℹ️ О нас",
-]
-if not LEGACY_REVIEWS_ENABLED:
-    _MAIN_MENU_BUTTONS.remove("⭐️ Отзывы")
-if not LEGACY_PROFILE_ENABLED:
-    _MAIN_MENU_BUTTONS.remove("👤 Мой профиль")
-if not LEGACY_SUPPORT_ENABLED:
-    _MAIN_MENU_BUTTONS.remove("❓ Помощь/вопросы")
-    _MAIN_MENU_BUTTONS.remove("📞 Поддержка")
-if not LEGACY_INFO_ENABLED:
-    _MAIN_MENU_BUTTONS.remove("🎵 Наши услуги")
-    _MAIN_MENU_BUTTONS.remove("🌐 Открыть приложение")
-    _MAIN_MENU_BUTTONS.remove("📊 Статистика")
-    _MAIN_MENU_BUTTONS.remove("ℹ️ О нас")
-MAIN_MENU_BUTTONS = frozenset(_MAIN_MENU_BUTTONS)
-
-
-@bot.message_handler(func=lambda message: message.text in MAIN_MENU_BUTTONS)
-def handle_main_menu(message):
-    """Handle main menu button clicks"""
-    handlers = {
-        "🎵 Наши услуги": handle_services_menu,
-        "👤 Мой профиль": handle_profile,
-        # "📋 Получить договор": handle_contract_request,  # Временно отключено
-        "⭐️ Отзывы": handle_reviews,
-        "❓ Помощь/вопросы": handle_help,
-        "🌐 Открыть приложение": handle_open_web_app,
-        "📊 Статистика": handle_statistics,
-        "📞 Поддержка": handle_support,
-        "ℹ️ О нас": handle_about
-    }
-
-    if message.text in handlers:
-        handlers[message.text](message)
 
 
 def send_web_app_link(chat_id, user_id=None):
@@ -9555,10 +2342,10 @@ def send_web_app_link(chat_id, user_id=None):
     # Если user_id не передан, пытаемся получить из chat_id (если это одно и то же)
     if user_id is None:
         user_id = chat_id
-    
+
     # Добавляем telegram_id в URL для автоматической авторизации
     web_app_url = f"{WEB_APP_URL}?tgid={user_id}"
-    
+
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton(
         "🌐 Открыть приложение",
@@ -9569,12 +2356,6 @@ def send_web_app_link(chat_id, user_id=None):
         "Запускаю приложение TWAS. Если окно не открылось, обновите Telegram до последней версии.",
         reply_markup=markup
     )
-
-@bot.message_handler(commands=['app', 'webapp'], func=lambda message: LEGACY_INFO_ENABLED)
-@require_channel_subscription
-def handle_open_web_app_command(message):
-    """Handle /app command"""
-    send_web_app_link(message.chat.id, message.from_user.id)
 
 
 @require_channel_subscription
@@ -9605,11 +2386,11 @@ def handle_services_menu(message):
         ("🎬 Motion обложка", "service_motion"),
         ("🎥 Видеошот", "service_videoshot"),
     ]
-    
+
     # Добавляем кнопку выгрузки релиза только для администраторов
     if is_admin(message.from_user.id):
         buttons.append(("📤 Выгрузка релиза за артиста", "service_release_for_artist"))
-    
+
     buttons.append(("◀️ Назад", "services_back"))
 
     for text, callback in buttons:
@@ -9654,120 +2435,7 @@ def handle_services_menu(message):
 #     bot.register_next_step_handler(call.message, save_contract_file)
 
 
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_SERVICES_ENABLED and call.data == "admin_templates")
-def handle_templates_management(call):
-    """Handle templates management"""
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton("✉️ Шаблон письма", callback_data="template_email"),
-        types.InlineKeyboardButton("📝 Шаблон договора", callback_data="template_contract"),
-        types.InlineKeyboardButton("◀️ Назад", callback_data="admin_services")
-    )
-    bot.edit_message_text(
-        "📝 Управление шаблонами:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
 
-
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_SERVICES_ENABLED and call.data == "admin_service_settings")
-def handle_service_settings(call):
-    """Handle service settings"""
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton("💰 Цены на услуги", callback_data="service_prices"),
-        types.InlineKeyboardButton("⏳ Время обработки", callback_data="service_times"),
-        types.InlineKeyboardButton("◀️ Назад", callback_data="admin_services")
-    )
-    bot.edit_message_text(
-        "⚙️ Настройки сервисов:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_SERVICES_ENABLED and call.data == "admin_services")
-def handle_admin_services(call):
-    """Handle admin services settings"""
-    if not has_access_level(call.from_user.id, ["admin"]):
-        bot.answer_callback_query(call.id, "У вас нет доступа к этой функции")
-        return
-
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("📤 Загрузить договор на бит", callback_data="admin_upload_contract"),
-        types.InlineKeyboardButton("📝 Управление шаблонами", callback_data="admin_templates"),
-        types.InlineKeyboardButton("⚙️ Настройки сервисов", callback_data="admin_service_settings"),
-        types.InlineKeyboardButton("◀️ Назад", callback_data="admin_back")
-    )
-
-    bot.edit_message_text(
-        "⚙️ Управление сервисами и настройками:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "admin_upload_contract")
-def request_contract_file(call):
-    """Request contract file upload from admin"""
-    bot.send_message(
-        call.message.chat.id,
-        "📤 Отправьте файл договора для битмейкеров"
-    )
-    bot.register_next_step_handler(call.message, save_contract_file)
-
-
-def save_contract_file(message):
-    """Save uploaded contract file"""
-    # Используем универсальную функцию валидации
-    is_valid, error_message, file_id = validate_file_upload(
-        message, 
-        allowed_extensions=['.pdf', '.doc', '.docx'], 
-        max_size_mb=10, 
-        required_type="document"
-    )
-    
-    if not is_valid:
-        bot.reply_to(message, error_message)
-        return
-
-    if not has_access_level(message.from_user.id, ["admin", "owner"]):
-        bot.reply_to(message, "❌ У вас нет прав для загрузки файла")
-        return
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.reply_to(message, "❌ Ошибка подключения к базе данных.")
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        # Files table is created by init_database() function
-
-        # Insert new file
-        cursor.execute('''INSERT INTO files (type, file_id, upload_date, uploaded_by)
-                         VALUES (%s, %s, %s, %s)''',
-                       ("beat_contract", file_id, datetime.now(), message.from_user.id))
-
-        conn.commit()
-
-        bot.reply_to(
-            message,
-            "✅ Файл договора успешно загружен и доступен пользователям"
-        )
-    except Error as e:
-        logger.error(f"PostgreSQL error in save_contract_file: {e}")
-        bot.reply_to(message, "❌ Произошла ошибка при сохранении файла.")
-    finally:
-        if 'cursor' in locals():
-            cursor.close()
-        if 'conn' in locals() and conn:
-            return_pg_connection(conn)
 
 
 # ===== ФУНКЦИИ ДЛЯ СОЗДАНИЯ ЛИЦЕНЗИОННОГО ДОГОВОРА =====
@@ -9777,7 +2445,7 @@ def create_license_agreement(user_data):
     # Проверяем доступность библиотеки python-docx
     if not DOCX_AVAILABLE:
         raise ValueError("Библиотека python-docx не установлена. Обратитесь к администратору.")
-    
+
     try:
         # Создаем документ
         doc = Document()
@@ -9785,18 +2453,18 @@ def create_license_agreement(user_data):
     except Exception as e:
         logger.error(f"Error creating Document: {e}")
         raise ValueError(f"Ошибка при работе с библиотекой python-docx: {e}")
-    
+
     # Проверяем наличие необходимых данных
     if not user_data:
         raise ValueError("Данные пользователя не переданы")
-    
+
     # Настройка стилей
     style = doc.styles['Normal']
     font = style.font
     font.name = 'Times New Roman'
     font.size = Pt(12)
-    
-    # Полный текст нового договора 
+
+    # Полный текст нового договора
     contract_template = """ЛИЦЕНЗИОННЫЙ ДОГОВОР № X/-XX
 
 
@@ -9892,8 +2560,8 @@ def create_license_agreement(user_data):
 8.2. Лицензиат
 talk with a star label
 Самозанятый Чабин Илья Анатольевич
-Свердловская обл., 
-г. Екатеринбург, 
+Свердловская обл.,
+г. Екатеринбург,
 ул. Красноармейская, 28
 Банковские реквизиты:
      АО «Т-банк»
@@ -9904,7 +2572,7 @@ talk with a star label
       КПП: 771301001
 
 / Чабин И.А/"""
-    
+
     # Подставляем данные пользователя в шаблон
     contract_text = contract_template.format(
         full_name=user_data.get('full_name', 'Фамилия Имя Отчество'),
@@ -9919,13 +2587,13 @@ talk with a star label
         snils=user_data.get('snils', '123-456-789 01'),
         inn=user_data.get('inn', '781432831090')
     )
-    
+
     # Добавляем текст в документ по абзацам
     paragraphs = contract_text.split('\n')
     for paragraph_text in paragraphs:
         if paragraph_text.strip():
             paragraph = doc.add_paragraph(paragraph_text.strip())
-            
+
             # Выравниваем заголовки по центру
             if any(header in paragraph_text for header in ['ЛИЦЕНЗИОННЫЙ ДОГОВОР', 'г. Екатеринбург']):
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -9933,7 +2601,7 @@ talk with a star label
                     for run in paragraph.runs:
                         run.bold = True
                         run.font.size = Pt(14)
-    
+
     return doc
 
 def add_attachments(doc, user_data):
@@ -9946,20 +2614,20 @@ def add_attachments(doc, user_data):
     app_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     app_title = doc.add_paragraph(f'от {user_data["date"]}')
     app_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
+
     app_content = doc.add_paragraph('Перечень Произведений, Исполнений, Фонограмм и Видеоклипов, исключительная лицензия на которые предоставляется Лицензиаром Лицензиату')
     app_content.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
+
     # Создаем таблицу
     table = doc.add_table(rows=2, cols=8)
     table.style = 'Table Grid'
-    
+
     # Заголовки столбцов
     headers = ['Название релиза', 'Название трека', 'Автор музыки', 'Автор текста', 'Исполнитель', 'Изготовитель Фонограмм', 'Доля авторских/смежных прав', 'Срок сдачи']
     for i, header in enumerate(headers):
         table.cell(0, i).text = header
         table.cell(0, i).paragraphs[0].runs[0].bold = True
-    
+
     # Данные
     table.cell(1, 0).text = user_data['release_name']
     table.cell(1, 1).text = user_data['track_name']
@@ -9969,16 +2637,16 @@ def add_attachments(doc, user_data):
     table.cell(1, 5).text = user_data['phonogram_producer']
     table.cell(1, 6).text = '100% / 100%'
     table.cell(1, 7).text = '2025'
-    
+
     # Подписи сторон
     doc.add_page_break()
     signs_title = doc.add_paragraph('Подписи сторон:')
     signs_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
+
     # Таблица для подписей
     signs_table = doc.add_table(rows=2, cols=2)
     signs_table.style = 'Table Grid'
-    
+
     # Лицензиар
     signs_table.cell(0, 0).text = 'Лицензиар'
     signs_table.cell(1, 0).text = f'Творческий псевдоним: {user_data["nickname"]}\n'
@@ -9990,7 +2658,7 @@ def add_attachments(doc, user_data):
     signs_table.cell(1, 0).add_paragraph(f'Адрес регистрации: {user_data["address"]}')
     signs_table.cell(1, 0).add_paragraph(f'СНИЛС: {user_data["snils"]}')
     signs_table.cell(1, 0).add_paragraph(f'ИНН: {user_data["inn"]}')
-    
+
     # Лицензиат
     signs_table.cell(0, 1).text = 'Лицензиат'
     signs_table.cell(1, 1).text = 'talk with a star label\n'
@@ -10003,7 +2671,7 @@ def add_attachments(doc, user_data):
     signs_table.cell(1, 1).add_paragraph('БИК: 044525974')
     signs_table.cell(1, 1).add_paragraph('КПП: 771301001')
     signs_table.cell(1, 1).add_paragraph('/ Чабин И.А/')
-    
+
     # Добавляем остальные приложения аналогичным образом...
     # (здесь должен быть код для добавления приложений 2 и 3, а также акта приема-передачи)
 
@@ -10011,24 +2679,24 @@ def create_excel_report(user_data, releases_data=None):
     """Создание Excel отчета по пользователю и его релизам"""
     if not XLSX_AVAILABLE:
         raise ValueError("Библиотека openpyxl не установлена. Обратитесь к администратору.")
-    
+
     # Создаем новую книгу Excel
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Отчет по пользователю"
-    
+
     # Стили для заголовков
     header_font = Font(bold=True, size=14, color="FFFFFF")
     header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
     header_alignment = Alignment(horizontal="center", vertical="center")
-    
+
     # Стили для подзаголовков
     subheader_font = Font(bold=True, size=12, color="000000")
     subheader_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
-    
+
     # Стили для обычного текста
     normal_font = Font(size=11)
-    
+
     # Границы
     thin_border = Border(
         left=Side(style='thin'),
@@ -10036,19 +2704,19 @@ def create_excel_report(user_data, releases_data=None):
         top=Side(style='thin'),
         bottom=Side(style='thin')
     )
-    
+
     # Заголовок отчета
     ws.merge_cells('A1:H1')
     ws['A1'] = f"ОТЧЕТ ПО ПОЛЬЗОВАТЕЛЮ: {user_data.get('name', 'Неизвестно')}"
     ws['A1'].font = header_font
     ws['A1'].fill = header_fill
     ws['A1'].alignment = header_alignment
-    
+
     # Информация о пользователе
     ws['A3'] = "ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ"
     ws['A3'].font = subheader_font
     ws['A3'].fill = subheader_fill
-    
+
     user_info_rows = [
         ["Имя:", user_data.get('name', 'Не указано')],
         ["Telegram ID:", str(user_data.get('telegram_id', 'Не указано'))],
@@ -10058,34 +2726,34 @@ def create_excel_report(user_data, releases_data=None):
         ["Статус:", user_data.get('status', 'Не указано')],
         ["Роль:", user_data.get('role', 'Не указано')]
     ]
-    
+
     for i, (label, value) in enumerate(user_info_rows, start=4):
         ws[f'A{i}'] = label
         ws[f'B{i}'] = value
         ws[f'A{i}'].font = Font(bold=True)
         ws[f'A{i}'].border = thin_border
         ws[f'B{i}'].border = thin_border
-    
+
     # Информация о релизах
     if releases_data:
         start_row = len(user_info_rows) + 6
         ws[f'A{start_row}'] = "РЕЛИЗЫ ПОЛЬЗОВАТЕЛЯ"
         ws[f'A{start_row}'].font = subheader_font
         ws[f'A{start_row}'].fill = subheader_fill
-        
+
         # Заголовки таблицы релизов
         release_headers = [
-            "ID", "Название", "Тип", "Статус", "Дата создания", 
+            "ID", "Название", "Тип", "Статус", "Дата создания",
             "Дата обновления", "Количество треков", "Описание"
         ]
-        
+
         for col, header in enumerate(release_headers, start=1):
             cell = ws.cell(row=start_row + 2, column=col, value=header)
             cell.font = Font(bold=True)
             cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
             cell.border = thin_border
             cell.alignment = Alignment(horizontal="center")
-        
+
         # Данные релизов
         for row_idx, release in enumerate(releases_data, start=start_row + 3):
             for col_idx, value in enumerate([
@@ -10101,7 +2769,7 @@ def create_excel_report(user_data, releases_data=None):
                 cell = ws.cell(row=row_idx, column=col_idx, value=value)
                 cell.border = thin_border
                 cell.alignment = Alignment(horizontal="left", vertical="top")
-        
+
         # Автоматическая ширина столбцов
         for column in ws.columns:
             max_length = 0
@@ -10114,252 +2782,26 @@ def create_excel_report(user_data, releases_data=None):
                     pass
             adjusted_width = min(max_length + 2, 50)
             ws.column_dimensions[column_letter].width = adjusted_width
-    
+
     # Добавляем статистику
     stats_row = start_row + len(releases_data) + 5 if releases_data else len(user_info_rows) + 6
     ws[f'A{stats_row}'] = "СТАТИСТИКА"
     ws[f'A{stats_row}'].font = subheader_font
     ws[f'A{stats_row}'].fill = subheader_fill
-    
+
     stats_data = [
         ["Общее количество релизов:", len(releases_data) if releases_data else 0],
         ["Активных релизов:", len([r for r in (releases_data or []) if r.get('status') == 'active'] or 0)],
         ["Дата генерации отчета:", datetime.now().strftime("%d.%m.%Y %H:%M:%S")]
     ]
-    
+
     for i, (label, value) in enumerate(stats_data, start=stats_row + 1):
         ws[f'A{i}'] = label
         ws[f'B{i}'].font = Font(bold=True)
         ws[f'A{i}'].border = thin_border
         ws[f'B{i}'].border = thin_border
-    
+
     return wb
-
-
-def create_detailed_xlsx_report(user_data, releases_data=None, promo_codes_data=None, orders_data=None):
-    """Создание детального XLSX отчета с несколькими листами"""
-    if not XLSX_AVAILABLE:
-        raise ValueError("Библиотека openpyxl не установлена. Обратитесь к администратору.")
-    
-    # Создаем новую книгу Excel
-    wb = openpyxl.Workbook()
-    
-    # Удаляем лист по умолчанию
-    wb.remove(wb.active)
-    
-    # Стили
-    header_font = Font(bold=True, size=14, color="FFFFFF")
-    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
-    header_alignment = Alignment(horizontal="center", vertical="center")
-    
-    subheader_font = Font(bold=True, size=12, color="000000")
-    subheader_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
-    
-    thin_border = Border(
-        left=Side(style='thin'),
-        right=Side(style='thin'),
-        top=Side(style='thin'),
-        bottom=Side(style='thin')
-    )
-    
-    # Лист 1: Информация о пользователе
-    ws_user = wb.create_sheet("Пользователь")
-    ws_user['A1'] = f"ОТЧЕТ ПО ПОЛЬЗОВАТЕЛЮ: {user_data.get('name', 'Неизвестно')}"
-    ws_user['A1'].font = header_font
-    ws_user['A1'].fill = header_fill
-    ws_user['A1'].alignment = header_alignment
-    ws_user.merge_cells('A1:H1')
-    
-    user_info = [
-        ["Имя:", user_data.get('name', 'Не указано')],
-        ["Telegram ID:", str(user_data.get('telegram_id', 'Не указано'))],
-        ["Username:", user_data.get('tg', 'Не указано')],
-        ["Email:", user_data.get('email', 'Не указано')],
-        ["Дата регистрации:", str(user_data.get('created_at', 'Не указано'))],
-        ["Статус:", user_data.get('status', 'Не указано')],
-        ["Роль:", user_data.get('role', 'Не указано')]
-    ]
-    
-    for i, (label, value) in enumerate(user_info, start=3):
-        ws_user[f'A{i}'] = label
-        ws_user[f'B{i}'] = value
-        ws_user[f'A{i}'].font = Font(bold=True)
-        ws_user[f'A{i}'].border = thin_border
-        ws_user[f'B{i}'].border = thin_border
-    
-    # Лист 2: Релизы
-    if releases_data:
-        ws_releases = wb.create_sheet("Релизы")
-        ws_releases['A1'] = "РЕЛИЗЫ ПОЛЬЗОВАТЕЛЯ"
-        ws_releases['A1'].font = header_font
-        ws_releases['A1'].fill = header_fill
-        ws_releases['A1'].alignment = header_alignment
-        ws_releases.merge_cells('A1:H1')
-        
-        release_headers = [
-            "ID", "Название", "Тип", "Статус", "Дата создания", 
-            "Дата обновления", "Количество треков", "Описание"
-        ]
-        
-        for col, header in enumerate(release_headers, start=1):
-            cell = ws_releases.cell(row=3, column=col, value=header)
-            cell.font = Font(bold=True)
-            cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
-            cell.border = thin_border
-            cell.alignment = Alignment(horizontal="center")
-        
-        for row_idx, release in enumerate(releases_data, start=4):
-            for col_idx, value in enumerate([
-                release.get('id', ''),
-                release.get('name', ''),
-                release.get('type', ''),
-                release.get('status', ''),
-                str(release.get('created_at', '')),
-                str(release.get('updated_at', '')),
-                release.get('track_count', 0),
-                release.get('description', '')
-            ], start=1):
-                cell = ws_releases.cell(row=row_idx, column=col_idx, value=value)
-                cell.border = thin_border
-                cell.alignment = Alignment(horizontal="left", vertical="top")
-    
-    # Лист 3: Промокоды (если есть)
-    if promo_codes_data:
-        ws_promo = wb.create_sheet("Промокоды")
-        ws_promo['A1'] = "ПРОМОКОДЫ ПОЛЬЗОВАТЕЛЯ"
-        ws_promo['A1'].font = header_font
-        ws_promo['A1'].fill = header_fill
-        ws_promo['A1'].alignment = header_alignment
-        ws_promo.merge_cells('A1:F1')
-        
-        promo_headers = [
-            "ID", "Код", "Сумма", "Макс. использований", "Текущие использования", 
-            "Дата истечения", "Статус"
-        ]
-        
-        for col, header in enumerate(promo_headers, start=1):
-            cell = ws_promo.cell(row=3, column=col, value=header)
-            cell.font = Font(bold=True)
-            cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
-            cell.border = thin_border
-            cell.alignment = Alignment(horizontal="center")
-        
-        for row_idx, promo in enumerate(promo_codes_data, start=4):
-            for col_idx, value in enumerate([
-                promo.get('id', ''),
-                promo.get('code', ''),
-                promo.get('amount', ''),
-                promo.get('max_uses', 'Без ограничений'),
-                promo.get('current_uses', 0),
-                str(promo.get('expires_at', 'Без срока')),
-                'Активен' if promo.get('is_active') else 'Неактивен'
-            ], start=1):
-                cell = ws_promo.cell(row=row_idx, column=col_idx, value=value)
-                cell.border = thin_border
-                cell.alignment = Alignment(horizontal="left", vertical="top")
-    
-    # Лист 4: Заказы (если есть)
-    if orders_data:
-        ws_orders = wb.create_sheet("Заказы")
-        ws_orders['A1'] = "ЗАКАЗЫ ПОЛЬЗОВАТЕЛЯ"
-        ws_orders['A1'].font = header_font
-        ws_orders['A1'].fill = header_fill
-        ws_orders['A1'].alignment = header_alignment
-        ws_orders.merge_cells('A1:G1')
-        
-        order_headers = [
-            "ID", "Тип услуги", "Статус", "Сумма", "Дата создания", 
-            "Дата завершения", "Описание"
-        ]
-        
-        for col, header in enumerate(order_headers, start=1):
-            cell = ws_orders.cell(row=3, column=col, value=header)
-            cell.font = Font(bold=True)
-            cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
-            cell.border = thin_border
-            cell.alignment = Alignment(horizontal="center")
-        
-        for row_idx, order in enumerate(orders_data, start=4):
-            for col_idx, value in enumerate([
-                order.get('id', ''),
-                order.get('service_type', ''),
-                order.get('status', ''),
-                order.get('amount', ''),
-                str(order.get('created_at', '')),
-                str(order.get('completed_at', '')),
-                order.get('description', '')
-            ], start=1):
-                cell = ws_orders.cell(row=row_idx, column=col_idx, value=value)
-                cell.border = thin_border
-                cell.alignment = Alignment(horizontal="left", vertical="top")
-    
-    # Лист 5: Сводка
-    ws_summary = wb.create_sheet("Сводка")
-    ws_summary['A1'] = "СВОДКА ПО ПОЛЬЗОВАТЕЛЮ"
-    ws_summary['A1'].font = header_font
-    ws_summary['A1'].fill = header_fill
-    ws_summary['A1'].alignment = header_alignment
-    ws_summary.merge_cells('A1:D1')
-    
-    summary_data = [
-        ["Общее количество релизов:", len(releases_data) if releases_data else 0],
-        ["Активных релизов:", len([r for r in (releases_data or []) if r.get('status') == 'active'] or 0)],
-        ["Промокодов:", len(promo_codes_data) if promo_codes_data else 0],
-        ["Заказов:", len(orders_data) if orders_data else 0],
-        ["Дата генерации отчета:", datetime.now().strftime("%d.%m.%Y %H:%M:%S")]
-    ]
-    
-    for i, (label, value) in enumerate(summary_data, start=3):
-        ws_summary[f'A{i}'] = label
-        ws_summary[f'B{i}'] = value
-        ws_summary[f'A{i}'].font = Font(bold=True)
-        ws_summary[f'A{i}'].border = thin_border
-        ws_summary[f'B{i}'].border = thin_border
-    
-    # Автоматическая ширина столбцов для всех листов
-    for ws in wb.worksheets:
-        for column in ws.columns:
-            max_length = 0
-            column_letter = get_column_letter(column[0].column)
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 50)
-            ws.column_dimensions[column_letter].width = adjusted_width
-    
-    return wb
-
-
-def send_xlsx_report(chat_id, report_data, filename="report.xlsx"):
-    """Отправка XLSX отчета пользователю"""
-    try:
-        # Сохраняем отчет во временный файл
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
-            report_data.save(tmp_file.name)
-            tmp_file_path = tmp_file.name
-        
-        # Отправляем файл
-        with open(tmp_file_path, 'rb') as file:
-            bot.send_document(
-                chat_id,
-                file,
-                caption="📊 Ваш отчет в формате XLSX готов!\n\n"
-                        "📋 Отчет содержит детальную информацию по всем разделам.\n"
-                        "💾 Файл сохранен в формате Excel для удобного просмотра и анализа.",
-                visible_file_name=filename
-            )
-        
-        # Удаляем временный файл
-        os.unlink(tmp_file_path)
-        return True
-        
-    except Exception as e:
-        logger.error(f"Ошибка при отправке XLSX отчета: {e}")
-        bot.send_message(chat_id, "❌ Ошибка при отправке отчета. Попробуйте еще раз.")
-        return False
 
 
 # Клавиатура для подтверждения
@@ -10372,17 +2814,17 @@ def create_confirmation_keyboard():
 def handle_contract_request(message):
     """Start contract creation flow"""
     user_id = message.from_user.id
-    
+
     # Инициализируем данные пользователя для договора
     if user_id not in bot.user_data:
         bot.user_data[user_id] = {}
-    
+
     # Очищаем предыдущие данные договора
     bot.user_data[user_id]['contract_data'] = {}
-    
+
     # Логируем начало создания договора
     logger.info(f"Начало создания договора для пользователя {user_id}")
-    
+
     bot.reply_to(
         message,
         "📋 Создание лицензионного договора\n\n"
@@ -10394,7 +2836,7 @@ def handle_contract_request(message):
 def process_date_step(message):
     """Handle contract date input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенной даты
     date_text = message.text.strip()
     if not date_text:
@@ -10404,12 +2846,12 @@ def process_date_step(message):
         )
         bot.register_next_step_handler(message, process_date_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['date'] = date_text
-    
+
     # Логируем ввод даты
     logger.info(f"Пользователь {user_id} ввел дату: {date_text}")
-    
+
     bot.reply_to(
         message,
         "Введите ФИО лицензиара:"
@@ -10419,7 +2861,7 @@ def process_date_step(message):
 def process_full_name_step(message):
     """Handle full name input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенного ФИО
     full_name = message.text.strip()
     if not full_name:
@@ -10429,12 +2871,12 @@ def process_full_name_step(message):
         )
         bot.register_next_step_handler(message, process_full_name_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['full_name'] = full_name
-    
+
     # Логируем ввод ФИО
     logger.info(f"Пользователь {user_id} ввел ФИО: {full_name}")
-    
+
     bot.reply_to(
         message,
         "Введите серию и номер паспорта (например: 1234 567890):"
@@ -10444,7 +2886,7 @@ def process_full_name_step(message):
 def process_passport_step(message):
     """Handle passport input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенного паспорта
     passport = message.text.strip()
     if not passport:
@@ -10454,12 +2896,12 @@ def process_passport_step(message):
         )
         bot.register_next_step_handler(message, process_passport_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['passport'] = passport
-    
+
     # Логируем ввод паспорта
     logger.info(f"Пользователь {user_id} ввел паспорт: {passport}")
-    
+
     bot.reply_to(
         message,
         "Введите творческий псевдоним:"
@@ -10469,7 +2911,7 @@ def process_passport_step(message):
 def process_nickname_step(message):
     """Handle nickname input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенного псевдонима
     nickname = message.text.strip()
     if not nickname:
@@ -10479,12 +2921,12 @@ def process_nickname_step(message):
         )
         bot.register_next_step_handler(message, process_nickname_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['nickname'] = nickname
-    
+
     # Логируем ввод псевдонима
     logger.info(f"Пользователь {user_id} ввел псевдоним: {nickname}")
-    
+
     bot.reply_to(
         message,
         "Кем выдан паспорт:"
@@ -10494,7 +2936,7 @@ def process_nickname_step(message):
 def process_passport_issued_step(message):
     """Handle passport issued input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенных данных
     passport_issued = message.text.strip()
     if not passport_issued:
@@ -10504,12 +2946,12 @@ def process_passport_issued_step(message):
         )
         bot.register_next_step_handler(message, process_passport_issued_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['passport_issued'] = passport_issued
-    
+
     # Логируем ввод данных о выдаче паспорта
     logger.info(f"Пользователь {user_id} ввел данные о выдаче паспорта: {passport_issued}")
-    
+
     bot.reply_to(
         message,
         "Дата выдачи паспорта (в формате ДД.ММ.ГГГГ):"
@@ -10519,7 +2961,7 @@ def process_passport_issued_step(message):
 def process_issue_date_step(message):
     """Handle issue date input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенной даты выдачи
     issue_date = message.text.strip()
     if not issue_date:
@@ -10529,12 +2971,12 @@ def process_issue_date_step(message):
         )
         bot.register_next_step_handler(message, process_issue_date_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['issue_date'] = issue_date
-    
+
     # Логируем ввод даты выдачи
     logger.info(f"Пользователь {user_id} ввел дату выдачи паспорта: {issue_date}")
-    
+
     bot.reply_to(
         message,
         "Код подразделения (например: 600-006):"
@@ -10544,7 +2986,7 @@ def process_issue_date_step(message):
 def process_department_code_step(message):
     """Handle department code input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенного кода подразделения
     department_code = message.text.strip()
     if not department_code:
@@ -10554,12 +2996,12 @@ def process_department_code_step(message):
         )
         bot.register_next_step_handler(message, process_department_code_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['department_code'] = department_code
-    
+
     # Логируем ввод кода подразделения
     logger.info(f"Пользователь {user_id} ввел код подразделения: {department_code}")
-    
+
     bot.reply_to(
         message,
         "Дата рождения (в формате ДД.ММ.ГГГГ):"
@@ -10569,7 +3011,7 @@ def process_department_code_step(message):
 def process_birth_date_step(message):
     """Handle birth date input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенной даты рождения
     birth_date = message.text.strip()
     if not birth_date:
@@ -10579,12 +3021,12 @@ def process_birth_date_step(message):
         )
         bot.register_next_step_handler(message, process_birth_date_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['birth_date'] = birth_date
-    
+
     # Логируем ввод даты рождения
     logger.info(f"Пользователь {user_id} ввел дату рождения: {birth_date}")
-    
+
     bot.reply_to(
         message,
         "Место рождения:"
@@ -10594,7 +3036,7 @@ def process_birth_date_step(message):
 def process_birth_place_step(message):
     """Handle birth place input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенного места рождения
     birth_place = message.text.strip()
     if not birth_place:
@@ -10604,12 +3046,12 @@ def process_birth_place_step(message):
         )
         bot.register_next_step_handler(message, process_birth_place_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['birth_place'] = birth_place
-    
+
     # Логируем ввод места рождения
     logger.info(f"Пользователь {user_id} ввел место рождения: {birth_place}")
-    
+
     bot.reply_to(
         message,
         "Адрес регистрации:"
@@ -10619,7 +3061,7 @@ def process_birth_place_step(message):
 def process_address_step(message):
     """Handle address input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенного адреса
     address = message.text.strip()
     if not address:
@@ -10629,12 +3071,12 @@ def process_address_step(message):
         )
         bot.register_next_step_handler(message, process_address_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['address'] = address
-    
+
     # Логируем ввод адреса
     logger.info(f"Пользователь {user_id} ввел адрес: {address}")
-    
+
     bot.reply_to(
         message,
         "СНИЛС (в формате XXX-XXX-XXX XX):"
@@ -10644,7 +3086,7 @@ def process_address_step(message):
 def process_snils_step(message):
     """Handle SNILS input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенного СНИЛС
     snils = message.text.strip()
     if not snils:
@@ -10654,12 +3096,12 @@ def process_snils_step(message):
         )
         bot.register_next_step_handler(message, process_snils_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['snils'] = snils
-    
+
     # Логируем ввод СНИЛС
     logger.info(f"Пользователь {user_id} ввел СНИЛС: {snils}")
-    
+
     bot.reply_to(
         message,
         "ИНН:"
@@ -10669,7 +3111,7 @@ def process_snils_step(message):
 def process_inn_step(message):
     """Handle INN input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенного ИНН
     inn = message.text.strip()
     if not inn:
@@ -10679,12 +3121,12 @@ def process_inn_step(message):
         )
         bot.register_next_step_handler(message, process_inn_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['inn'] = inn
-    
+
     # Логируем ввод ИНН
     logger.info(f"Пользователь {user_id} ввел ИНН: {inn}")
-    
+
     bot.reply_to(
         message,
         "Название релиза:"
@@ -10694,7 +3136,7 @@ def process_inn_step(message):
 def process_release_name_step(message):
     """Handle release name input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенного названия релиза
     release_name = message.text.strip()
     if not release_name:
@@ -10704,12 +3146,12 @@ def process_release_name_step(message):
         )
         bot.register_next_step_handler(message, process_release_name_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['release_name'] = release_name
-    
+
     # Логируем ввод названия релиза
     logger.info(f"Пользователь {user_id} ввел название релиза: {release_name}")
-    
+
     bot.reply_to(
         message,
         "Название трека:"
@@ -10719,7 +3161,7 @@ def process_release_name_step(message):
 def process_track_name_step(message):
     """Handle track name input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенного названия трека
     track_name = message.text.strip()
     if not track_name:
@@ -10729,12 +3171,12 @@ def process_track_name_step(message):
         )
         bot.register_next_step_handler(message, process_track_name_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['track_name'] = track_name
-    
+
     # Логируем ввод названия трека
     logger.info(f"Пользователь {user_id} ввел название трека: {track_name}")
-    
+
     bot.reply_to(
         message,
         "Автор музыки:"
@@ -10744,7 +3186,7 @@ def process_track_name_step(message):
 def process_music_author_step(message):
     """Handle music author input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенного автора музыки
     music_author = message.text.strip()
     if not music_author:
@@ -10754,12 +3196,12 @@ def process_music_author_step(message):
         )
         bot.register_next_step_handler(message, process_music_author_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['music_author'] = music_author
-    
+
     # Логируем ввод автора музыки
     logger.info(f"Пользователь {user_id} ввел автора музыки: {music_author}")
-    
+
     bot.reply_to(
         message,
         "Автор текста:"
@@ -10769,7 +3211,7 @@ def process_music_author_step(message):
 def process_text_author_step(message):
     """Handle text author input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенного автора текста
     text_author = message.text.strip()
     if not text_author:
@@ -10779,12 +3221,12 @@ def process_text_author_step(message):
         )
         bot.register_next_step_handler(message, process_text_author_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['text_author'] = text_author
-    
+
     # Логируем ввод автора текста
     logger.info(f"Пользователь {user_id} ввел автора текста: {text_author}")
-    
+
     bot.reply_to(
         message,
         "Исполнитель:"
@@ -10794,7 +3236,7 @@ def process_text_author_step(message):
 def process_performer_step(message):
     """Handle performer input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенного исполнителя
     performer = message.text.strip()
     if not performer:
@@ -10804,12 +3246,12 @@ def process_performer_step(message):
         )
         bot.register_next_step_handler(message, process_performer_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['performer'] = performer
-    
+
     # Логируем ввод исполнителя
     logger.info(f"Пользователь {user_id} ввел исполнителя: {performer}")
-    
+
     bot.reply_to(
         message,
         "Изготовитель фонограммы:"
@@ -10819,7 +3261,7 @@ def process_performer_step(message):
 def process_phonogram_producer_step(message):
     """Handle phonogram producer input"""
     user_id = message.from_user.id
-    
+
     # Проверяем корректность введенного изготовителя фонограммы
     phonogram_producer = message.text.strip()
     if not phonogram_producer:
@@ -10829,16 +3271,16 @@ def process_phonogram_producer_step(message):
         )
         bot.register_next_step_handler(message, process_phonogram_producer_step)
         return
-    
+
     bot.user_data[user_id]['contract_data']['phonogram_producer'] = phonogram_producer
-    
+
     # Логируем ввод изготовителя фонограммы
     logger.info(f"Пользователь {user_id} ввел изготовителя фонограммы: {phonogram_producer}")
-    
+
     # Проверяем корректность всех данных перед отображением
     contract_data = bot.user_data[user_id]['contract_data']
     summary = contracts.build_contract_summary(contract_data)
-    
+
     bot.reply_to(
         message,
         summary,
@@ -10849,7 +3291,7 @@ def process_phonogram_producer_step(message):
 def process_confirmation_step(message):
     """Handle confirmation step"""
     user_id = message.from_user.id
-    
+
     if message.text.lower() == 'да, всё верно':
         # Проверяем корректность данных перед генерацией
         contract_data = bot.user_data[user_id].get('contract_data', {})
@@ -10862,11 +3304,11 @@ def process_confirmation_step(message):
             bot.user_data[user_id]['contract_data'] = {}
             bot.register_next_step_handler(message, process_date_step)
             return
-        
+
         # Логируем данные для отладки
         logger.info(f"Подтверждение договора для пользователя {user_id}")
         logger.info(f"Данные договора: {contract_data}")
-        
+
         bot.reply_to(
             message,
             "🎉 Отлично! Генерирую документ...",
@@ -10894,7 +3336,7 @@ def replace_placeholder_in_doc(doc, placeholder, value):
                 for run in paragraph.runs:
                     if placeholder in run.text:
                         run.text = run.text.replace(placeholder, str(value))
-        
+
         # Замена в таблицах
         for table in doc.tables:
             for row in table.rows:
@@ -10904,7 +3346,7 @@ def replace_placeholder_in_doc(doc, placeholder, value):
                             for run in paragraph.runs:
                                 if placeholder in run.text:
                                     run.text = run.text.replace(placeholder, str(value))
-        
+
         # Замена в верхних и нижних колонтитулах
         for section in doc.sections:
             for paragraph in section.header.paragraphs:
@@ -10917,9 +3359,9 @@ def replace_placeholder_in_doc(doc, placeholder, value):
                     for run in paragraph.runs:
                         if placeholder in run.text:
                             run.text = run.text.replace(placeholder, str(value))
-        
+
         logger.info(f"Successfully replaced placeholder '{placeholder}' with '{value}'")
-        
+
     except Exception as e:
         logger.error(f"Error replacing placeholder '{placeholder}': {e}")
 
@@ -10928,18 +3370,18 @@ def generate_contract_document_new(message):
     """Generate contract document using new template system"""
     user_id = message.from_user.id
     contract_data = bot.user_data[user_id].get('contract_data', {})
-    
+
     try:
         # Проверяем наличие необходимых данных
         if not contract_data:
             raise ValueError("Данные договора не найдены")
-        
+
         # Логируем данные для отладки
         logger.info(f"Создание документа для пользователя {user_id}")
         logger.info(f"Данные договора: {contract_data}")
-        
+
         contract_data = contracts.normalize_contract_data(contract_data)
-        
+
         # Проверяем доступность модуля для создания документов
         if not DOCX_AVAILABLE:
             bot.reply_to(
@@ -10950,7 +3392,7 @@ def generate_contract_document_new(message):
                 reply_markup=types.ReplyKeyboardRemove()
             )
             return
-        
+
                 # Создаем документ
         try:
             doc = create_license_agreement(contract_data)
@@ -10963,7 +3405,7 @@ def generate_contract_document_new(message):
                 reply_markup=types.ReplyKeyboardRemove()
             )
             return
-        
+
         # Сохраняем в байтовый поток
         try:
             doc_bytes = io.BytesIO()
@@ -10979,14 +3421,14 @@ def generate_contract_document_new(message):
                 reply_markup=types.ReplyKeyboardRemove()
             )
             return
-        
+
         # Отправка документа
         try:
             filename = contracts.contract_filename(contract_data.get('nickname', 'N/A'))
-            
+
             bot.send_document(
-                message.chat.id, 
-                doc_bytes, 
+                message.chat.id,
+                doc_bytes,
                 visible_file_name=filename
             )
             logger.info("Документ успешно отправлен пользователю")
@@ -10999,28 +3441,28 @@ def generate_contract_document_new(message):
                 reply_markup=types.ReplyKeyboardRemove()
             )
             return
-            
+
             bot.reply_to(
                 message,
             "🎉 Документ готов! Если нужно создать еще один, используйте кнопку '📋 Создать договор'",
             reply_markup=types.ReplyKeyboardRemove()
             )
-        
+
         # Создаем запись в базе данных и уведомляем администраторов
         try:
             conn = get_pg_connection()
             if conn:
                 cursor = conn.cursor()
-                
+
                 # Создаем запись о договоре
                 cursor.execute('''
                     INSERT INTO contracts (user_id, contract_number, contract_type, status, created_at)
                     VALUES (%s, %s, %s, %s, %s)
                 ''', (user_id, contract_data.get('date', 'N/A'), 'license', 'pending', datetime.now()))
-                
+
                 contract_id = cursor.fetchone()[0] if cursor.fetchone() else None
                 conn.commit()
-                
+
                 if contract_id:
                     # Уведомляем администраторов
                     admin_ids = get_all_admins()
@@ -11031,7 +3473,7 @@ def generate_contract_document_new(message):
                                 types.InlineKeyboardButton("👥 Пользователи", callback_data="admin_users"),
                                 types.InlineKeyboardButton("📋 Управление договорами", callback_data="admin_contracts")
                             )
-                            
+
                             bot.send_message(
                                 admin_id,
                                 f"📋 Новый запрос договора!\n\n"
@@ -11043,38 +3485,38 @@ def generate_contract_document_new(message):
                             )
                         except Exception as e:
                             logger.error(f"Failed to notify admin {admin_id}: {e}")
-                    
+
                     # Отправляем сообщение пользователю о том, что договор отправлен на рассмотрение
                     markup = types.InlineKeyboardMarkup()
                     markup.add(
                         types.InlineKeyboardButton("📋 Мои договоры", callback_data="my_contracts"),
                         types.InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_main")
                     )
-                    
+
                     bot.send_message(
                         message.chat.id,
                         "📋 Договор отправлен на рассмотрение администратору!\n\n"
                         "Ожидайте уведомления о готовности договора.",
                         reply_markup=markup
                     )
-                
+
                 cursor.close()
                 return_pg_connection(conn)
-                
+
         except Exception as e:
             logger.error(f"Error saving contract to database: {e}")
-        
+
         # Очищаем данные договора
         if user_id in bot.user_data and 'contract_data' in bot.user_data[user_id]:
             del bot.user_data[user_id]['contract_data']
-        
+
         # Возвращаемся в главное меню
         bot.send_message(
             message.chat.id,
             "Выберите действие:",
             reply_markup=create_main_menu()
         )
-        
+
     except Exception as e:
         logger.error(f"Ошибка при генерации документа: {e}")
         logger.error(f"Тип ошибки: {type(e).__name__}")
@@ -11105,111 +3547,13 @@ def create_profile_menu():
 
 
 def notify_referrer_about_visit(referral_code, visitor_id, visitor_username):
-    """Уведомить приглашающего о том, что кто-то зашёл по его реферальной ссылке"""
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            return
-        cursor = conn.cursor()
-        cursor.execute('SELECT telegram_id FROM label WHERE referral_code = %s', (referral_code,))
-        referrer_row = cursor.fetchone()
-        conn.close()
-        if not referrer_row or referrer_row[0] == visitor_id:
-            return
-        referrer_id = referrer_row[0]
-        username_str = f"@{visitor_username}" if visitor_username else f"ID:{visitor_id}"
-        text = f"🔗 По вашей реферальной ссылке в бота зашёл пользователь {username_str}."
-        try:
-            bot.send_message(referrer_id, text)
-        except Exception as e:
-            logger.warning(f"Could not send referral visit notification to {referrer_id}: {e}")
-    except Exception as e:
-        logger.error(f"Error in notify_referrer_about_visit: {e}")
+    return referral_notifications.notify_referrer_about_visit(referral_code, visitor_id, visitor_username)
 
 
 def handle_referral_registration(cursor, user_id, referral_code, conn):
-    """Handle referral registration for new users"""
-    try:
-        # Проверяем, существует ли реферальный код
-        cursor.execute('''
-            SELECT telegram_id, name, referral_count 
-            FROM label 
-            WHERE referral_code = %s
-        ''', (referral_code,))
-        
-        referrer_info = cursor.fetchone()
-        
-        if referrer_info and referrer_info[0] != user_id:  # Нельзя пригласить самого себя
-            referrer_id, referrer_name, referral_count = referrer_info
-            
-            # Записываем реферальную связь
-            cursor.execute('''
-                INSERT INTO referrals (referrer_id, referred_id, referral_code, status, bonus_paid, bonus_amount)
-                VALUES (%s, %s, %s, 'active', FALSE, 100.00)
-            ''', (referrer_id, user_id, referral_code))
-            
-            # Обновляем статистику приглашающего
-            cursor.execute('''
-                UPDATE label 
-                SET referral_count = COALESCE(referral_count, 0) + 1
-                WHERE telegram_id = %s
-            ''', (referrer_id))
-            
-            # Начисляем бонус новому пользователю
-            cursor.execute('''
-                UPDATE label 
-                SET balance = COALESCE(balance, 0) + 50.00
-                WHERE telegram_id = %s
-            ''', (user_id))
-            
-            # Начисляем бонус приглашающему
-            cursor.execute('''
-                UPDATE label 
-                SET referral_earnings = COALESCE(referral_earnings, 0) + 100.00,
-                    balance = COALESCE(balance, 0) + 100.00
-                WHERE telegram_id = %s
-            ''', (referrer_id))
-            
-            # Проверяем достижение целей для дополнительных бонусов
-            new_referral_count = referral_count + 1
-            bonus_amount = 0
-            
-            if new_referral_count == 5:
-                bonus_amount = 500.00
-            elif new_referral_count == 10:
-                bonus_amount = 1000.00
-            elif new_referral_count == 20:
-                bonus_amount = 2000.00
-            
-            if bonus_amount > 0:
-                cursor.execute('''
-                    UPDATE label 
-                    SET referral_earnings = COALESCE(referral_earnings, 0) + %s,
-                        balance = COALESCE(balance, 0) + %s
-                    WHERE telegram_id = %s
-                ''', (bonus_amount, bonus_amount, referrer_id))
-                
-                logger.info(f"User {referrer_id} reached referral goal: {new_referral_count} friends, bonus: {bonus_amount}₽")
-            
-            logger.info(f"Referral registration successful: {referrer_id} -> {user_id}, code: {referral_code}")
-            
-            # Отправляем уведомление приглашающему
-            try:
-                bot.send_message(
-                    referrer_id,
-                    f"🎉 По вашей реферальной ссылке зарегистрировался новый пользователь!\n\n"
-                    f"💰 Вы получили: 100₽ за приглашение\n"
-                    f"👥 Всего приглашено: {new_referral_count}\n"
-                    f"{f'🎯 Достигнута цель! Бонус: +{bonus_amount}₽' if bonus_amount > 0 else ''}"
-                )
-            except Exception as e:
-                logger.warning(f"Could not send referral notification to {referrer_id}: {e}")
-                
-        else:
-            logger.warning(f"Invalid referral code: {referral_code} for user {user_id}")
-            
-    except Exception as e:
-        logger.error(f"Error in referral registration: {e}")
+    from db.repositories.referrals import handle_referral_registration as _handle_referral_registration
+
+    return _handle_referral_registration(cursor, user_id, referral_code, conn)
         # Не прерываем регистрацию пользователя из-за ошибки реферальной системы
 
 
@@ -11220,7 +3564,7 @@ def handle_profile(message):
 
     conn = None
     cursor = None
-    
+
     # Retry logic для временных ошибок БД
     max_retries = 2
     for attempt in range(max_retries):
@@ -11237,7 +3581,7 @@ def handle_profile(message):
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT name, kanal, fio, email, COALESCE(balance, 0)
-                FROM label 
+                FROM label
                 WHERE telegram_id = %s
             ''', (user_id,))
             user_info = cursor.fetchone()
@@ -11284,10 +3628,10 @@ def handle_profile(message):
                     f"[Нажмите /start]({safe_link})",
                     parse_mode="Markdown"
                 )
-            
+
             # Успешное выполнение, выходим из цикла retry
             break
-            
+
         except psycopg2.OperationalError as db_error:
             # Временные ошибки БД - пробуем повторить
             logger.warning(f"DB operational error on attempt {attempt + 1}/{max_retries} for user {user_id}: {db_error}")
@@ -11321,141 +3665,6 @@ def handle_profile(message):
                 conn = None
 
 
-@bot.message_handler(func=lambda message: LEGACY_RELEASES_ENABLED and message.text == "📀 Мои релизы")
-@require_channel_subscription
-def handle_my_releases_command(message, user_id=None):
-    """Entry point for viewing releases with subscription check"""
-    handle_my_releases(message, user_id=user_id, admin_mode=False)
-
-
-@bot.message_handler(func=lambda message: LEGACY_REPORTS_ENABLED and message.text == "📊 Мои отчеты")
-def handle_my_reports(message, user_id=None):
-    """Show user's reports"""
-    if user_id is None:
-        user_id = message.from_user.id
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.reply_to(message, "❌ Ошибка подключения к базе данных.")
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        # Get user's reports
-        cursor.execute('''
-            SELECT id, status, created_at, completed_at, report_file_id
-            FROM report_requests 
-            WHERE user_id = %s
-            ORDER BY created_at DESC
-        ''', (user_id,))
-        reports = cursor.fetchall()
-
-        if not reports:
-            response_text = "📊 У вас пока нет запросов отчетов\n\n💡 Вы можете запросить общий отчет по всем вашим релизам в формате Excel"
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton("📊 Запросить отчет", callback_data="request_new_report"),
-                types.InlineKeyboardButton("◀️ Назад в профиль", callback_data="back_to_profile")
-            )
-        else:
-            response_text = "📊 Ваши отчеты:\n\n"
-            
-            # Create inline keyboard
-            markup = types.InlineKeyboardMarkup(row_width=1)
-
-            # Показываем последний отчет отдельной кнопкой
-            latest_report = reports[0]
-            report_id, status, created_at, completed_at, report_file_id = latest_report
-            
-            # Format dates
-            created_str = created_at.strftime('%d.%m.%Y %H:%M') if created_at else "дата не указана"
-            completed_str = completed_at.strftime('%d.%m.%Y %H:%M') if completed_at else "не завершен"
-            
-            # Status emoji
-            status_emoji = {
-                'pending': '⏳',
-                'processing': '🔄',
-                'completed': '✅',
-                'rejected': '❌'
-            }.get(status, '❓')
-            
-            # Кнопка для просмотра последнего отчета
-            markup.add(types.InlineKeyboardButton(
-                f"📊 Посмотреть последний отчет ({status_emoji} {created_str})",
-                callback_data=f"view_latest_report"
-            ))
-
-            # Добавляем кнопку отмены для ожидающих отчетов
-            if status == 'pending':
-                markup.add(types.InlineKeyboardButton(
-                    "❌ Отменить запрос отчета",
-                    callback_data=f"cancel_report_{report_id}"
-                ))
-
-            markup.add(
-                types.InlineKeyboardButton("📊 Запросить новый отчет", callback_data="request_new_report"),
-                types.InlineKeyboardButton("◀️ Назад в профиль", callback_data="back_to_profile")
-            )
-
-        bot.send_message(message.chat.id, response_text, reply_markup=markup)
-
-    except Exception as e:
-        logger.error(f"Error fetching reports: {e}")
-        bot.reply_to(message, "❌ Произошла ошибка при получении списка отчетов.")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.message_handler(func=lambda message: LEGACY_SUPPORT_ENABLED and message.text == "🆘 Мои заявки")
-def handle_my_support_requests(message):
-    """Show user's support requests"""
-    user_id = message.from_user.id
-    requests = get_user_support_requests(user_id)
-
-    if not requests:
-        bot.reply_to(message, "🆘 У вас пока нет заявок поддержки.")
-        return
-
-    text_lines = ["🆘 Ваши заявки поддержки:\n"]
-    for req in sorted(requests, key=lambda x: x["created_at"], reverse=True)[:10]:
-        text_lines.append(
-            f"• {req['template_title']} | {req['status']} | {format_human_datetime(req['created_at'])}"
-        )
-    text_lines.append("\nСтатусы обновляются автоматически. Если нужна новая заявка — выберите её в разделе «Помощь» на главном экране.")
-
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("◀️ Назад в профиль", callback_data="back_to_profile"))
-
-    bot.reply_to(message, "\n".join(text_lines), reply_markup=markup)
-
-
-@bot.message_handler(func=lambda message: LEGACY_ORDERS_ENABLED and message.text == "🛒 Мои заказы")
-def handle_my_orders_summary(message):
-    """Show user's design orders summary"""
-    user_id = message.from_user.id
-    orders = get_user_design_orders(user_id)
-
-    if not orders:
-        bot.reply_to(message, "🛒 У вас еще нет заказов.", reply_markup=types.InlineKeyboardMarkup().add(
-            types.InlineKeyboardButton("◀️ Назад в профиль", callback_data="back_to_profile")
-        ))
-        return
-
-    text_lines = ["🛒 Ваши заказы:\n"]
-    for order in sorted(orders, key=lambda x: x["created_at"], reverse=True)[:10]:
-        label = SERVICE_LABELS.get(order["service"], order["service"])
-        text_lines.append(
-            f"• {label} | {order['status']} | {format_human_datetime(order['created_at'])}"
-        )
-
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("◀️ Назад в профиль", callback_data="back_to_profile"))
-
-    bot.reply_to(message, "\n".join(text_lines), reply_markup=markup)
-
 
 def _draft_display_label(draft_type, data_json, created_at):
     """Формирует человекочитаемую подпись для черновика: исполнитель — название (дата)."""
@@ -11477,425 +3686,6 @@ def _draft_display_label(draft_type, data_json, created_at):
     return f"📝 {type_label} ({date_str})"
 
 
-@bot.message_handler(func=lambda message: LEGACY_DRAFTS_ENABLED and message.text == "📋 Черновики")
-@require_channel_subscription
-def handle_profile_drafts(message):
-    """Показать черновики пользователя (из профиля по кнопке)"""
-    user_id = message.from_user.id
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка БД", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("◀️ Назад в профиль"))
-            return
-        cursor = conn.cursor()
-        cursor.execute(
-            'SELECT id, draft_type, data, current_step, created_at FROM drafts WHERE user_id = %s ORDER BY updated_at DESC LIMIT 10',
-            (user_id,)
-        )
-        drafts = cursor.fetchall()
-        cursor.close()
-        return_pg_connection(conn)
-
-        back_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        back_kb.add(types.KeyboardButton("◀️ Назад в профиль"))
-
-        if not drafts:
-            text = "📋 Черновики\n\nУ вас пока нет сохранённых черновиков."
-            bot.reply_to(message, text, reply_markup=back_kb)
-            return
-        text = f"📋 Ваши черновики ({len(drafts)})\n\n"
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        for draft_id, draft_type, data_json, current_step, created_at in drafts:
-            label = _draft_display_label(draft_type, data_json, created_at)
-            markup.add(types.InlineKeyboardButton(label, callback_data=f"draft_load_{draft_id}"))
-        markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile"))
-        bot.reply_to(message, text, reply_markup=markup)
-    except Exception as e:
-        logger.error(f"Error showing drafts for user {user_id}: {e}")
-        bot.reply_to(message, "❌ Ошибка при загрузке черновиков.", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("◀️ Назад в профиль"))
-
-
-@bot.message_handler(func=lambda message: LEGACY_REFERRALS_ENABLED and message.text == "👥 Пригласи друга")
-@require_channel_subscription
-def handle_invite_friend(message):
-    """Handle invite friend button from profile menu"""
-    user_id = message.from_user.id
-    username = message.from_user.username
-    conn = None
-    cursor = None
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("◀️ Назад в профиль"))
-            return
-
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT COALESCE(referral_code, '') as referral_code,
-                   COALESCE(referral_count, 0) as referral_count,
-                   COALESCE(referral_earnings, 0) as referral_earnings
-            FROM label
-            WHERE telegram_id = %s
-        ''', (user_id,))
-        result = cursor.fetchone()
-
-        if result:
-            referral_code, referral_count, referral_earnings = result
-
-            if not referral_code:
-                referral_code = generate_referral_code(user_id)
-                if not referral_code:
-                    bot.reply_to(message, "❌ Ошибка при создании реферального кода", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("◀️ Назад в профиль"))
-                    return
-
-            bot_username = bot.get_me().username
-            referral_link = f"https://t.me/{bot_username}?start={referral_code}"
-
-            referral_text = "👥 Пригласите друзей и получайте бонусы!\n\n"
-            referral_text += f"🔗 Ваша реферальная ссылка:\n`{referral_link}`\n\n"
-            referral_text += f"📊 Статистика:\n"
-            referral_text += f"👥 Приглашено друзей: {referral_count or 0}\n"
-            referral_text += f"💰 Заработано: {referral_earnings or 0}₽\n\n"
-            referral_text += f"💡 Как это работает:\n"
-            referral_text += f"• Отправьте ссылку другу\n"
-            referral_text += f"• Друг регистрируется по ссылке\n"
-            referral_text += f"• Вы получаете 100₽ на баланс\n"
-            referral_text += f"• Друг получает 50₽ на баланс\n\n"
-            share_text = f"Присоединяйся к TWAS Label! 🎵\n\n{referral_link}"
-            share_url = f"https://t.me/share/url?url={quote(referral_link)}&text={quote(share_text)}"
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("📤 Поделиться ссылкой", url=share_url))
-
-            bot.reply_to(message, referral_text, reply_markup=markup, parse_mode='Markdown')
-        else:
-            bot.reply_to(message, "❌ Профиль не найден", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("◀️ Назад в профиль"))
-
-    except Exception as e:
-        logger.error(f"Error handling invite friend: {e}")
-        bot.reply_to(message, "❌ Ошибка при получении реферальной информации", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("◀️ Назад в профиль"))
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REPORTS_ENABLED and call.data == "request_new_report")
-def handle_request_new_report(call):
-    """Handle new report request from user profile"""
-    user_id = call.from_user.id
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Check if user has any releases
-        cursor.execute('SELECT COUNT(*) FROM releases WHERE user_id = %s', (user_id,))
-        releases_count = cursor.fetchone()[0]
-        
-        if releases_count == 0:
-            bot.edit_message_text(
-                "❌ У вас нет релизов для запроса отчета\n\nСначала создайте релиз, а затем запросите отчет.",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=types.InlineKeyboardMarkup().add(
-                    types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile")
-                )
-            )
-            return
-        
-        # Check if user already has a pending report request
-        cursor.execute('''
-            SELECT id FROM report_requests 
-            WHERE user_id = %s AND status IN ('pending', 'processing')
-        ''', (user_id,))
-        existing_request = cursor.fetchone()
-        
-        if existing_request:
-            bot.edit_message_text(
-                "⏳ У вас уже есть активный запрос отчета\n\nДождитесь его выполнения или отмените текущий запрос.",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=types.InlineKeyboardMarkup().add(
-                    types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile")
-                )
-            )
-            return
-        
-        # Create confirmation markup
-        markup = types.InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            types.InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_report_request"),
-            types.InlineKeyboardButton("❌ Отмена", callback_data="back_to_profile")
-        )
-        
-        bot.edit_message_text(
-            f"📊 Запрос отчета\n\n"
-            f"Вы запрашиваете общий отчет по всем вашим релизам ({releases_count} релиз(ов))\n\n"
-            f"Отчет будет включать:\n"
-            f"• Статистику по всем релизам\n"
-            f"• Общую аналитику\n"
-            f"• Финансовые показатели\n"
-            f"• Красивое оформление в формате Excel\n\n"
-            f"Подтвердите запрос?",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error checking user releases for report: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при проверке релизов", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REPORTS_ENABLED and call.data == "confirm_report_request")
-def handle_confirm_report_request(call):
-    """Handle confirmation of report request"""
-    user_id = call.from_user.id
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Create report request
-        cursor.execute('''
-            INSERT INTO report_requests (user_id, release_type, status, created_at, request_type)
-            VALUES (%s, %s, %s, NOW(), %s)
-            RETURNING id
-        ''', (user_id, 'GENERAL', 'pending', 'Общий отчет по всем релизам'))
-        
-        report_id = cursor.fetchone()[0]
-        
-        # Get user info for admin notification
-        cursor.execute('SELECT name, tg FROM label WHERE telegram_id = %s', (user_id,))
-        user_info = cursor.fetchone()
-        user_name = user_info[0] if user_info else "Неизвестный пользователь"
-        username = user_info[1] if user_info else "нет username"
-        
-        conn.commit()
-        
-        # Confirm to user
-        bot.edit_message_text(
-            "✅ Запрос отчета успешно отправлен!\n\n"
-            "📊 Ваш запрос на получение общего отчета по всем релизам принят в обработку.\n"
-            "📊 Отчет будет сгенерирован в формате Excel (.xlsx)\n"
-            "⏳ Обычно отчет готовится в течение 1-3 рабочих дней.\n\n"
-            "Вы получите уведомление, когда отчет будет готов.",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton("◀️ Назад в профиль", callback_data="back_to_profile")
-            )
-        )
-        
-        # Notify admins
-        notify_admins_about_report_request(user_id, report_id, user_name, username)
-        
-        logger.info(f"User {user_id} requested report {report_id}")
-        
-    except Exception as e:
-        logger.error(f"Error creating report request: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при создании запроса отчета", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REPORTS_ENABLED and call.data.startswith("cancel_report_"))
-def handle_cancel_report(call):
-    """Handle user canceling their report request"""
-    user_id = call.from_user.id
-    report_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Check if report belongs to user and is in pending status
-        cursor.execute('''
-            SELECT status, request_type 
-            FROM report_requests 
-            WHERE id = %s AND user_id = %s
-        ''', (report_id, user_id))
-        
-        report_info = cursor.fetchone()
-        if not report_info:
-            bot.answer_callback_query(call.id, "❌ Отчет не найден", show_alert=True)
-            return
-        
-        status, request_type = report_info
-        
-        if status != 'pending':
-            bot.answer_callback_query(call.id, "❌ Можно отменить только ожидающие отчеты", show_alert=True)
-            return
-        
-        # Update report status to canceled
-        cursor.execute('''
-            UPDATE report_requests 
-            SET status = 'canceled'
-            WHERE id = %s
-        ''', (report_id,))
-        
-        conn.commit()
-        
-        # Show confirmation
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("📊 Мои отчеты", callback_data="my_reports"))
-        
-        bot.edit_message_text(
-            f"✅ Запрос отчета #{report_id} успешно отменен!\n\n"
-            f"📋 Тип отчета: {request_type}\n"
-            f"📅 Дата отмены: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
-            f"💡 Вы можете запросить новый отчет в любое время.",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-        logger.info(f"User {user_id} canceled report request {report_id}")
-        
-    except Exception as e:
-        logger.error(f"Error canceling report {report_id}: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при отмене отчета", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REPORTS_ENABLED and call.data == "view_latest_report")
-def handle_view_latest_report(call):
-    """Handle viewing the latest report"""
-    user_id = call.from_user.id
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get latest report
-        cursor.execute('''
-            SELECT id, status, created_at, completed_at, report_file_id
-            FROM report_requests 
-            WHERE user_id = %s
-            ORDER BY created_at DESC
-            LIMIT 1
-        ''', (user_id,))
-        
-        report = cursor.fetchone()
-        if not report:
-            bot.answer_callback_query(call.id, "❌ Отчет не найден", show_alert=True)
-            return
-        
-        report_id, status, created_at, completed_at, report_file_id = report
-        
-        # Format dates
-        created_str = created_at.strftime('%d.%m.%Y %H:%M') if created_at else "дата не указана"
-        completed_str = completed_at.strftime('%d.%m.%Y %H:%M') if completed_at else "не завершен"
-        
-        # Status emoji and text
-        status_info = {
-            'pending': ('⏳', 'В обработке'),
-            'processing': ('🔄', 'Готовится'),
-            'completed': ('✅', 'Готов'),
-            'rejected': ('❌', 'Отклонен')
-        }.get(status, ('❓', 'Неизвестно'))
-        
-        status_emoji, status_text = status_info
-        
-        # Create response text
-        response_text = f"📊 Отчет #{report_id}\n\n"
-        response_text += f"📅 Дата запроса: {created_str}\n"
-        response_text += f"📊 Статус: {status_emoji} {status_text}\n"
-        
-        if status == 'completed' and completed_at:
-            response_text += f"✅ Дата готовности: {completed_str}\n"
-        
-        if status == 'rejected':
-            response_text += "\n❌ Отчет был отклонен. Обратитесь к администратору для уточнения деталей."
-        
-        # Create markup
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        
-        if status == 'completed' and completed_at:
-            markup.add(
-                types.InlineKeyboardButton("📎 Скачать отчет (Excel)", callback_data=f"download_report_{report_id}"),
-                types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile")
-            )
-        elif status == 'pending':
-            markup.add(
-                types.InlineKeyboardButton("❌ Отменить запрос", callback_data=f"cancel_report_{report_id}"),
-                types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile")
-            )
-        else:
-            markup.add(
-                types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile")
-            )
-    
-        bot.edit_message_text(
-            response_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error viewing latest report: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при просмотре отчета", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.message_handler(func=lambda message: LEGACY_TOPUPS_ENABLED and message.text == "💳 Пополнить баланс")
-@require_channel_subscription
-def handle_topup_request(message):
-    """Start top-up flow from profile"""
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    for amount in (300, 500, 1000, 2000):
-        markup.add(types.InlineKeyboardButton(f"{amount}₽", callback_data=f"topup_{amount}"))
-    markup.add(types.InlineKeyboardButton("Другая сумма", callback_data="topup_custom"))
-    markup.add(types.InlineKeyboardButton("◀️ Отмена", callback_data="back_to_profile"))
-
-    bot.reply_to(
-        message,
-        "💳 Пополнение баланса\n\nВыберите сумму:",
-        reply_markup=markup
-    )
-
-
-@bot.message_handler(func=lambda message: LEGACY_PROMOS_ENABLED and message.text == "🎟 Ввести промокод")
-def handle_promo_input(message):
-    """Start promo code input flow"""
-    bot.reply_to(
-        message,
-        "🎟 Ввод промокода\n\n"
-        "Введите ваш промокод:",
-        reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("❌ Отмена")
-    )
-    bot.register_next_step_handler(message, process_promo_input)
-
 
 def process_promo_input(message):
     """Process promo code input"""
@@ -11908,29 +3698,29 @@ def process_promo_input(message):
         markup.add(types.KeyboardButton("💳 Пополнить баланс"))
         markup.add(types.KeyboardButton("🎟 Ввести промокод"))
         markup.add(types.KeyboardButton("◀️ Назад в меню"))
-        
+
         bot.reply_to(message, "Возвращаемся в профиль", reply_markup=markup)
         return
-    
+
     promo_code = message.text.strip().upper()
     user_id = message.from_user.id
-    
+
     conn = get_pg_connection()
     if not conn:
         bot.reply_to(message, "❌ Ошибка подключения к базе данных")
         return
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Check if promo_codes table exists, create if not
         cursor.execute("""
             SELECT EXISTS (
-                SELECT FROM information_schema.tables 
+                SELECT FROM information_schema.tables
                 WHERE table_name = 'promo_codes'
             )
         """)
-        
+
         if not cursor.fetchone()[0]:
             logger.info("Creating promo_codes table...")
             cursor.execute("""
@@ -11952,15 +3742,15 @@ def process_promo_input(message):
             """)
             conn.commit()
             logger.info("✅ promo_codes table created")
-        
+
         # Check if promo_code_usage table exists, create if not
         cursor.execute("""
             SELECT EXISTS (
-                SELECT FROM information_schema.tables 
+                SELECT FROM information_schema.tables
                 WHERE table_name = 'promo_code_usage'
             )
         """)
-        
+
         if not cursor.fetchone()[0]:
             logger.info("Creating promo_code_usage table...")
             cursor.execute("""
@@ -11975,7 +3765,7 @@ def process_promo_input(message):
             """)
             conn.commit()
             logger.info("✅ promo_code_usage table created")
-            
+
             # Create indexes for better performance
             try:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_promo_codes_code ON promo_codes(code)")
@@ -11986,23 +3776,23 @@ def process_promo_input(message):
                 logger.info("✅ Promo code indexes created")
             except Exception as e:
                 logger.warning(f"Could not create promo code indexes: {e}")
-        
+
         # Verify table structure and add missing columns if needed
         logger.info("Verifying promo_codes table structure...")
-        
+
         # Структура таблицы промокодов проверяется при инициализации БД
-        
+
         # Check if all required columns exist, if not - create them
         required_columns = ['amount', 'discount', 'is_used', 'created_by', 'used_by', 'used_at', 'max_activations', 'current_activations', 'expires_at', 'is_active']
         logger.info(f"Checking required columns: {required_columns}")
-        
+
         for column in required_columns:
             cursor.execute(f"""
-                SELECT column_name 
-                FROM information_schema.columns 
+                SELECT column_name
+                FROM information_schema.columns
                 WHERE table_name = 'promo_codes' AND column_name = '{column}'
             """)
-            
+
             if not cursor.fetchone():
                 # Column doesn't exist, add it
                 if column == 'amount':
@@ -12029,25 +3819,25 @@ def process_promo_input(message):
                     cursor.execute("ALTER TABLE promo_codes ADD COLUMN expires_at TIMESTAMP DEFAULT NULL")
                 elif column == 'is_active':
                     cursor.execute("ALTER TABLE promo_codes ADD COLUMN is_active BOOLEAN DEFAULT TRUE")
-                
+
                 logger.info(f"✅ Added column {column} to promo_codes table during promo input")
-        
+
         # Commit column additions before proceeding
         conn.commit()
         logger.info("✅ All required columns verified/added successfully")
-        
+
         # Check if promo code exists and is valid (id, amount, discount, limit columns, expires_at, is_active)
         cursor.execute('''
-            SELECT id, amount, COALESCE(discount, 0), 
+            SELECT id, amount, COALESCE(discount, 0),
                    COALESCE(max_activations, max_uses) AS max_act,
                    COALESCE(current_activations, current_uses) AS cur_act,
                    max_uses, current_uses, expires_at, is_active
-            FROM promo_codes 
+            FROM promo_codes
             WHERE code = %s AND is_active = TRUE
         ''', (promo_code,))
-        
+
         result = cursor.fetchone()
-        
+
         if not result:
             bot.reply_to(
                 message,
@@ -12055,11 +3845,11 @@ def process_promo_input(message):
                 reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("🎟 Ввести промокод").add("◀️ Назад в профиль")
             )
             return
-        
+
         promo_id, amount, discount, max_act, cur_act, max_uses, current_uses, expires_at, is_active = result
         amount = float(amount or 0)
         discount = float(discount or 0)
-        
+
         # Check if promo code has expired
         if expires_at and expires_at < datetime.now():
             cursor.execute('UPDATE promo_codes SET is_active = FALSE WHERE code = %s', (promo_code,))
@@ -12070,7 +3860,7 @@ def process_promo_input(message):
                 reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("🎟 Ввести промокод").add("◀️ Назад в профиль")
             )
             return
-        
+
         # Limit check: for discount use max_uses/current_uses, for balance use max_act/cur_act
         if discount > 0:
             if max_uses is not None and (current_uses or 0) >= max_uses:
@@ -12092,11 +3882,11 @@ def process_promo_input(message):
                     reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("🎟 Ввести промокод").add("◀️ Назад в профиль")
                 )
                 return
-        
+
         # Check if user exists in label table
         cursor.execute('SELECT telegram_id FROM label WHERE telegram_id = %s', (user_id,))
         user_exists = cursor.fetchone()
-        
+
         if not user_exists:
             cursor.execute('''
                 INSERT INTO label (telegram_id, created_date, balance)
@@ -12104,7 +3894,7 @@ def process_promo_input(message):
                 ON CONFLICT (telegram_id) DO NOTHING
             ''', (user_id,))
             logger.info(f"Created new user record for {user_id} during promo activation")
-        
+
         profile_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         profile_markup.add(types.KeyboardButton("✏️ Редактировать профиль"))
         profile_markup.add(types.KeyboardButton("📀 Мои релизы"))
@@ -12112,7 +3902,7 @@ def process_promo_input(message):
         profile_markup.add(types.KeyboardButton("💳 Пополнить баланс"))
         profile_markup.add(types.KeyboardButton("🎟 Ввести промокод"))
         profile_markup.add(types.KeyboardButton("◀️ Назад в меню"))
-        
+
         # Промокод на скидку: не пополняем баланс, добавляем в user_discount_promos
         if discount > 0:
             try:
@@ -12159,14 +3949,14 @@ def process_promo_input(message):
                 conn.rollback()
                 bot.reply_to(message, "❌ Ошибка активации промокода на скидку.", reply_markup=profile_markup)
             return
-        
+
         # Промокод на пополнение: проверка "уже использован" и зачисление на баланс
         cursor.execute('''
             SELECT pcu.id FROM promo_code_usage pcu
             JOIN promo_codes pc ON pcu.promo_code_id = pc.id
             WHERE pcu.user_id = %s AND pc.code = %s
         ''', (user_id, promo_code))
-        
+
         if cursor.fetchone():
             bot.reply_to(
                 message,
@@ -12174,51 +3964,51 @@ def process_promo_input(message):
                 reply_markup=profile_markup
             )
             return
-        
+
         cursor.execute('''
-            UPDATE promo_codes 
-            SET current_activations = COALESCE(current_activations, 0) + 1, 
-                used_by = %s, 
+            UPDATE promo_codes
+            SET current_activations = COALESCE(current_activations, 0) + 1,
+                used_by = %s,
                 used_at = CURRENT_TIMESTAMP,
                 is_used = CASE WHEN max_activations IS NOT NULL AND COALESCE(current_activations, 0) + 1 >= max_activations THEN TRUE ELSE is_used END
             WHERE code = %s
         ''', (user_id, promo_code))
-        
+
         cursor.execute('''
-            UPDATE label 
-            SET balance = COALESCE(balance, 0) + %s 
+            UPDATE label
+            SET balance = COALESCE(balance, 0) + %s
             WHERE telegram_id = %s
         ''', (amount, user_id))
-        
+
         cursor.execute('''
             INSERT INTO promo_code_usage (user_id, promo_code_id)
             SELECT %s, id FROM promo_codes WHERE code = %s
         ''', (user_id, promo_code))
-        
+
         conn.commit()
-        
+
         bot.reply_to(
             message,
             f"✅ Промокод активирован!\n\nНа ваш баланс зачислено: {amount:,.2f}₽",
             reply_markup=profile_markup
         )
-        
+
         logger.info(f"Promo code {promo_code} activated for user {user_id}, amount: {amount}")
-        
+
     except Error as e:
         logger.error(f"PostgreSQL error in promo input: {e}")
         error_msg = str(e)
         if "столбец" in error_msg.lower():
             error_msg = "❌ Ошибка структуры базы данных: отсутствуют необходимые столбцы. Попробуйте еще раз или обратитесь к администратору."
         bot.reply_to(
-            message, 
+            message,
             f"❌ Ошибка базы данных: {error_msg}",
             reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("🎟 Ввести промокод").add("◀️ Назад в профиль")
         )
     except Exception as e:
         logger.error(f"Unexpected error in promo input: {e}")
         bot.reply_to(
-            message, 
+            message,
             f"❌ Неожиданная ошибка: {str(e)}",
             reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("🎟 Ввести промокод").add("◀️ Назад в профиль")
         )
@@ -12228,666 +4018,6 @@ def process_promo_input(message):
             return_pg_connection(conn)
 
 
-@bot.callback_query_handler(
-    func=lambda call: LEGACY_TOPUPS_ENABLED
-    and call.data.startswith("topup_")
-    and not call.data.startswith("topup_pay_")
-    and call.data not in ("topup_back", "topup_from_profile")
-)
-def handle_topup_callback(call):
-    """Handle fixed or custom top-up amount"""
-    if call.data == "topup_custom":
-        msg = bot.edit_message_text(
-            "Введите сумму пополнения (целое число рублей):",
-            call.message.chat.id,
-            call.message.message_id
-        )
-        # Следующий шаг ожидаем обычным сообщением от пользователя
-        bot.register_next_step_handler(call.message, process_custom_topup_amount)
-        return
-
-    amount = int(call.data.split("_")[1])
-    start_balance_payment(call, amount)
-
-
-def process_custom_topup_amount(message):
-    """Parse custom top-up amount and start payment"""
-    try:
-        amount = int(re.sub(r"[^0-9]", "", message.text))
-        if amount <= 0:
-            raise ValueError
-    except Exception:
-        msg = bot.reply_to(message, "❌ Неверная сумма. Введите положительное число, например: 500")
-        bot.register_next_step_handler(msg, process_custom_topup_amount)
-        return
-
-    # Переходим к оплате через инлайн кнопку
-    markup = types.InlineKeyboardMarkup()
-    # Дадим кнопку запуска оплаты, которая точно обрабатывается отдельным хендлером
-    markup.add(types.InlineKeyboardButton("Перейти к оплате", callback_data=f"topup_pay_{amount}"))
-    bot.send_message(message.chat.id, f"К оплате: {amount}₽", reply_markup=markup)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_TOPUPS_ENABLED and call.data.startswith("topup_pay_"))
-def handle_topup_pay(call):
-    amount = int(call.data.split("_")[2])
-    start_balance_payment(call, amount)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_TOPUPS_ENABLED and call.data == "topup_back")
-def handle_topup_back(call):
-    """Return to top-up amount selection menu"""
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    for amount in (300, 500, 1000, 2000):
-        markup.add(types.InlineKeyboardButton(f"{amount}₽", callback_data=f"topup_{amount}"))
-    markup.add(types.InlineKeyboardButton("Другая сумма", callback_data="topup_custom"))
-    markup.add(types.InlineKeyboardButton("◀️ Отмена", callback_data="back_to_profile"))
-
-    try:
-        bot.edit_message_text(
-            "💳 Пополнение баланса\n\nВыберите сумму:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-    except Exception:
-        bot.send_message(
-            call.message.chat.id,
-            "💳 Пополнение баланса\n\nВыберите сумму:",
-            reply_markup=markup
-        )
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_TOPUPS_ENABLED and call.data == "topup_from_profile")
-def handle_topup_from_profile(call):
-    """Open top-up menu from profile"""
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    for amount in (300, 500, 1000, 2000):
-        markup.add(types.InlineKeyboardButton(f"{amount}₽", callback_data=f"topup_{amount}"))
-    markup.add(types.InlineKeyboardButton("Другая сумма", callback_data="topup_custom"))
-    markup.add(types.InlineKeyboardButton("◀️ Отмена", callback_data="back_to_profile"))
-
-    try:
-        bot.edit_message_text(
-            "💳 Пополнение баланса\n\nВыберите сумму:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-    except Exception:
-        bot.send_message(
-            call.message.chat.id,
-            "💳 Пополнение баланса\n\nВыберите сумму:",
-            reply_markup=markup
-        )
-
-
-def start_balance_payment(call, amount):
-    """Show payment method selection for balance top-up"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("💳 YooKassa", callback_data=f"yookassa_pay_{amount}"),
-        types.InlineKeyboardButton("🤖 Crypto Bot", callback_data=f"crypto_pay_{amount}"),
-        types.InlineKeyboardButton("⭐ Telegram Stars", callback_data=f"stars_pay_{amount}"),
-        types.InlineKeyboardButton("💎 TON", callback_data=f"ton_pay_{amount}"),
-        types.InlineKeyboardButton("◀️ Назад", callback_data="topup_back")
-    )
-
-    try:
-        bot.edit_message_text(
-            f"💰 Пополнение баланса на {amount}₽\n\n"
-            f"Выберите способ оплаты:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-    except Exception:
-        bot.send_message(
-            call.message.chat.id, 
-            f"💰 Пополнение баланса на {amount}₽\n\nВыберите способ оплаты:", 
-            reply_markup=markup
-        )
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("yookassa_pay_"))
-def handle_yookassa_payment(call):
-    """Handle YooKassa payment creation"""
-    amount = int(call.data.split("_")[2])
-    
-    # Валидация суммы перед отправкой в YooKassa
-    if amount < 50 or amount > 100000:
-        bot.answer_callback_query(call.id, "❌ Неверная сумма для платежа", show_alert=True)
-        return
-    
-    # Проверка доступности YooKassa
-    if not YOOKASSA_AVAILABLE:
-        logger.error("YooKassa module not available")
-        bot.answer_callback_query(call.id, "❌ Модуль YooKassa недоступен", show_alert=True)
-        return
-    
-    # Проверка конфигурации YooKassa
-    if not Configuration.account_id or not Configuration.secret_key:
-        logger.error("YooKassa configuration missing")
-        bot.answer_callback_query(call.id, "❌ Не настроена конфигурация YooKassa", show_alert=True)
-        return
-    
-    # Проверка статуса YooKassa API (временно отключена для тестирования)
-    # status_ok, status_message = check_yookassa_status()
-    # if not status_ok:
-    #     logger.error(f"YooKassa API check failed: {status_message}")
-    #     bot.answer_callback_query(call.id, f"❌ YooKassa недоступен: {status_message}", show_alert=True)
-    #     return
-    logger.info("YooKassa API check skipped - attempting direct payment creation")
-    
-    logger.info(f"Creating YooKassa payment for user {call.from_user.id}, amount: {amount}")
-    
-    # Create YooKassa payment
-    try:
-        payment_data = {
-            "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
-            "confirmation": {"type": "redirect", "return_url": "https://t.me/twaslabel_bot"},
-            "capture": True,
-            "description": f"Пополнение баланса пользователя {call.from_user.id}",
-            "metadata": {
-                "user_id": str(call.from_user.id), 
-                "service": "topup"
-            }
-        }
-        
-        logger.info(f"YooKassa payment data: {payment_data}")
-        payment = Payment.create(payment_data)
-
-        payment_url = payment.confirmation.confirmation_url
-        payment_id = payment.id
-        
-        logger.info(f"Created YooKassa payment {payment_id}, amount: {amount}")
-        
-        # Save order to database
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-            return
-        
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                'INSERT INTO orders (user_id, service_type, amount, status, payment_id, created_date) VALUES (%s, %s, %s, %s, %s, %s)',
-                (call.from_user.id, "topup", amount, "pending", payment_id, datetime.now())
-            )
-            conn.commit()
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton("💳 Перейти к оплате", url=payment_url),
-                types.InlineKeyboardButton("✅ Проверить оплату", callback_data=f"check_payment_{payment_id}")
-            )
-            
-            # Добавляем кнопку отмены
-            markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data="cancel_topup"))
-
-            bot.edit_message_text(
-                f"💳 Пополнение на {amount}₽ через YooKassa\n\nНажмите для оплаты, затем проверьте статус.",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-            
-        except Error as e:
-            logger.error(f"DB error in YooKassa payment: {e}")
-            bot.answer_callback_query(call.id, "❌ Ошибка при создании платежа", show_alert=True)
-        finally:
-            if conn:
-                cursor.close()
-                return_pg_connection(conn)
-            
-    except Exception as e:
-        logger.error(f"Failed to create YooKassa payment: {e}")
-        logger.error(f"YooKassa error details: {type(e).__name__}: {str(e)}")
-        
-        # Более детальная обработка ошибок YooKassa
-        error_message = "❌ Ошибка при создании платежа в YooKassa"
-        if hasattr(e, 'response') and hasattr(e.response, 'status_code'):
-            error_message += f"\nКод ошибки: {e.response.status_code}"
-        if hasattr(e, 'response') and hasattr(e.response, 'text'):
-            error_message += f"\nДетали: {e.response.text[:200]}"
-        
-        bot.answer_callback_query(call.id, error_message, show_alert=True)
-        
-        # Предлагаем альтернативные способы оплаты
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("💳 Crypto Bot", callback_data=f"crypto_pay_{amount}"))
-        markup.add(types.InlineKeyboardButton("⭐ Telegram Stars", callback_data=f"stars_pay_{amount}"))
-        markup.add(types.InlineKeyboardButton("🔄 Попробовать снова", callback_data=f"yookassa_pay_{amount}"))
-        
-        bot.edit_message_text(
-            f"❌ Ошибка при создании платежа в YooKassa\n\n"
-            f"Попробуйте другие способы оплаты:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("crypto_pay_"))
-def handle_crypto_payment(call):
-    """Handle Crypto Bot payment creation"""
-    amount = int(call.data.split("_")[2])
-    
-    # Валидация суммы
-    if amount < 50 or amount > 100000:
-        bot.answer_callback_query(call.id, "❌ Неверная сумма для платежа", show_alert=True)
-        return
-    
-    try:
-        import requests
-        
-        # Create Crypto Bot invoice
-        crypto_api_url = f"https://pay.crypt.bot/api/createInvoice"
-        
-        payload = {
-            "asset": "USDT",  # или другая криптовалюта
-            "amount": amount / 100,  # конвертируем рубли в USDT примерно
-            "description": f"Пополнение баланса пользователя {call.from_user.id}",
-            "payload": f"topup_{call.from_user.id}_{amount}"
-        }
-        
-        headers = {
-            "Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN,
-            "Content-Type": "application/json"
-        }
-        
-        response = requests.post(crypto_api_url, json=payload, headers=headers)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("ok"):
-                invoice_id = data["result"]["invoice_id"]
-                pay_url = data["result"]["pay_url"]
-                
-                # Save order to database
-                conn = get_pg_connection()
-                if not conn:
-                    bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-                    return
-                
-                try:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        'INSERT INTO orders (user_id, service_type, amount, status, payment_id, created_date) VALUES (%s, %s, %s, %s, %s, %s)',
-                        (call.from_user.id, "topup", amount, "pending", invoice_id, datetime.now())
-                    )
-                    conn.commit()
-                    
-                    markup = types.InlineKeyboardMarkup()
-                    markup.add(
-                        types.InlineKeyboardButton("🤖 Перейти к оплате", url=pay_url),
-                        types.InlineKeyboardButton("✅ Проверить оплату", callback_data=f"check_crypto_{invoice_id}")
-                    )
-                    
-                    markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data="cancel_topup"))
-
-                    bot.edit_message_text(
-                        f"🤖 Пополнение на {amount}₽ через Crypto Bot\n\nНажмите для оплаты, затем проверьте статус.",
-                        call.message.chat.id,
-                        call.message.message_id,
-                        reply_markup=markup
-                    )
-                    
-                except Error as e:
-                    logger.error(f"DB error in Crypto Bot payment: {e}")
-                    bot.answer_callback_query(call.id, "❌ Ошибка при создании платежа", show_alert=True)
-                finally:
-                    if conn:
-                        cursor.close()
-                        return_pg_connection(conn)
-            else:
-                bot.answer_callback_query(call.id, "❌ Ошибка создания счета в Crypto Bot", show_alert=True)
-        else:
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к Crypto Bot", show_alert=True)
-            
-    except Exception as e:
-        logger.error(f"Failed to create Crypto Bot payment: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при создании платежа в Crypto Bot", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("stars_pay_"))
-def handle_stars_payment(call):
-    """Handle Telegram Stars payment creation"""
-    amount = int(call.data.split("_")[2])
-    
-    # Валидация суммы
-    if amount < 50 or amount > 100000:
-        bot.answer_callback_query(call.id, "❌ Неверная сумма для платежа", show_alert=True)
-        return
-    
-    try:
-        # Create Telegram Stars payment
-        stars_payment_id = f"stars_{call.from_user.id}_{int(time.time())}"
-        
-        # Save order to database
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-            return
-        
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                'INSERT INTO orders (user_id, service_type, amount, status, payment_id, created_date) VALUES (%s, %s, %s, %s, %s, %s)',
-                (call.from_user.id, "topup", amount, "pending", stars_payment_id, datetime.now())
-            )
-            conn.commit()
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton("⭐ Оплатить Stars", callback_data=f"pay_stars_{stars_payment_id}"),
-                types.InlineKeyboardButton("✅ Проверить оплату", callback_data=f"check_stars_{stars_payment_id}")
-            )
-            
-            markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data="cancel_topup"))
-
-            bot.edit_message_text(
-                f"⭐ Пополнение на {amount}₽ через Telegram Stars\n\n"
-                f"Для оплаты нажмите кнопку 'Оплатить Stars' и следуйте инструкциям.",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-            
-        except Error as e:
-            logger.error(f"DB error in Stars payment: {e}")
-            bot.answer_callback_query(call.id, "❌ Ошибка при создании платежа", show_alert=True)
-        finally:
-            if conn:
-                cursor.close()
-                return_pg_connection(conn)
-                
-    except Exception as e:
-        logger.error(f"Failed to create Stars payment: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при создании платежа в Stars", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("ton_pay_"))
-def handle_ton_payment(call):
-    """Handle TON payment creation"""
-    amount = int(call.data.split("_")[2])
-    
-    # Валидация суммы
-    if amount < 50 or amount > 100000:
-        bot.answer_callback_query(call.id, "❌ Неверная сумма для платежа", show_alert=True)
-        return
-    
-    try:
-        # Create TON payment
-        ton_payment_id = f"ton_{call.from_user.id}_{int(time.time())}"
-        
-        # TON wallet address (замените на реальный адрес)
-        ton_wallet = "EQD4FPq-PRDieyQKkizFTRtSDyucUIqrj0v_zXJmqaHp6_0t"
-        
-        # Save order to database
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-            return
-        
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                'INSERT INTO orders (user_id, service_type, amount, status, payment_id, created_date) VALUES (%s, %s, %s, %s, %s, %s)',
-                (call.from_user.id, "topup", amount, "pending", ton_payment_id, datetime.now())
-            )
-            conn.commit()
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton("💎 Скопировать адрес TON", callback_data=f"copy_ton_{ton_wallet}"),
-                types.InlineKeyboardButton("✅ Проверить оплату", callback_data=f"check_ton_{ton_payment_id}")
-            )
-            
-            markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data="cancel_topup"))
-
-            bot.edit_message_text(
-                f"💎 Пополнение на {amount}₽ через TON\n\n"
-                f"Отправьте {amount}₽ на адрес:\n"
-                f"`{ton_wallet}`\n\n"
-                f"После оплаты нажмите 'Проверить оплату'",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup,
-                parse_mode='Markdown'
-            )
-            
-        except Error as e:
-            logger.error(f"DB error in TON payment: {e}")
-            bot.answer_callback_query(call.id, "❌ Ошибка при создании платежа", show_alert=True)
-        finally:
-            if conn:
-                cursor.close()
-                return_pg_connection(conn)
-                
-    except Exception as e:
-        logger.error(f"Failed to create TON payment: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при создании платежа в TON", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("check_crypto_"))
-def handle_crypto_payment_check(call):
-    """Check Crypto Bot payment status"""
-    invoice_id = call.data.split("_")[2]
-    
-    try:
-        import requests
-        
-        # Check Crypto Bot invoice status
-        crypto_api_url = f"https://pay.crypt.bot/api/getInvoices"
-        
-        payload = {
-            "invoice_ids": invoice_id
-        }
-        
-        headers = {
-            "Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN,
-            "Content-Type": "application/json"
-        }
-        
-        response = requests.post(crypto_api_url, json=payload, headers=headers)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("ok") and data["result"]["items"]:
-                invoice = data["result"]["items"][0]
-                status = invoice.get("status")
-                
-                if status == "paid":
-                    # Payment successful
-                    conn = get_pg_connection()
-                    if not conn:
-                        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-                        return
-                    
-                    try:
-                        cursor = conn.cursor()
-                        
-                        # Get order info
-                        cursor.execute('SELECT user_id, amount FROM orders WHERE payment_id = %s', (invoice_id,))
-                        order_info = cursor.fetchone()
-                        
-                        if order_info:
-                            user_id, amount = order_info
-                            
-                            # Update order status
-                            cursor.execute('UPDATE orders SET status = %s WHERE payment_id = %s', ('completed', invoice_id))
-                            
-                            # Add balance
-                            change_user_balance(user_id, amount)
-                            
-                            conn.commit()
-                            
-                            bot.edit_message_text(
-                                f"✅ Платеж успешно обработан!\n\nВаш баланс пополнен на {amount}₽",
-                                call.message.chat.id,
-                                call.message.message_id
-                            )
-                        else:
-                            bot.answer_callback_query(call.id, "❌ Заказ не найден", show_alert=True)
-                            
-                    except Error as e:
-                        logger.error(f"DB error processing Crypto Bot payment: {e}")
-                        bot.answer_callback_query(call.id, "❌ Ошибка обработки платежа", show_alert=True)
-                    finally:
-                        if conn:
-                            cursor.close()
-                            return_pg_connection(conn)
-                            
-                elif status == "active":
-                    bot.answer_callback_query(call.id, "⏳ Платеж еще не поступил", show_alert=True)
-                else:
-                    bot.answer_callback_query(call.id, f"❌ Статус платежа: {status}", show_alert=True)
-            else:
-                bot.answer_callback_query(call.id, "❌ Счет не найден", show_alert=True)
-        else:
-            bot.answer_callback_query(call.id, "❌ Ошибка проверки статуса", show_alert=True)
-            
-    except Exception as e:
-        logger.error(f"Error checking Crypto Bot payment: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка проверки платежа", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("pay_stars_"))
-def handle_pay_stars(call):
-    """Handle Telegram Stars payment initiation"""
-    payment_id = call.data.split("_")[2]
-    
-    try:
-        # Открываем Telegram Stars для оплаты
-        stars_url = f"https://t.me/StarsBot?start=pay_{payment_id}"
-        
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton("⭐ Открыть Stars", url=stars_url),
-            types.InlineKeyboardButton("✅ Проверить оплату", callback_data=f"check_stars_{payment_id}")
-        )
-        
-        bot.edit_message_text(
-            f"⭐ Оплата через Telegram Stars\n\n"
-            f"Нажмите 'Открыть Stars' для перехода к оплате.\n"
-            f"После завершения оплаты нажмите 'Проверить оплату'.",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error handling Stars payment: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при открытии Stars", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("check_stars_"))
-def handle_check_stars(call):
-    """Check Telegram Stars payment status"""
-    payment_id = call.data.split("_")[2]
-    
-    try:
-        # Здесь должна быть логика проверки статуса Stars
-        # Пока что просто показываем сообщение о необходимости ручной проверки
-        
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton("🔄 Проверить снова", callback_data=f"check_stars_{payment_id}"),
-            types.InlineKeyboardButton("❌ Отмена", callback_data="cancel_topup")
-        )
-        
-        bot.edit_message_text(
-            f"⭐ Проверка оплаты Stars\n\n"
-            f"Для проверки статуса оплаты обратитесь к администратору или попробуйте позже.\n"
-            f"ID платежа: {payment_id}",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error checking Stars payment: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при проверке Stars", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("copy_ton_"))
-def handle_copy_ton_address(call):
-    """Handle TON wallet address copy"""
-    wallet_address = call.data.split("_", 2)[2]
-    
-    try:
-        # Копируем адрес в буфер обмена (это работает только в веб-версии)
-        bot.answer_callback_query(
-            call.id, 
-            f"💎 Адрес TON скопирован: {wallet_address}", 
-            show_alert=True
-        )
-        
-        # Показываем инструкции по копированию
-        bot.edit_message_text(
-            f"💎 Адрес TON скопирован!\n\n"
-            f"Адрес: `{wallet_address}`\n\n"
-            f"📋 Скопируйте адрес вручную и отправьте нужную сумму.\n"
-            f"После оплаты нажмите 'Проверить оплату'.",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode='Markdown'
-        )
-        
-    except Exception as e:
-        logger.error(f"Error copying TON address: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при копировании адреса", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("check_ton_"))
-def handle_check_ton(call):
-    """Check TON payment status"""
-    payment_id = call.data.split("_")[2]
-    
-    try:
-        # Здесь должна быть логика проверки TON транзакций
-        # Пока что просто показываем сообщение о необходимости ручной проверки
-        
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton("🔄 Проверить снова", callback_data=f"check_ton_{payment_id}"),
-            types.InlineKeyboardButton("❌ Отмена", callback_data="cancel_topup")
-        )
-        
-        bot.edit_message_text(
-            f"💎 Проверка оплаты TON\n\n"
-            f"Для проверки статуса оплаты обратитесь к администратору или попробуйте позже.\n"
-            f"ID платежа: {payment_id}",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error checking TON payment: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при проверке TON", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "cancel_topup")
-def handle_cancel_topup(call):
-    """Handle topup cancellation"""
-    user_id = call.from_user.id
-
-    cancelled_count = payments.cancel_pending_topup_orders(user_id, get_pg_connection, return_pg_connection, logger)
-    logger.info(f"Cancelled {cancelled_count} pending topup orders for user {user_id}")
-    
-    try:
-        bot.edit_message_text(
-            "❌ Пополнение баланса отменено",
-            call.message.chat.id,
-            call.message.message_id
-        )
-    except Exception:
-        bot.send_message(call.message.chat.id, "❌ Пополнение баланса отменено")
-    
-    # Возвращаемся в главное меню
-    bot.send_message(call.message.chat.id, "Выберите действие:", reply_markup=create_main_menu())
 
 
 def cleanup_old_orders():
@@ -12895,23 +4025,23 @@ def cleanup_old_orders():
     conn = get_pg_connection()
     if not conn:
         return
-    
+
     try:
         cursor = conn.cursor()
         # Отменяем заказы старше 2 часов
         cursor.execute('''
-            UPDATE orders 
-            SET status = 'failed' 
-            WHERE status = 'pending' 
+            UPDATE orders
+            SET status = 'failed'
+            WHERE status = 'pending'
             AND created_date < %s
         ''', (datetime.now() - timedelta(hours=2),))
-        
+
         cleaned_count = cursor.rowcount
         conn.commit()
-        
+
         if cleaned_count > 0:
             logger.info(f"Cleaned up {cleaned_count} old pending orders")
-            
+
     except Exception as e:
         logger.error(f"Failed to cleanup old orders: {e}")
     finally:
@@ -12919,31 +4049,30 @@ def cleanup_old_orders():
         conn.close()
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("crypto_pay_"))
 def handle_crypto_payment(call):
     """Handle Crypto Bot payment creation"""
     payment_id = call.data.split("_")[2]
-    
+
     conn = get_pg_connection()
     if not conn:
         bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
         return
-    
+
     try:
         cursor = conn.cursor()
         cursor.execute('SELECT amount FROM orders WHERE payment_id = %s', (payment_id,))
         result = cursor.fetchone()
-        
+
         if not result:
             bot.answer_callback_query(call.id, "❌ Заказ не найден", show_alert=True)
             return
-        
+
         amount = result[0]
-        
+
         # Create Crypto Bot payment link
         # Note: This is a placeholder. You'll need to integrate with actual Crypto Bot API
         crypto_payment_url = f"https://t.me/CryptoBot?start=pay_{payment_id}_{amount}"
-        
+
         markup = types.InlineKeyboardMarkup()
         markup.add(
             types.InlineKeyboardButton("₿ Оплатить через Crypto Bot", url=crypto_payment_url),
@@ -12958,7 +4087,7 @@ def handle_crypto_payment(call):
             call.message.message_id,
             reply_markup=markup
         )
-        
+
     except Error as e:
         logger.error(f"DB error in Crypto payment: {e}")
         bot.answer_callback_query(call.id, "❌ Ошибка при создании платежа", show_alert=True)
@@ -12967,180 +4096,6 @@ def handle_crypto_payment(call):
             cursor.close()
             return_pg_connection(conn)
 
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("show_attachments_"))
-def handle_show_attachments(call):
-    """Show all attachments for a release with album track handling"""
-    parts = call.data.split("_")
-    release_id = int(parts[2])
-
-    # Проверяем, вызвано ли из админ панели
-    admin_mode = len(parts) > 3 and parts[3] == "admin"
-    user_id = call.from_user.id
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        # Для админ режима не фильтруем по user_id
-        if admin_mode:
-            # Проверяем права администратора
-            if not is_admin(user_id):
-                bot.answer_callback_query(call.id, "❌ Недостаточно прав", show_alert=True)
-                return
-
-            cursor.execute('''
-                SELECT 
-                    cover_file_id, audio_file_id, contract_file_id, 
-                    videoshot_url, lyrics_file_id, is_album, is_track, album_id,
-                    user_id
-                FROM releases 
-                WHERE id = %s
-            ''', (release_id,))
-        else:
-            # Обычный пользователь - фильтруем по user_id
-            cursor.execute('''
-                SELECT 
-                    cover_file_id, audio_file_id, contract_file_id, 
-                    videoshot_url, lyrics_file_id, is_album, is_track, album_id,
-                    user_id
-                FROM releases 
-                WHERE id = %s AND user_id = %s
-            ''', (release_id, user_id))
-
-        release_files = cursor.fetchone()
-
-        if not release_files:
-            bot.answer_callback_query(call.id, "❌ Релиз не найден", show_alert=True)
-            return
-
-        # Распаковываем результаты запроса
-        (
-            cover_file_id, audio_file_id, contract_file_id,
-            videoshot_url, lyrics_file_id, is_album, is_track, album_id,
-            release_user_id
-        ) = release_files
-
-        # Отправляем все доступные вложения
-        sent_count = 0
-
-        # Для треков в альбоме
-        if is_track and album_id:
-            # 1. Получаем данные альбома (без контракта на бит — он теперь у трека)
-            cursor.execute('''
-                SELECT cover_file_id
-                FROM releases 
-                WHERE id = %s
-            ''', (album_id,))
-            album_data = cursor.fetchone()
-
-            album_cover = None
-
-            if album_data:
-                (album_cover,) = album_data
-
-            # Обложка альбома
-            if album_cover:
-                # album_cover может быть file_id фото или URL — используем безопасную отправку
-                if not send_media_safely(call.message.chat.id, album_cover, 'photo', caption="🎨 Обложка альбома"):
-                    bot.send_message(call.message.chat.id, f"🎨 Обложка альбома: {album_cover}")
-                sent_count += 1
-
-            # Аудио трека
-            if audio_file_id:
-                bot.send_audio(call.message.chat.id, audio_file_id, caption="🎧 Аудио трека")
-                sent_count += 1
-
-            # Текст трека
-            if lyrics_file_id:
-                bot.send_document(call.message.chat.id, lyrics_file_id, caption="📜 Текст песни")
-                sent_count += 1
-
-            # Контракт трека
-            if contract_file_id:
-                bot.send_document(call.message.chat.id, contract_file_id, caption="📄 Контракт на бит (для трека)")
-                sent_count += 1
-
-        # Для обычных релизов и альбомов
-        else:
-            # Обложка релиза
-            if cover_file_id:
-                if send_media_safely(call.message.chat.id, cover_file_id, 'photo', caption="🎨 Обложка релиза"):
-                    sent_count += 1
-
-            # Аудио релиза
-            if audio_file_id:
-                if send_media_safely(call.message.chat.id, audio_file_id, 'audio', caption="🎧 Аудио релиза"):
-                    sent_count += 1
-                else:
-                    try:
-                        bot.send_document(call.message.chat.id, audio_file_id, caption="🎧 Аудио релиза")
-                        sent_count += 1
-                    except Exception as e:
-                        logger.error(f"Failed to send audio file {audio_file_id}: {e}")
-                        bot.send_message(call.message.chat.id, "❌ Не удалось отправить аудио релиза")
-
-            # Контракт
-            if contract_file_id:
-                if send_media_safely(call.message.chat.id, contract_file_id, 'document', caption="📄 Контракт на бит"):
-                    sent_count += 1
-                else:
-                    try:
-                        bot.send_document(call.message.chat.id, contract_file_id, caption="📄 Контракт на бит")
-                        sent_count += 1
-                    except Exception as e:
-                        logger.error(f"Failed to send contract file {contract_file_id}: {e}")
-                        bot.send_message(call.message.chat.id, "❌ Не удалось отправить контракт")
-
-            # Текст песни
-            if lyrics_file_id:
-                if send_media_safely(call.message.chat.id, lyrics_file_id, 'document', caption="📜 Текст песни"):
-                    sent_count += 1
-                else:
-                    try:
-                        bot.send_document(call.message.chat.id, lyrics_file_id, caption="📜 Текст песни")
-                        sent_count += 1
-                    except Exception as e:
-                        logger.error(f"Failed to send lyrics file {lyrics_file_id}: {e}")
-                        bot.send_message(call.message.chat.id, "❌ Не удалось отправить текст песни")
-
-        # Видеошот (для всех типов релизов)
-        if videoshot_url and videoshot_url.lower() != "нет":
-            bot.send_message(call.message.chat.id, f"🎥 Ссылка на видеошот: {videoshot_url}")
-            sent_count += 1
-
-        if sent_count == 0:
-            bot.answer_callback_query(call.id, "❌ В этом релизе нет доступных вложений (файлы могут быть недоступны)", show_alert=True)
-        else:
-            bot.answer_callback_query(call.id, "✅ Все вложения отправлены")
-
-    except Exception as e:
-        logger.error(f"Error showing attachments: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_RELEASES_ENABLED and call.data == "back_to_my_releases")
-def back_to_my_releases(call):
-    """Return to my releases list"""
-    # Получаем ID пользователя из колбэка
-    user_id = call.from_user.id
-
-    # Показываем релизы
-    handle_my_releases(call.message, user_id)
-
-    # Пытаемся удалить предыдущее сообщение (не критично, если не получится)
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception as e:
-        logger.warning(f"Could not delete message: {e}")
 
 
 def show_profile(chat_id, user_id, username):
@@ -13154,7 +4109,7 @@ def show_profile(chat_id, user_id, username):
         cursor = conn.cursor()
         cursor.execute('''
             SELECT name, kanal, fio, email, COALESCE(balance, 0)
-            FROM label 
+            FROM label
             WHERE telegram_id = %s
         ''', (user_id,))
         user_info = cursor.fetchone()
@@ -13189,153 +4144,14 @@ def show_profile(chat_id, user_id, username):
             return_pg_connection(conn)
 
 
-@bot.callback_query_handler(func=lambda call: LEGACY_PROFILE_ENABLED and call.data == "back_to_profile")
-def back_to_profile_handler(call):
-    """Return to profile view"""
-    # Delete current message
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except:
-        pass
-
-    # Show profile
-    user_id = call.from_user.id
-    username = call.from_user.username
-    show_profile(call.message.chat.id, user_id, username)
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("request_update_"))
-def request_status_update_callback(call):
-    """Handle status update request from inline button"""
-    release_id = call.data.split("_")[-1]
-
-    # Delete current message
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except:
-        pass
-
-    # Send confirmation
-    bot.send_message(
-        call.message.chat.id,
-        "📬 Ваш запрос на обновление статуса релиза отправлен менеджеру. "
-        "Мы свяжемся с вами в ближайшее время!",
-        reply_markup=create_main_menu()
-    )
-
-    # Send notification to manager
-    try:
-        bot.send_message(
-            MANAGER_USERNAME,
-            f"🆔 Пользователь @{call.from_user.username} запросил обновление статуса релиза ID: {release_id}"
-        )
-    except Exception as e:
-        logger.error(f"Failed to notify manager: {e}")
 
 
-@bot.message_handler(func=lambda message: message.text.startswith("🔍 Подробности релиза: "))
-def handle_release_details_request(message):
-    """Handle request for release details"""
-    try:
-        # Извлекаем название релиза из текста кнопки
-        release_name = message.text.split(":", 1)[1].strip()
-        user_id = message.from_user.id
 
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных.")
-            return
-
-        cursor = conn.cursor()
-
-        # Ищем релиз по названию и ID пользователя
-        cursor.execute('''
-            SELECT id, release_type, artist_name, release_name, producer, genre,
-                   release_date, performer_name, music_author, explicit_content,
-                   yandex_soon, create_links, tiktok_commercial, tiktok_full_version, status, preview_start, upc_code
-            FROM releases 
-            WHERE user_id = %s AND release_name = %s
-        ''', (user_id, release_name))
-
-        release = cursor.fetchone()
-
-        if not release:
-            bot.reply_to(message, "❌ Релиз не найден.")
-            return
-
-        # Распаковываем данные релиза
-        (release_id, release_type, artist_name, release_name, producer, genre,
-         release_date, performer_name, music_author, explicit_content,
-         yandex_soon, create_links, tiktok_commercial, tiktok_full_version, status, preview_start, upc_code) = release
-
-        # Форматируем информацию о релизе
-        tiktok_seconds_text = f"{preview_start} сек" if preview_start else "Не указано"
-        details = (
-            f"📀 Детали релиза: {release_name}\n\n"
-            f"🎵 Тип: {release_type}\n"
-            f"🎤 Артист: {artist_name}\n"
-            f"🎹 Продюсер: {producer or 'Не указан'}\n"
-            f"🎼 Жанр: {genre}\n"
-            f"📅 Дата релиза: {release_date.strftime('%d.%m.%Y')}\n"
-            f"👤 Исполнитель: {performer_name}\n"
-            f"✍️ Автор музыки: {music_author}\n"
-            f"🔞 Explicit: {'Да' if explicit_content else 'Нет'}\n"
-            f"🟢 Яндекс 'Скоро': {'Да' if yandex_soon else 'Нет'}\n"
-            f"🔗 Создать ссылки: {'Да' if create_links else 'Нет'}\n"
-            f"📱 TikTok коммерч.: {'Да' if tiktok_commercial else 'Нет'}\n"
-            f"🎵 TikTok полная версия: {'Да' if tiktok_full_version else 'Нет'}\n"
-            f"⏱️ Секунды TikTok: {tiktok_seconds_text}\n"
-            f"🔖 UPC код: {upc_code or 'пока что нет'}\n"
-            f"🟢 Статус: {status}"
-        )
-
-        # Создаем клавиатуру с действиями
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add(
-            types.KeyboardButton("📝 Запросить обновление статуса"),
-            types.KeyboardButton("◀️ Назад к моим релизам")
-        )
-
-        bot.reply_to(message, details, reply_markup=markup)
-
-    except Exception as e:
-        logger.error(f"Error fetching release details: {e}")
-        bot.reply_to(message, "❌ Произошла ошибка при получении деталей релиза.")
-
-
-@bot.message_handler(func=lambda message: LEGACY_RELEASES_ENABLED and message.text == "◀️ Назад к моим релизам")
-def back_to_my_releases_msg(message):
-    """Return to my releases list"""
-    handle_my_releases(message)
 
 
 # Обработчик нажатия кнопки редактирования профиля
-@bot.message_handler(func=lambda message: LEGACY_PROFILE_ENABLED and message.text == "✏️ Редактировать профиль")
-def show_profile_edit_options(message):
-    """Show profile editing options"""
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    buttons = [
-        "🎤 Изменить имя артиста",
-        "📺 Изменить канал",
-        "👥 Изменить ФИО",
-        "📧 Изменить email",  # Новая кнопка
-        "◀️ Назад в профиль"
-    ]
-    markup.add(*buttons)
-
-    bot.reply_to(
-        message,
-        "Выберите, что хотите изменить:",
-        reply_markup=markup
-    )
-
-
-@bot.message_handler(func=lambda message: LEGACY_PROFILE_ENABLED and message.text == "📧 Изменить email")
-def edit_email(message):
-    """Start editing email"""
-    bot.reply_to(message, "Введите новый email:")
-    bot.register_next_step_handler(message, save_email)
-
 
 def save_email(message):
     """Save new email with validation"""
@@ -13393,26 +4209,6 @@ def save_email(message):
 
 
 # Обработчики изменения конкретных полей
-@bot.message_handler(func=lambda message: LEGACY_PROFILE_ENABLED and message.text == "🎤 Изменить имя артиста")
-def edit_artist_name(message):
-    """Start editing artist name"""
-    bot.reply_to(message, "Введите новое имя артиста:")
-    bot.register_next_step_handler(message, save_artist_name)
-
-
-@bot.message_handler(func=lambda message: LEGACY_PROFILE_ENABLED and message.text == "📺 Изменить канал")
-def edit_channel(message):
-    """Start editing channel"""
-    bot.reply_to(message, "Введите новую ссылку на канал:")
-    bot.register_next_step_handler(message, save_channel_edit)
-
-
-@bot.message_handler(func=lambda message: LEGACY_PROFILE_ENABLED and message.text == "👥 Изменить ФИО")
-def edit_fio(message):
-    """Start editing FIO"""
-    bot.reply_to(message, "Введите новые ФИО:")
-    bot.register_next_step_handler(message, save_fio)
-
 
 def save_artist_name(message):
     """Save new artist name"""
@@ -13547,701 +4343,15 @@ def save_fio(message):
 
 
 # Обработчик возврата в профиль
-@bot.message_handler(func=lambda message: LEGACY_PROFILE_ENABLED and message.text == "◀️ Назад в профиль")
-def back_to_profile(message):
-    """Return to profile view"""
-    # Обновляем клавиатуру профиля
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(types.KeyboardButton("✏️ Редактировать профиль"))
-    markup.add(types.KeyboardButton("📀 Мои релизы"))
-    markup.add(types.KeyboardButton("📊 Мои отчеты"))
-    markup.add(types.KeyboardButton("💳 Пополнить баланс"))
-    markup.add(types.KeyboardButton("🎟 Ввести промокод"))
-    markup.add(types.KeyboardButton("◀️ Назад в меню"))
-
-    bot.reply_to(
-        message,
-        "Возвращаемся в профиль...",
-        reply_markup=markup
-    )
 
 
-@bot.message_handler(func=lambda message: message.text == "📝 Запросить обновление статуса")
-def request_status_update(message):
-    """Handle status update request"""
-    # Здесь можно добавить логику отправки запроса менеджеру
-    bot.reply_to(
-        message,
-        "📬 Ваш запрос на обновление статуса релиза отправлен менеджеру. "
-        "Мы свяжемся с вами в ближайшее время!",
-        reply_markup=create_main_menu()
-    )
-
-    # Отправляем уведомление менеджеру
-    try:
-        bot.send_message(
-            MANAGER_USERNAME,
-            f"🆔 Пользователь @{message.from_user.username} запросил обновление статуса своего релиза."
-        )
-    except Exception as e:
-        logger.error(f"Failed to notify manager: {e}")
 
 
 # Обработчик возврата в главное меню
-@bot.message_handler(func=lambda message: LEGACY_PROFILE_ENABLED and message.text == "◀️ Назад в меню")
-def back_to_main_menu(message):
-    """Return to main menu"""
-    markup = create_main_menu()
-    bot.reply_to(message, "Главное меню:", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("service_"))
-def handle_service_selection(call):
-    """Handle service selection"""
-    service = call.data.split("_")[1]
-
-    if service == "distribution":
-        show_distribution_form(call.message)
-    elif service in ["cover", "motion", "videoshot"]:
-        show_design_service(call.message, service)
-    elif call.data == "service_release_for_artist":
-        handle_service_release_for_artist(call)
-
-
-def show_distribution_form(message):
-    """Show distribution service form"""
-    form_text = (
-        "🎵 Дистрибуция музыки\n\n"
-        "Размещение вашей музыки на всех площадках:\n"
-        "• Apple Music\n"
-        "• Spotify\n"
-        "• YouTube Music\n"
-        "• VK Music\n"
-        "• BOOM\n"
-        "• И другие\n\n"
-        "💰 Стоимость: 1299₽\n\n"
-        "Для заказа дистрибуции ответьте на следующие вопросы:"
-    )
-
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton("▶️ Начать", callback_data="idist_start"),
-        types.InlineKeyboardButton("◀️ Назад", callback_data="services_back")
-    )
-
-    bot.edit_message_text(
-        form_text,
-        message.chat.id,
-        message.message_id,
-        reply_markup=markup
-    )
-
-
-class DistributionForm:
-    def __init__(self):
-        self.data = {}
-        self.current_field = None
-        self.message_id = None  # ID сообщения для редактирования
-        self.chat_id = None  # ID чата
-        self.fields = [
-            ("track_name", "Название трека:"),
-            ("artist_name", "Имя артиста (как должно отображаться на площадках):"),
-            ("release_date", "Дата релиза (ДД.ММ.ГГГГ):"),
-            ("featuring", "Featuring артисты (если есть, иначе напишите 'нет'):"),
-            ("explicit", "Есть ли нецензурная лексика? (да/нет):"),
-            ("genre", "Жанр музыки:"),
-            ("lyrics", "Текст песни:")
-        ]
-        # Режим запуска админом от имени другого пользователя
-        self.started_by_admin = False
-        self.target_user_id = None
-
-
-def show_distribution_question(chat_id, message_id, form):
-    """Show distribution question with navigation buttons"""
-    field_name, question = form.fields[form.current_field]
-    
-    # Показываем текущий ответ, если он есть
-    current_answer = form.data.get(field_name, "")
-    if current_answer:
-        text = f"📝 {question}\n\n✅ Ваш ответ: {current_answer}"
-    else:
-        text = f"📝 {question}\n\n💬 Введите ваш ответ:"
-    
-    # Показываем прогресс
-    progress = f"\n\n📊 Вопрос {form.current_field + 1} из {len(form.fields)}"
-    text += progress
-    
-    # Создаем клавиатуру с кнопками
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    
-    buttons_row = []
-    
-    # Кнопка "Назад" - доступна если не первый вопрос
-    if form.current_field > 0:
-        buttons_row.append(types.InlineKeyboardButton("◀️ Назад", callback_data="distribution_prev"))
-    
-    # Кнопка "Вперед" - доступна только если есть ответ на текущий вопрос
-    if current_answer and form.current_field < len(form.fields) - 1:
-        buttons_row.append(types.InlineKeyboardButton("Вперед ▶️", callback_data="distribution_next"))
-    
-    if buttons_row:
-        markup.add(*buttons_row)
-    
-    # Кнопка "Изменить информацию" - доступна если есть ответ
-    if current_answer:
-        markup.add(types.InlineKeyboardButton("✏️ Изменить информацию", callback_data="distribution_edit"))
-    
-    # Если это последний вопрос и есть ответ, показываем кнопку завершения
-    if form.current_field == len(form.fields) - 1 and current_answer:
-        markup.add(types.InlineKeyboardButton("✅ Завершить заполнение", callback_data="distribution_complete"))
-    
-    try:
-        bot.edit_message_text(
-            text,
-            chat_id,
-            message_id,
-            reply_markup=markup
-        )
-    except Exception as e:
-        logger.error(f"Error editing message: {e}")
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "distribution_start")
-def start_distribution_form(call):
-    """Start distribution form"""
-    user_id = call.from_user.id
-    bot.distribution_forms = getattr(bot, 'distribution_forms', {})
-    bot.distribution_forms[user_id] = DistributionForm()
-
-    # Start with first field
-    form = bot.distribution_forms[user_id]
-    form.current_field = 0
-    form.message_id = call.message.message_id
-    form.chat_id = call.message.chat.id
-
-    show_distribution_question(call.message.chat.id, call.message.message_id, form)
-    bot.register_next_step_handler(call.message, process_distribution_form)
-
-
-def process_distribution_form(message):
-    """Process distribution form answers"""
-    user_id = message.from_user.id
-    if user_id not in bot.distribution_forms:
-        return
-
-    form = bot.distribution_forms[user_id]
-    field_name, _ = form.fields[form.current_field]
-    form.data[field_name] = message.text
-
-    # Если это не последний вопрос, автоматически переходим к следующему
-    if form.current_field < len(form.fields) - 1:
-        form.current_field += 1
-        # Показываем следующий вопрос с кнопками (обновляем сообщение)
-        show_distribution_question(form.chat_id, form.message_id, form)
-        # Регистрируем обработчик для следующего ответа
-        bot.register_next_step_handler(message, process_distribution_form)
-    else:
-        # Это последний вопрос - показываем его с кнопкой завершения
-        show_distribution_question(form.chat_id, form.message_id, form)
-
-
-def complete_distribution_form(chat_id, message_id, form, user_id):
-    """Complete distribution form and proceed to payment"""
-    # Format collected data
-    summary = (
-        "📝 Проверьте введенные данные:\n\n"
-        f"🎵 Название: {form.data.get('track_name', 'Не указано')}\n"
-        f"👤 Артист: {form.data.get('artist_name', 'Не указано')}\n"
-        f"📅 Дата релиза: {form.data.get('release_date', 'Не указано')}\n"
-        f"👥 Featuring: {form.data.get('featuring', 'Не указано')}\n"
-        f"🔞 Explicit: {form.data.get('explicit', 'Не указано')}\n"
-        f"🎼 Жанр: {form.data.get('genre', 'Не указано')}\n"
-        f"📜 Текст: {form.data.get('lyrics', 'Не указано')[:100]}...\n\n"
-        "💰 Стоимость: 1299₽"
-    )
-    # Старая логика админских действий удалена - теперь используется обычный процесс дистрибуции
-    # Проверяем, создается ли релиз за артиста
-    creating_for_artist = (is_admin(user_id) and 
-                          hasattr(bot, 'admin_release_target') and 
-                          bot.admin_release_target.get(user_id))
-    
-    if creating_for_artist:
-        target_user_id = bot.admin_release_target[user_id]
-        summary += f"\n\n🎭 Создается для пользователя ID: {target_user_id}"
-        
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton("💳 Оплатить", callback_data="pay_distribution"),
-        types.InlineKeyboardButton("🔄 Начать заново", callback_data="distribution_start"),
-        types.InlineKeyboardButton("◀️ Отмена", callback_data="services_back")
-    )
-
-    try:
-        bot.edit_message_text(
-            summary,
-            chat_id,
-            message_id,
-            reply_markup=markup
-        )
-    except Exception as e:
-        logger.error(f"Error editing message in complete_distribution_form: {e}")
-        # Если не удалось отредактировать, отправляем новое сообщение
-        bot.send_message(chat_id, summary, reply_markup=markup)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "distribution_prev")
-def handle_distribution_prev(call):
-    """Handle previous question button"""
-    user_id = call.from_user.id
-    if user_id not in bot.distribution_forms:
-        bot.answer_callback_query(call.id, "❌ Форма не найдена. Начните заново.")
-        return
-    
-    form = bot.distribution_forms[user_id]
-    if form.current_field > 0:
-        form.current_field -= 1
-        show_distribution_question(call.message.chat.id, call.message.message_id, form)
-        bot.answer_callback_query(call.id)
-    else:
-        bot.answer_callback_query(call.id, "Это первый вопрос", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "distribution_next")
-def handle_distribution_next(call):
-    """Handle next question button"""
-    user_id = call.from_user.id
-    if user_id not in bot.distribution_forms:
-        bot.answer_callback_query(call.id, "❌ Форма не найдена. Начните заново.")
-        return
-    
-    form = bot.distribution_forms[user_id]
-    field_name, _ = form.fields[form.current_field]
-    
-    # Проверяем, что есть ответ на текущий вопрос
-    if not form.data.get(field_name):
-        bot.answer_callback_query(call.id, "❌ Сначала ответьте на текущий вопрос", show_alert=True)
-        return
-    
-    if form.current_field < len(form.fields) - 1:
-        form.current_field += 1
-        show_distribution_question(call.message.chat.id, call.message.message_id, form)
-        bot.answer_callback_query(call.id)
-        # Регистрируем обработчик для следующего ответа
-        bot.register_next_step_handler(call.message, process_distribution_form)
-    else:
-        bot.answer_callback_query(call.id, "Это последний вопрос", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "distribution_edit")
-def handle_distribution_edit(call):
-    """Handle edit information button"""
-    user_id = call.from_user.id
-    if user_id not in bot.distribution_forms:
-        bot.answer_callback_query(call.id, "❌ Форма не найдена. Начните заново.")
-        return
-    
-    form = bot.distribution_forms[user_id]
-    field_name, _ = form.fields[form.current_field]
-    
-    # Очищаем текущий ответ
-    form.data[field_name] = ""
-    
-    # Показываем вопрос без ответа
-    show_distribution_question(call.message.chat.id, call.message.message_id, form)
-    bot.answer_callback_query(call.id, "Введите новый ответ")
-    
-    # Регистрируем обработчик для нового ответа
-    bot.register_next_step_handler(call.message, process_distribution_form)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "distribution_complete")
-def handle_distribution_complete(call):
-    """Handle complete form button"""
-    user_id = call.from_user.id
-    if user_id not in bot.distribution_forms:
-        bot.answer_callback_query(call.id, "❌ Форма не найдена. Начните заново.")
-        return
-    
-    form = bot.distribution_forms[user_id]
-    
-    # Проверяем, что все поля заполнены
-    all_filled = all(form.data.get(field_name) for field_name, _ in form.fields)
-    if not all_filled:
-        bot.answer_callback_query(call.id, "❌ Заполните все поля перед завершением", show_alert=True)
-        return
-    
-    complete_distribution_form(call.message.chat.id, call.message.message_id, form, user_id)
-    bot.answer_callback_query(call.id)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "use_promo_distribution")
-def handle_use_promo_distribution(call):
-    """Показать список промокодов на скидку при оплате дистрибуции"""
-    user_id = call.from_user.id
-    base_amount = bot.user_data.get(user_id, {}).get('calculated_cost', 1299)
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к БД", show_alert=True)
-        return
-    cursor = None
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT pc.id, pc.code, pc.discount
-            FROM user_discount_promos udp
-            JOIN promo_codes pc ON pc.id = udp.promo_code_id AND pc.is_active = TRUE
-            WHERE udp.user_id = %s
-            AND (pc.expires_at IS NULL OR pc.expires_at > CURRENT_TIMESTAMP)
-        """, (user_id,))
-        rows = cursor.fetchall()
-        if not rows:
-            bot.answer_callback_query(call.id, "Нет доступных промокодов. Введите промокод в «Мой профиль» → «Ввести промокод».", show_alert=True)
-            return
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        for promo_id, code, discount in rows:
-            pct = float(discount or 0)
-            markup.add(types.InlineKeyboardButton(f"🎟 {code} — скидка {pct:.0f}%", callback_data=f"apply_promo_dist_{promo_id}"))
-        markup.add(types.InlineKeyboardButton("◀️ Без промокода", callback_data=f"distribution_pay_{base_amount}"))
-        bot.edit_message_text(
-            f"Выберите промокод на скидку (базовая сумма {base_amount}₽):",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        bot.answer_callback_query(call.id)
-    except Exception as e:
-        logger.error(f"Error listing discount promos: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка загрузки промокодов", show_alert=True)
-    finally:
-        if cursor:
-            cursor.close()
-        return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("apply_promo_dist_"))
-def handle_apply_promo_distribution(call):
-    """Применить выбранный промокод на скидку и показать сумму к оплате"""
-    try:
-        promo_id = int(call.data.replace("apply_promo_dist_", ""))
-    except ValueError:
-        bot.answer_callback_query(call.id, "❌ Неверные данные", show_alert=True)
-        return
-    user_id = call.from_user.id
-    base_amount = bot.user_data.get(user_id, {}).get('calculated_cost', 1299)
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к БД", show_alert=True)
-        return
-    try:
-        cursor = conn.cursor()
-        cursor.execute('SELECT code, COALESCE(discount, 0) FROM promo_codes WHERE id = %s AND is_active = TRUE', (promo_id,))
-        row = cursor.fetchone()
-        if not row:
-            bot.answer_callback_query(call.id, "Промокод недоступен", show_alert=True)
-            return
-        code, discount_pct = row[0], float(row[1])
-        discounted = max(1, int(base_amount * (1 - discount_pct / 100)))
-        bot.user_data.setdefault(user_id, {})['distribution_promo_id'] = promo_id
-        bot.user_data.setdefault(user_id, {})['distribution_discount_pct'] = discount_pct
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(f"Подтвердить оплату {discounted}₽ (скидка {discount_pct:.0f}%)", callback_data=f"distribution_pay_{discounted}"))
-        bot.edit_message_text(
-            f"Применён промокод {code}: скидка {discount_pct:.0f}%.\nСумма к оплате: {discounted}₽ (было {base_amount}₽).",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        bot.answer_callback_query(call.id)
-    except Exception as e:
-        logger.error(f"Error applying promo: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка применения промокода", show_alert=True)
-    finally:
-        if cursor:
-            cursor.close()
-        return_pg_connection(conn)
-
-
-def show_design_service(message, service_type):
-    """Show design service information"""
-    services = {
-        "cover": {
-            "name": "Обложка",
-            "price": 2000,
-            "description": "Профессиональный дизайн обложки для вашего релиза"
-        },
-        "motion": {
-            "name": "Motion обложка",
-            "price": 1500,
-            "description": "Анимированная обложка для соцсетей"
-        },
-        "videoshot": {
-            "name": "Видеошот",
-            "price": 1000,
-            "description": "Короткий вертикальный клип"
-        }
-    }
-
-    service = services[service_type]
-    service_text = (
-        f"🎨 {service['name']}\n\n"
-        f"{service['description']}\n\n"
-        f"💰 Стоимость: {service['price']}₽\n\n"
-        "Перед оплатой заполните бриф — одним сообщением по шаблону.\n"
-        "После оплаты заказ появится в админ-панели и менеджер свяжется с вами."
-    )
-
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton("📝 Заполнить бриф", callback_data=f"design_brief_{service_type}"),
-        types.InlineKeyboardButton("💳 Оплатить", callback_data=f"pay_{service_type}")
-    )
-    markup.add(
-        types.InlineKeyboardButton("◀️ Назад", callback_data="services_back")
-    )
-
-    bot.edit_message_text(
-        service_text,
-        message.chat.id,
-        message.message_id,
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("design_brief_"))
-def handle_design_brief_request(call):
-    service = call.data.split("_", 2)[2]
-    if service not in DESIGN_BRIEF_TEMPLATES:
-        bot.answer_callback_query(call.id, "Шаблон недоступен.", show_alert=True)
-        return
-    bot.answer_callback_query(call.id)
-    prompt_design_brief(call.from_user.id, service)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("pay_"))
-def handle_payment(call):
-    """Handle payment for services"""
-    service = call.data.split("_")[1]
-    user_id = call.from_user.id
-
-    # Get service price
-    prices = {
-        "distribution": 1299,
-        "cover": 2000,
-        "motion": 1500,
-        "videoshot": 1000
-    }
-
-    price = prices.get(service)
-    if not price:
-        bot.answer_callback_query(call.id, "Неверный тип услуги")
-        return
-
-    if service in DESIGN_BRIEF_TEMPLATES:
-        storage = ensure_user_storage(user_id)
-        briefs = storage.get('design_briefs', {})
-        if service not in briefs:
-            bot.answer_callback_query(
-                call.id,
-                "Сначала заполните бриф для этой услуги.",
-                show_alert=True
-            )
-            show_design_service(call.message, service)
-            return
-
-    # Check for promo code (не блокируем оплату при ошибке БД)
-    promo = None
-    conn = get_pg_connection()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                'SELECT code, discount FROM promo_codes WHERE service_type = %s AND current_activations < max_activations',
-                (service,))
-            promo = cursor.fetchone()
-        except Error as e:
-            logger.error(f"PostgreSQL error in handle_payment (promo check): {e}")
-            promo = None
-        finally:
-            try:
-                cursor.close()
-                return_pg_connection(conn)
-            except Exception:
-                pass
-    else:
-        logger.warning("Database unavailable for promo check; skipping.")
-
-    try:
-        if promo:
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton("💳 Оплатить без промокода", callback_data=f"confirm_pay_{service}"),
-                types.InlineKeyboardButton("🎟 Ввести промокод", callback_data=f"promo_{service}"),
-                types.InlineKeyboardButton("◀️ Отмена", callback_data="services_back")
-            )
-
-            bot.edit_message_text(
-                f"💰 Сумма к оплате: {price}₽\n\nУ вас есть промокод?",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-            return
-
-        # Проверка баланса и возможность списания
-        balance = get_user_balance_safe(user_id)
-        if balance >= price:
-            # Списание с баланса без внешней оплаты
-            if change_user_balance(user_id, -price):
-                bot.answer_callback_query(call.id, f"✅ Списано {price}₽ с баланса")
-                # Завершим заказ как оплаченный с баланса
-                conn2 = get_pg_connection()
-                if conn2:
-                    try:
-                        cur2 = conn2.cursor()
-                        cur2.execute(
-                            'INSERT INTO orders (user_id, service_type, amount, status, payment_id, created_date) VALUES (%s, %s, %s, %s, %s, %s)',
-                            (user_id, service, price, 'completed', f'balance-{uuid.uuid4()}', datetime.now())
-                        )
-                        conn2.commit()
-                    except Exception as e:
-                        logger.error(f"Failed to create balance order: {e}")
-                    finally:
-                        try:
-                            cur2.close()
-                            conn2.close()
-                        except Exception:
-                            pass
-                # Подтверждаем пользователю и уведомляем админов
-                handle_design_payment(call, type('obj', (object,),
-                                                 {'amount': type('obj2', (object,), {'value': price})(),
-                                                  'metadata': {'user_id': str(user_id)}}), service)
-            else:
-                bot.answer_callback_query(call.id, "❌ Не удалось списать средства с баланса", show_alert=True)
-        else:
-            # Сохраним pending операцию и предложим пополнить на недостающую сумму
-            need = int(price - balance)
-            bot.user_data.setdefault(user_id, {})['pending_operation'] = {
-                'type': service,
-                'amount': price,
-                'needed': need,
-                'resume': True
-            }
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton(f"Пополнить на {need}₽", callback_data=f"topup_pay_{need}"),
-                types.InlineKeyboardButton("❌ Отмена", callback_data="services_back")
-            )
-            bot.edit_message_text(
-                f"❌ Недостаточно средств для оплаты услуги {service}.\nТребуется {price}₽, на балансе {balance:,.2f}₽.",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-            # Не создаем внешний платеж; пользователь пополнит баланс и оплата завершится в handle_successful_payment
-    except Error as e:
-        logger.error(f"PostgreSQL error in handle_payment: {e}")
-        bot.answer_callback_query(
-            call.id,
-            "❌ Произошла ошибка при обработке платежа.",
-            show_alert=True
-        )
-
-
-def create_payment(call, service, amount):
-    """Create payment using YooKassa"""
-    payment = Payment.create({
-        "amount": {
-            "value": str(amount),
-            "currency": "RUB"
-        },
-        "confirmation": {
-            "type": "redirect",
-            "return_url": "https://t.me/twaslabel_bot"
-        },
-        "capture": True,
-        "description": f"Оплата услуги {service} в TWAS Label",
-        "metadata": {
-            "user_id": str(call.from_user.id),
-            "service": service
-        }
-    })
-
-    payment_url = payment.confirmation.confirmation_url
-    payment_id = payment.id
-
-    # Save payment info
-    conn = get_pg_connection()
-    if not conn:
-        bot.edit_message_text(
-            "❌ Ошибка подключения к базе данных. Не удалось сохранить информацию о платеже.",
-            call.message.chat.id,
-            call.message.message_id
-        )
-        return
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            'INSERT INTO orders (user_id, service_type, amount, status, payment_id, created_date) VALUES (%s, %s, %s, %s, %s, %s)',
-            (call.from_user.id, service, amount, "pending", payment_id, datetime.now())
-        )
-        conn.commit()
-
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton("💳 Перейти к оплате", url=payment_url),
-            types.InlineKeyboardButton("✅ Проверить оплату", callback_data=f"check_payment_{payment_id}")
-        )
-
-        bot.edit_message_text(
-            f"💰 Сумма к оплате: {amount}₽\n\n"
-            "Нажмите кнопку ниже для перехода к оплате.\n"
-            "После оплаты нажмите \'Проверить оплату\'.",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-    except Error as e:
-        logger.error(f"PostgreSQL error in create_payment: {e}")
-        bot.edit_message_text(
-            "❌ Произошла ошибка при создании платежа. Попробуйте позже.",
-            call.message.chat.id,
-            call.message.message_id
-        )
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
 
 # Добавим новый обработчик для callback-запросов релизов в админ-панели
-@bot.callback_query_handler(
-    func=lambda call: LEGACY_RELEASE_DETAILS_ENABLED
-    and call.data.startswith(("album_detail_", "my_release_detail_"))
-    and not call.data.endswith("_admin")
-)
-def handle_release_callback(call):
-    """Handle release callbacks in user mode only"""
-    try:
-        if call.data.startswith("album_detail_"):
-            parts = call.data.split('_')
-            album_id = int(parts[2])
-            show_album_details(call, album_id, admin_mode=False)
-        elif call.data.startswith("my_release_detail_"):
-            parts = call.data.split('_')
-            release_id = int(parts[3])
-            show_my_release_details(call, release_id, admin_mode=False)
-    except Exception as e:
-        logger.error(f"Error handling release callback: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-
 
 # Модифицируем функцию просмотра релизов пользователя для администратора
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_USER_RELEASES_ENABLED and call.data.startswith("user_releases_"))
-def handle_user_releases(call):
-    """Show user's releases in admin mode"""
-    user_id = int(call.data.split('_')[2])
-    handle_my_releases(call.message, user_id, admin_mode=True)
-
 
 # Функция handle_admin_start_distribution удалена - перенесена в услуги
 
@@ -14249,515 +4359,21 @@ def handle_user_releases(call):
 # Функция handle_admin_create_release_on_behalf удалена - перенесена в услуги
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("check_payment_"))
-def check_payment_status(call):
-    """Check payment status"""
-    payment_id = call.data.split("_")[2]
-    user_id = call.from_user.id
-    
-    # Мгновенно отвечаем на нажатие, чтобы Telegram не показывал таймаут
-    try:
-        bot.answer_callback_query(call.id, "🔎 Проверяю оплату...")
-    except Exception:
-        pass
-    
-    # Сначала проверяем, есть ли заказ в базе данных
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        # Ищем заказ по payment_id (может быть как оригинальный order_xxx, так и YooKassa ID)
-        cursor.execute('SELECT amount, service_type, status, user_id FROM orders WHERE payment_id = %s', (payment_id,))
-        order_info = cursor.fetchone()
-        
-        if not order_info:
-            # Если заказ не найден, попробуем получить его из metadata платежа YooKassa
-            try:
-                payment = Payment.find_one(payment_id)
-                if payment and hasattr(payment, 'metadata') and payment.metadata.get('order_id'):
-                    original_order_id = payment.metadata['order_id']
-                    cursor.execute('SELECT amount, service_type, status, user_id FROM orders WHERE payment_id = %s', (original_order_id,))
-                    order_info = cursor.fetchone()
-                    logger.info(f"Found order via YooKassa metadata: {original_order_id}")
-            except Exception as e:
-                logger.error(f"Failed to get payment metadata: {e}")
-            
-        if not order_info:
-            logger.error(f"Order not found for payment_id: {payment_id}")
-            bot.answer_callback_query(call.id, "❌ Заказ не найден в базе данных", show_alert=True)
-            return
-        
-        amount, service_type, order_status, order_user_id = order_info
-        
-        # Проверяем, что пользователь является владельцем заказа
-        if order_user_id != user_id:
-            logger.warning(f"User {user_id} trying to check payment for order owned by {order_user_id}")
-            bot.answer_callback_query(call.id, "❌ Это не ваш заказ", show_alert=True)
-            return
-        
-        # Если заказ уже завершен, показываем сообщение
-        if order_status == "completed":
-            bot.answer_callback_query(call.id, "✅ Этот заказ уже оплачен и обработан", show_alert=True)
-            return
-        
-        # Проверяем статус платежа в YooKassa
-        payment = None
-        try:
-            payment = Payment.find_one(payment_id)
-            logger.info(f"Payment {payment_id} status: {getattr(payment, 'status', 'unknown')}")
-        except Exception as e:
-            logger.error(f"Error fetching payment {payment_id} from YooKassa: {e}")
-            # Если не можем получить статус от YooKassa, проверяем возраст заказа
-            try:
-                cursor.execute('SELECT created_date FROM orders WHERE payment_id = %s', (payment_id,))
-                created_date_result = cursor.fetchone()
-                if created_date_result:
-                    created_date = created_date_result[0]
-                    # Если заказ старше 1 часа и статус pending, считаем его неуспешным
-                    if (datetime.now() - created_date).total_seconds() > 3600:  # 1 час
-                        bot.answer_callback_query(call.id, "❌ Время ожидания платежа истекло. Создайте новый заказ.", show_alert=True)
-                        return
-            except Exception as date_error:
-                logger.error(f"Error checking order date: {date_error}")
-            
-            bot.answer_callback_query(call.id, "❌ Не удалось проверить статус платежа. Попробуйте позже.", show_alert=True)
-            return
-
-        if not payment:
-            bot.answer_callback_query(call.id, "❌ Платеж не найден в системе YooKassa", show_alert=True)
-            return
-
-        status = getattr(payment, 'status', None)
-        logger.info(f"Payment {payment_id} final status: {status}")
-        
-        if status == "succeeded":
-            handle_successful_payment(call, payment)
-        elif status in ("pending", "waiting_for_capture", "waiting_for_payment"):
-            bot.answer_callback_query(call.id, "⏳ Оплата еще не получена. Попробуйте позже.", show_alert=True)
-        elif status == "canceled":
-            bot.answer_callback_query(call.id, "❌ Платеж отменен", show_alert=True)
-        else:
-            bot.answer_callback_query(call.id, f"❌ Статус платежа: {status}", show_alert=True)
-            
-    except Exception as e:
-        logger.error(f"Error in check_payment_status: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при проверке платежа", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
 def handle_successful_payment(call, payment):
-    """Handle successful payment"""
-    service = payment.metadata["service"]
-    user_id = int(payment.metadata["user_id"])
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(
-            call.id,
-            "❌ Ошибка подключения к базе данных. Не удалось обработать платеж.",
-            show_alert=True
-        )
-        return
-
-    try:
-        cursor = conn.cursor()
-        # Update order status
-        cursor.execute(
-            'UPDATE orders SET status = %s WHERE payment_id = %s',
-            ("completed", payment.id)
-        )
-        conn.commit()
-
-        # Ensure user exists and get user info from label table
-        def ensure_user_exists_and_get_info(user_id):
-            """Ensure user exists in database and return user info"""
-            cursor.execute('SELECT tg, name FROM label WHERE telegram_id = %s', (user_id,))
-            user_info = cursor.fetchone()
-            
-            if not user_info:
-                # Создаем пользователя, если его нет
-                try:
-                    cursor.execute('''
-                        INSERT INTO label (telegram_id, created_date, balance, artist) 
-                        VALUES (%s, CURRENT_TIMESTAMP, 0, 1)
-                        ON CONFLICT (telegram_id) DO NOTHING
-                    ''', (user_id,))
-                    conn.commit()
-                    logger.info(f"Created new user record for {user_id} during payment processing")
-                    
-                    # Повторно получаем информацию о пользователе
-                    cursor.execute('SELECT tg, name FROM label WHERE telegram_id = %s', (user_id,))
-                    user_info = cursor.fetchone()
-                except Exception as e:
-                    logger.error(f"Failed to create user record during payment: {e}")
-                    return None, None
-            
-            return (user_info[0] if user_info else None, user_info[1] if user_info else None)
-        
-        username, artist_name = ensure_user_exists_and_get_info(user_id)
-
-        # Notify admins for service orders (не для пополнений)
-        if service != "topup":
-            admin_message = (
-                f"💰 Новый оплаченный заказ!\n\n"
-                f"Услуга: {service}\n"
-                f"Клиент: {artist_name or 'Неизвестный артист'} (@{username or 'Неизвестный пользователь'})\n"
-                f"Сумма: {payment.amount.value}₽"
-            )
-
-            # Упрощаем уведомления - отправляем всем админам
-            notify_admins(admin_message, [])
-
-        # Update user's interface and balance for topups
-        if service == "topup":
-            # Пользователь уже существует (создан выше), просто зачисляем баланс
-            try:
-                cursor.execute('UPDATE label SET balance = COALESCE(balance,0) + %s WHERE telegram_id = %s',
-                               (float(payment.amount.value), user_id))
-                conn.commit()
-                logger.info(f"Successfully updated balance for user {user_id}: +{payment.amount.value}₽")
-            except Exception as e:
-                logger.error(f"Failed to update balance for user {user_id}: {e}")
-                bot.answer_callback_query(call.id, "❌ Ошибка при зачислении баланса", show_alert=True)
-                return
-
-            # Подтверждаем пользователю
-            try:
-                bot.edit_message_text(
-                    f"✅ Баланс пополнен на {payment.amount.value}₽",
-                    call.message.chat.id,
-                    call.message.message_id
-                )
-            except Exception:
-                bot.send_message(call.message.chat.id, f"✅ Баланс пополнен на {payment.amount.value}₽")
-            try:
-                bot.answer_callback_query(call.id, "✅ Оплата подтверждена, баланс пополнен")
-            except Exception:
-                pass
-
-            # Если была ожидающая операция (дистрибуция или услуги), пробуем продолжить автоматически
-            pending = bot.user_data.get(user_id, {}).get('pending_operation')
-            if pending and isinstance(pending, dict):
-                try:
-                    # Проверим, хватает ли баланса теперь
-                    new_balance = get_user_balance_safe(user_id)
-                    required = float(pending.get('amount', 0))
-                    if new_balance >= required:
-                        # Списываем и выполняем операцию
-                        if change_user_balance(user_id, -required):
-                            op_type = pending.get('type')
-                            if op_type == 'distribution':
-                                # продолжить сохранение релиза, не очищая user_data
-                                save_release_data_for_user(user_id, call.message.chat.id)
-                            elif op_type in ('cover', 'motion', 'videoshot'):
-                                # подтверждение оплаты услуги через баланс
-                                bot.send_message(call.message.chat.id, f"✅ Оплата услуги {op_type} с баланса завершена")
-                                # Создадим заказ в orders
-                                try:
-                                    cursor.execute(
-                                        'INSERT INTO orders (user_id, service_type, amount, status, payment_id, created_date) VALUES (%s, %s, %s, %s, %s, %s)',
-                                        (user_id, op_type, required, 'completed', f'balance-{uuid.uuid4()}',
-                                         datetime.now())
-                                    )
-                                    conn.commit()
-                                    logger.info(f"Created balance order for {op_type} service, user {user_id}, amount {required}")
-                                except Exception as e:
-                                    logger.error(f"Failed to record balance order for {user_id}: {e}")
-                                # Уведомим админов о новом заказе
-                                admin_message = (
-                                    f"💰 Новый заказ {op_type} оплачен с баланса!\n\n"
-                                    f"Клиент: {artist_name or 'Неизвестный артист'} (@{username or 'Неизвестный пользователь'})\n"
-                                    f"Сумма: {required}₽"
-                                )
-                                notify_admins(admin_message, [])
-                            # Очистим pending_operation, но не весь прогресс релиза
-                            try:
-                                bot.user_data[user_id].pop('pending_operation', None)
-                                logger.info(f"Cleared pending operation for user {user_id}")
-                            except Exception:
-                                pass
-                        else:
-                            bot.send_message(call.message.chat.id,
-                                             "❌ Не удалось списать средства с баланса для продолжения операции.")
-                    else:
-                        # Недостаточно средств даже после пополнения: оставляем pending
-                        bot.send_message(call.message.chat.id,
-                                         f"❌ Недостаточно средств для завершения операции. Требуется {required}₽, на балансе {new_balance:,.2f}₽. Пополните баланс и нажмите 'Проверить оплату'.")
-                except Exception as e:
-                    logger.error(f"Error resuming pending operation for {user_id}: {e}")
-                    bot.send_message(call.message.chat.id, "❌ Ошибка при возобновлении операции. Обратитесь в поддержку.")
-        elif service == "distribution":
-            handle_distribution_payment(call, payment)
-        else:
-            handle_design_payment(call, payment, service)
-            
-        # Логируем успешное завершение обработки платежа
-        logger.info(f"Successfully processed payment {payment.id} for user {user_id}, service: {service}")
-    except Error as e:
-        logger.error(f"PostgreSQL error in handle_successful_payment: {e}")
-        bot.answer_callback_query(
-            call.id,
-            "❌ Произошла ошибка базы данных при обработке платежа.",
-            show_alert=True
-        )
-    except Exception as e:
-        logger.error(f"Unexpected error in handle_successful_payment: {e}")
-        bot.answer_callback_query(
-            call.id,
-            "❌ Произошла неожиданная ошибка при обработке платежа.",
-            show_alert=True
-        )
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
+    return payment_callbacks.handle_successful_payment(call, payment)
 
 
 def notify_admins(message, levels):
-    """Notify admins about new orders"""
-    notifications.notify_order_admins(bot, message, get_pg_connection, return_pg_connection, logger)
+    return payment_callbacks.notify_admins(message, levels)
 
 
 def handle_distribution_payment(call, payment):
-    """Handle distribution payment"""
-    try:
-        # Send confirmation message to user
-        bot.edit_message_text(
-            "🎉 Оплата прошла успешно! Мы начнем работать над вашим релизом.",
-            call.message.chat.id,
-            call.message.message_id
-        )
-
-        # Notify admins about new distribution order
-        admin_message = (
-            f"💰 Новый оплаченный заказ дистрибуции!\n\n"
-            f"Клиент: {payment.metadata['user_id']}\n"
-            f"Сумма: {payment.amount.value}₽"
-        )
-
-        notify_admins(admin_message, [])
-        logger.info(f"Successfully processed distribution payment {payment.id}")
-        
-    except Exception as e:
-        logger.error(f"Error in handle_distribution_payment: {e}")
-        # Пытаемся отправить сообщение другим способом
-        try:
-            bot.send_message(call.message.chat.id, "🎉 Оплата прошла успешно! Мы начнем работать над вашим релизом.")
-        except Exception:
-            pass
+    return payment_callbacks.handle_distribution_payment(call, payment)
 
 
 def handle_design_payment(call, payment, service):
-    """Handle design payment"""
-    try:
-        user_id = int(payment.metadata.get('user_id', call.from_user.id)) if hasattr(payment, 'metadata') else call.from_user.id
-        user_display = get_display_username(call.from_user)
-        # Send confirmation message to user
-        bot.edit_message_text(
-            "🎉 Оплата прошла успешно! Мы начнем работать над вашим дизайном.",
-            call.message.chat.id,
-            call.message.message_id
-        )
+    return payment_callbacks.handle_design_payment(call, payment, service)
 
-        storage = ensure_user_storage(user_id)
-        briefs = storage.get('design_briefs', {})
-        brief_text = briefs.pop(service, None)
-
-        order_entry = {
-            "id": generate_request_id(),
-            "service": service,
-            "details": brief_text or "Бриф не был заполнен",
-            "status": "принят",
-            "user_id": user_id,
-            "chat_id": call.message.chat.id,
-            "user_display": user_display,
-            "created_at": datetime.now().isoformat()
-        }
-        DESIGN_BRIEF_REQUESTS.append(order_entry)
-        notify_admins_design(order_entry)
-
-        service_label = SERVICE_LABELS.get(service, service)
-        admin_message = (
-            f"💰 Новый оплаченный заказ {service_label}!\n\n"
-            f"Клиент: {user_display} (ID: {user_id})\n"
-            f"Сумма: {payment.amount.value}₽\n\n"
-            f"Описание:\n{(brief_text or 'Бриф не был заполнен')}"
-        )
-
-        notify_admins(admin_message, [])
-        logger.info(f"Successfully processed design payment {payment.id} for service {service}")
-        
-    except Exception as e:
-        logger.error(f"Error in handle_design_payment: {e}")
-        # Пытаемся отправить сообщение другим способом
-        try:
-            bot.send_message(call.message.chat.id, "🎉 Оплата прошла успешно! Мы начнем работать над вашим дизайном.")
-        except Exception:
-            pass
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REVIEWS_ENABLED and call.data.startswith("review_create_"))
-def start_review_creation(call):
-    """Start review creation process"""
-    category = call.data.split("_")[2]
-    bot.review_category = category  # Сохраняем категорию
-
-    markup = create_rating_keyboard()
-    bot.edit_message_text(
-        f"⭐️ Оцените услугу '{category}' от 1 до 5 звезд:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REVIEWS_ENABLED and call.data == "reviews_create_menu")
-def handle_reviews_create_menu(call):
-    """Show categories for creating reviews"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("🎵 Дистрибуция", callback_data="review_create_distribution"),
-        types.InlineKeyboardButton("🎨 Обложки + Motion", callback_data="review_create_design"),
-        types.InlineKeyboardButton("◀️ Назад", callback_data="reviews_back_main")
-    )
-
-    bot.edit_message_text(
-        "📝 Выберите категорию для отзыва:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REVIEWS_ENABLED and call.data == "reviews_view_menu")
-def handle_reviews_view_menu(call):
-    """Show categories for viewing reviews"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("🎵 Дистрибуция", callback_data="reviews_category_distribution"),
-        types.InlineKeyboardButton("🎨 Обложки + Motion", callback_data="reviews_category_design"),
-        types.InlineKeyboardButton("🔄 Случайный отзыв", callback_data="reviews_random"),
-        types.InlineKeyboardButton("◀️ Назад", callback_data="reviews_back_main")
-    )
-
-    bot.edit_message_text(
-        "📂 Выберите категорию отзывов:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REVIEWS_ENABLED and call.data.startswith("reviews_category_"))
-def handle_reviews_category(call):
-    """Show reviews for selected category"""
-    category = call.data.split("_")[2]
-
-    # Map category names to display names
-    category_names = {
-        "distribution": "🎵 Дистрибуция",
-        "design": "🎨 Обложки + Motion",
-        "all": "⭐️ Все отзывы"
-    }
-
-    # Validate requested category
-    if category not in category_names:
-        bot.edit_message_text(
-            "❌ Неверная категория отзывов",
-            call.message.chat.id,
-            call.message.message_id
-        )
-        return
-
-    category_name = category_names[category]
-    conn = get_pg_connection()
-
-    if not conn:
-        bot.edit_message_text(
-            "❌ Ошибка подключения к базе данных",
-            call.message.chat.id,
-            call.message.message_id
-        )
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        # Build query based on category
-        if category == "all":
-            query = '''
-                SELECT l.name, r.rating, r.text, r.created_date 
-                FROM reviews r
-                JOIN label l ON r.user_id = l.telegram_id
-                WHERE r.status = 'approved'
-                ORDER BY r.created_date DESC
-                LIMIT 10
-            '''
-            params = ()
-        else:
-            query = '''
-                SELECT l.name, r.rating, r.text, r.created_date 
-                FROM reviews r
-                JOIN label l ON r.user_id = l.telegram_id
-                WHERE r.service_type = %s AND r.status = 'approved'
-                ORDER BY r.created_date DESC
-                LIMIT 10
-            '''
-            params = (category,)
-
-        cursor.execute(query, params)
-        reviews = cursor.fetchall()
-
-        if not reviews:
-            response_text = f"😔 В категории {category_name} пока нет отзывов"
-        else:
-            response_text = f"⭐️ Последние 10 отзывов ({category_name}):\n\n"
-
-            for name, rating, text, date in reviews:
-                # Format date
-                date_str = date.strftime('%d.%m.%Y') if date else "Дата неизвестна"
-
-                # Format rating stars
-                stars = "⭐️" * rating
-
-                # Truncate long reviews
-                truncated_text = text[:200] + "..." if len(text) > 200 else text
-
-                response_text += (
-                    f"👤 {name}\n"
-                    f"{stars}\n"
-                    f"💬 {truncated_text}\n"
-                    f"📅 {date_str}\n\n"
-                )
-
-        # Create back button
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("◀️ Назад к категориям", callback_data="reviews_back"))
-
-        bot.edit_message_text(
-            response_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-
-    except Error as e:
-        logger.error(f"Database error fetching reviews: {e}")
-        bot.edit_message_text(
-            "❌ Произошла ошибка при загрузке отзывов",
-            call.message.chat.id,
-            call.message.message_id
-        )
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
 
 
 @require_channel_subscription
@@ -14775,34 +4391,6 @@ def handle_reviews(message):
         reply_markup=markup
     )
 
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REVIEWS_ENABLED and call.data == "reviews_random")
-def handle_reviews_random(call):
-    """Handle random review request"""
-    show_random_review(call.message)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REVIEWS_ENABLED and call.data == "reviews_back")
-def handle_reviews_back(call):
-    """Return to reviews categories menu"""
-    handle_reviews_view_menu(call)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REVIEWS_ENABLED and call.data == "reviews_back_main")
-def handle_reviews_back_main(call):
-    """Return to main reviews menu (actions)"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("👀 Посмотреть отзывы", callback_data="reviews_view_menu"),
-        types.InlineKeyboardButton("✍️ Оставить отзыв", callback_data="reviews_create_menu")
-    )
-
-    bot.edit_message_text(
-        "⭐️ Отзывы\n\nВыберите действие:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
 
 
 def show_random_review(message):
@@ -14911,112 +4499,6 @@ def show_category_reviews(message, category):
             return_pg_connection(conn)
 
 
-@bot.callback_query_handler(func=lambda call: LEGACY_REVIEWS_ENABLED and call.data.startswith(("approve_review_", "reject_review_")))
-def handle_review_moderation(call):
-    """Handle review approval/rejection"""
-    action = "approve" if call.data.startswith("approve") else "reject"
-    review_id = int(call.data.split("_")[2])
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Database error", show_alert=True)
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        if action == "approve":
-            # Обновляем статус отзыва
-            cursor.execute('''
-                UPDATE reviews SET status = 'approved' WHERE id = %s
-            ''', (review_id,))
-            message = "✅ Отзыв одобрен и опубликован"
-        else:
-            # Удаляем отзыв
-            cursor.execute('''
-                DELETE FROM reviews WHERE id = %s
-            ''', (review_id,))
-            message = "❌ Отзыв отклонен и удален"
-
-        conn.commit()
-
-        # Обновляем сообщение у администратора
-        try:
-            bot.edit_message_text(
-                f"{call.message.text}\n\n{message}",
-                call.message.chat.id,
-                call.message.message_id
-            )
-        except Exception as e:
-            logger.error(f"Error editing message: {e}")
-
-        bot.answer_callback_query(call.id, message)
-
-    except Exception as e:
-        logger.error(f"Error moderating review: {e}")
-        bot.answer_callback_query(call.id, "❌ Error processing request", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REVIEWS_ENABLED and call.data.startswith("admin_review_detail_"))
-def handle_admin_review_detail(call):
-    """Show detailed review for moderation"""
-    review_id = call.data.split("_")[3]
-    review_id = int(review_id)
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT r.id, l.name, r.service_type, r.rating, r.text, l.tg
-            FROM reviews r
-            JOIN label l ON r.user_id = l.telegram_id
-            WHERE r.id = %s
-        ''', (review_id,))
-        review = cursor.fetchone()
-
-        if not review:
-            bot.answer_callback_query(call.id, "❌ Отзыв не найден", show_alert=True)
-            return
-
-        review_id, artist_name, service_type, rating, text, username = review
-
-        review_text = (
-            f"📝 Полный текст отзыва:\n\n"
-            f"👤 Автор: {artist_name} (@{username})\n"
-            f"📂 Услуга: {service_type}\n"
-            f"⭐️ Оценка: {'⭐️' * rating}\n\n"
-            f"💬 Текст:\n{text}"
-        )
-
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton("✅ Одобрить", callback_data=f"approve_review_{review_id}"),
-            types.InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_review_{review_id}")
-        )
-
-        bot.edit_message_text(
-            review_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-
-    except Error as e:
-        logger.error(f"Database error in handle_admin_review_detail: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
 
 def notify_admins_about_new_review(review_id):
     """Notify admins about new review with moderation buttons"""
@@ -15088,38 +4570,6 @@ def notify_admins_about_new_review(review_id):
 
 
 
-@bot.callback_query_handler(func=lambda call: LEGACY_REVIEWS_ENABLED and call.data.startswith("review_create"))
-def start_review_creation(call):
-    """Start review creation process"""
-    if "_" in call.data:
-        category = call.data.split("_")[2]
-        bot.review_category = category
-    else:
-        markup = types.InlineKeyboardMarkup()
-        categories = [
-            ("🎵 Дистрибуция", "distribution"),
-            ("🎨 Обложки + Motion", "design"),
-            (" IZBA Records", "izba")
-        ]
-
-        for text, category in categories:
-            markup.add(types.InlineKeyboardButton(text, callback_data=f"review_category_{category}"))
-
-        bot.edit_message_text(
-            "Выберите категорию для отзыва:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        return
-
-    bot.edit_message_text(
-        "Оцените сервис от 1 до 5 звезд:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=create_rating_keyboard()
-    )
-
 
 def create_rating_keyboard():
     """Create rating selection keyboard"""
@@ -15130,20 +4580,6 @@ def create_rating_keyboard():
 
 
 # В функции handle_rating добавьте сохранение рейтинга
-@bot.callback_query_handler(func=lambda call: LEGACY_REVIEWS_ENABLED and call.data.startswith("rating_"))
-def handle_rating(call):
-    """Handle rating selection"""
-    rating = int(call.data.split("_")[1])
-    bot.review_rating = rating  # Сохраняем рейтинг
-
-    bot.edit_message_text(
-        f"⭐️ Вы поставили {rating} {'звезд' if rating > 1 else 'звезду'}!\n\n"
-        "📝 Теперь напишите текст вашего отзыва:",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    bot.register_next_step_handler(call.message, save_review)
-
 
 # Обновите функцию save_review
 def save_review(message):
@@ -15200,61 +4636,6 @@ def save_review(message):
             cursor.close()
             return_pg_connection(conn)
 
-
-@bot.callback_query_handler(
-    func=lambda call: LEGACY_REVIEWS_ENABLED
-    and (call.data.startswith("review_approve_") or call.data.startswith("review_reject_"))
-)
-def handle_review_moderation(call):
-    """Handle review approval/rejection"""
-    action, review_id = call.data.split("_")[1:]
-    review_id = int(review_id)
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(
-            call.id,
-            "❌ Ошибка подключения к базе данных. Попробуйте позже.",
-            show_alert=True
-        )
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        if action == "approve":
-            cursor.execute('UPDATE reviews SET status = %s WHERE id = %s', ("approved", review_id))
-            status_text = "✅ Отзыв одобрен"
-        else:
-            cursor.execute('DELETE FROM reviews WHERE id = %s', (review_id,))
-            status_text = "❌ Отзыв отклонен"
-
-        conn.commit()
-
-        # Edit the original message to show the result
-        try:
-            bot.edit_message_text(
-                f"{call.message.text}\n\n{status_text}",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=None  # remove buttons
-            )
-        except Exception as e:
-            logger.error(f"Could not edit message: {e}")
-
-        bot.answer_callback_query(call.id, status_text)
-
-    except Error as e:
-        logger.error(f"PostgreSQL error in handle_review_moderation: {e}")
-        bot.answer_callback_query(
-            call.id,
-            "❌ Произошла ошибка при модерации отзыва.",
-            show_alert=True
-        )
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
 
 
 def check_pending_reviews():
@@ -15336,45 +4717,23 @@ def build_support_status_markup(request_id, active_status=None):
     return markup
 
 
-def build_design_status_markup(request_id, active_status=None):
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    for status in DESIGN_ORDER_STATUSES:
-        prefix = "✅ " if status == active_status else ""
-        markup.add(types.InlineKeyboardButton(
-            f"{prefix}{status.title()}",
-            callback_data=f"design_status:{request_id}:{status}"
-        ))
-    return markup
-
-
 def format_support_request_text(request):
     text = (
         f"🆘 Заявка поддержки\n"
         f"Шаблон: {request['template_title']}\n"
         f"Пользователь: {request['user_display']}\n"
     )
-    
+
     if request.get('release_name'):
         text += f"🎵 Релиз: {request['release_name']}\n"
-    
+
     text += (
         f"Статус: {request['status']}\n"
         f"Создано: {format_human_datetime(request['created_at'])}\n\n"
         f"Сообщение:\n{request['details']}"
     )
-    
+
     return text
-
-
-def format_design_request_text(order):
-    service = DESIGN_BRIEF_TEMPLATES.get(order['service'], {}).get('title', order['service'])
-    return (
-        f"🎨 Заказ услуги ({service})\n"
-        f"Пользователь: {order['user_display']}\n"
-        f"Статус: {order['status']}\n"
-        f"Создано: {format_human_datetime(order['created_at'])}\n\n"
-        f"Сообщение:\n{order['details']}"
-    )
 
 
 def notify_admins_support(request):
@@ -15402,12 +4761,12 @@ def get_user_releases_for_support(user_id):
     conn = get_pg_connection()
     if not conn:
         return []
-    
+
     try:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT id, release_name, release_date, release_type, status 
-            FROM releases 
+            SELECT id, release_name, release_date, release_type, status
+            FROM releases
             WHERE user_id = %s AND (is_track IS NULL OR is_track = FALSE)
             ORDER BY release_date DESC
             LIMIT 20
@@ -15428,28 +4787,28 @@ def get_release_data_for_support(release_id):
     conn = get_pg_connection()
     if not conn:
         return {}
-    
+
     try:
         cursor = conn.cursor()
         cursor.execute('''
             SELECT release_name, release_date, platform_links, artist_name, upc_code
-            FROM releases 
+            FROM releases
             WHERE id = %s
         ''', (release_id,))
         release_data = cursor.fetchone()
-        
+
         if not release_data:
             return {}
-        
+
         name, date, platform_links, artist_name, upc_code = release_data
-        
+
         result = {
             'release_name': name,
             'release_date': date.strftime('%d.%m.%Y') if date else None,
             'artist_name': artist_name,
             'upc_code': upc_code
         }
-        
+
         # Парсим platform_links для получения ссылок на карточки
         if platform_links:
             try:
@@ -15457,7 +4816,7 @@ def get_release_data_for_support(release_id):
                     links_data = json.loads(platform_links)
                 else:
                     links_data = platform_links
-                
+
                 if isinstance(links_data, dict):
                     # Ищем ссылку на карточку (обычно Яндекс.Музыка или первая доступная)
                     card_link = links_data.get('Яндекс.Музыка') or links_data.get('Яндекс Музыка') or \
@@ -15467,7 +4826,7 @@ def get_release_data_for_support(release_id):
                         result['card_link'] = card_link
             except Exception as e:
                 logger.error(f"Ошибка при парсинге platform_links: {e}")
-        
+
         return result
     except Exception as e:
         logger.error(f"Ошибка при получении данных релиза: {e}")
@@ -15483,18 +4842,18 @@ def get_user_data_for_support(user_id):
     conn = get_pg_connection()
     if not conn:
         return {}
-    
+
     try:
         cursor = conn.cursor()
         cursor.execute('SELECT name, tg FROM label WHERE telegram_id = %s', (user_id,))
         user_data = cursor.fetchone()
-        
+
         if not user_data:
             return {}
-        
+
         name, tg = user_data
         result = {}
-        
+
         # Приоритет: tg (username) > name
         if tg:
             # Убираем @ если уже есть
@@ -15502,7 +4861,7 @@ def get_user_data_for_support(user_id):
             result['nickname'] = f"@{tg_clean}"
         elif name:
             result['nickname'] = name
-        
+
         return result
     except Exception as e:
         logger.error(f"Ошибка при получении данных пользователя: {e}")
@@ -15516,17 +4875,17 @@ def get_user_data_for_support(user_id):
 def get_auto_filled_data(template_id, release_id=None, user_id=None):
     """Получить автоматически заполненные данные для заявки"""
     auto_data = {}
-    
+
     # Получаем данные пользователя
     if user_id:
         user_data = get_user_data_for_support(user_id)
         auto_data.update(user_data)
-    
+
     # Получаем данные релиза
     if release_id:
         release_data = get_release_data_for_support(release_id)
         auto_data.update(release_data)
-    
+
     return auto_data
 
 
@@ -15543,17 +4902,17 @@ def map_field_to_auto_data(field_name):
         'Название релиза': 'release_name',
         'Исполнитель - релиз': 'artist_name'
     }
-    
+
     # Нормализуем название поля (убираем двоеточие и лишние пробелы)
     normalized_field = field_name.strip().rstrip(':').strip()
-    
+
     # Проверяем точное совпадение
     if normalized_field in field_mapping:
         return field_mapping[normalized_field]
-    
+
     # Проверяем частичное совпадение (ключевые слова)
     field_lower = normalized_field.lower()
-    
+
     if 'никнейм' in field_lower or 'псевдоним' in field_lower:
         return 'nickname'
     elif 'карточк' in field_lower or 'ссылка на карточку' in field_lower:
@@ -15564,7 +4923,7 @@ def map_field_to_auto_data(field_name):
         return 'artist_name'
     elif 'название релиза' in field_lower or 'релиз' in field_lower:
         return 'release_name'
-    
+
     return None
 
 
@@ -15572,18 +4931,18 @@ def prompt_support_details(chat_id, template, user_id=None):
     if not template:
         bot.send_message(chat_id, "❌ Шаблон не найден. Попробуйте выбрать снова.")
         return
-    
+
     if user_id is None:
         # Пытаемся получить user_id из контекста (если есть)
         user_id = chat_id
-    
+
     # Для move_release сначала запрашиваем данные по полям (кроме ссылки на релиз и UPC)
     if template['id'] == 'move_release':
         # Показываем форму только с полями, которые нужно заполнить вручную
         fields_to_ask = [f for f in template['fields'] if f not in ['Ссылка на релиз', 'UPC']]
         prompt_support_input_step(chat_id, template, fields_to_ask, user_id)
         return
-    
+
     # Для videoshot - пошаговый ввод (оставляем как есть)
     if template['id'] == 'videoshot':
         user_data = ensure_user_storage(user_id)
@@ -15595,14 +4954,14 @@ def prompt_support_details(chat_id, template, user_id=None):
         }
         # Получаем релизы пользователя
         releases = get_user_releases_for_support(user_id)
-        
+
         if releases:
             text = (
                 f"📝 {template['title']}\n\n"
                 f"{template['description']}\n\n"
                 "🎵 Выберите релиз, с которым связана заявка (или пропустите):"
             )
-            
+
             markup = types.InlineKeyboardMarkup(row_width=1)
             for release_id_item, name, date, release_type, status in releases:
                 date_str = date.strftime('%d.%m.%Y') if date else 'Дата не указана'
@@ -15619,13 +4978,13 @@ def prompt_support_details(chat_id, template, user_id=None):
                 "🚫 Отмена",
                 callback_data="support_cancel"
             ))
-            
+
             bot.send_message(chat_id, text, reply_markup=markup)
         else:
             # Если релизов нет, сразу переходим к первому вопросу
             ask_videoshot_question(chat_id, user_id, template['id'], 0)
         return
-    
+
     # Для всех остальных шаблонов - универсальный поэтапный ввод
     user_data = ensure_user_storage(user_id)
     user_data['support_state'] = {
@@ -15635,10 +4994,10 @@ def prompt_support_details(chat_id, template, user_id=None):
         'release_id': None,
         'auto_filled': {}
     }
-    
+
     # Получаем релизы пользователя
     releases = get_user_releases_for_support(user_id)
-    
+
     # Если есть релизы, предлагаем выбрать релиз
     if releases:
         text = (
@@ -15646,7 +5005,7 @@ def prompt_support_details(chat_id, template, user_id=None):
             f"{template['description']}\n\n"
             "🎵 Выберите релиз, с которым связана заявка (или пропустите):"
         )
-        
+
         markup = types.InlineKeyboardMarkup(row_width=1)
         for release_id_item, name, date, release_type, status in releases:
             date_str = date.strftime('%d.%m.%Y') if date else 'Дата не указана'
@@ -15663,7 +5022,7 @@ def prompt_support_details(chat_id, template, user_id=None):
             "🚫 Отмена",
             callback_data="support_cancel"
         ))
-        
+
         bot.send_message(chat_id, text, reply_markup=markup)
     else:
         # Если релизов нет, сразу переходим к поэтапному вводу
@@ -15730,7 +5089,7 @@ def process_support_input_step_response(message, template_id, fields_to_ask, use
     user_data = ensure_user_storage(message.from_user.id)
     if 'support_request_data' not in user_data:
         user_data['support_request_data'] = {}
-    
+
     user_data['support_request_data']['template_id'] = template_id
     user_data['support_request_data']['fields_data'] = message.text.strip()
     user_data['support_request_data']['fields_to_ask'] = fields_to_ask
@@ -15738,16 +5097,16 @@ def process_support_input_step_response(message, template_id, fields_to_ask, use
     # Для move_release - показываем обязательный выбор релиза
     if template_id == 'move_release':
         releases = get_user_releases_for_support(user_id or message.from_user.id)
-        
+
         if not releases:
             bot.reply_to(message, "❌ У вас пока нет релизов. Сначала создайте релиз.")
             return
-        
+
         text = (
             f"📝 {template['title']}\n\n"
             "🎵 Теперь выберите релиз, который нужно переместить:"
         )
-        
+
         markup = types.InlineKeyboardMarkup(row_width=1)
         for release_id, name, date, release_type, status in releases:
             date_str = date.strftime('%d.%m.%Y') if date else 'Дата не указана'
@@ -15760,7 +5119,7 @@ def process_support_input_step_response(message, template_id, fields_to_ask, use
             "🚫 Отмена",
             callback_data="support_cancel"
         ))
-        
+
         bot.send_message(message.chat.id, text, reply_markup=markup)
     else:
         # Для других шаблонов - стандартная обработка
@@ -15792,7 +5151,7 @@ def ask_videoshot_question(chat_id, user_id, template_id, field_index):
         question_text = f"📝 Заявка на видеошот\n\n" \
                         f"Вопрос {field_index + 1}/{len(fields)}:\n" \
                         f"{current_field}:"
-        
+
         if template.get("note") and field_index == len(fields) - 1:  # Add note only for the last question
             question_text += f"\n\n{template['note']}"
 
@@ -15836,7 +5195,7 @@ def process_videoshot_answer(message, template_id, user_id):
     if current_field_index < len(fields):
         field_name = fields[current_field_index]
         state['answers'][field_name] = message.text.strip()
-        
+
         # Move to next question
         next_field_index = current_field_index + 1
         if next_field_index < len(fields):
@@ -15869,7 +5228,7 @@ def process_videoshot_submission(chat_id, user_id, template_id):
     for field in template['fields']:
         answer = state['answers'].get(field, 'Не указано')
         details_lines.append(f"{field}: {answer}")
-    
+
     if template.get("note"):
         details_lines.append(f"\n{template['note']}")
 
@@ -15909,7 +5268,7 @@ def process_videoshot_submission(chat_id, user_id, template_id):
         "release_name": release_name
     }
     SUPPORT_REQUESTS.append(request)
-    
+
     # Save to DB
     save_support_request_to_db(
         user_id=user_id,
@@ -15927,7 +5286,7 @@ def process_videoshot_submission(chat_id, user_id, template_id):
     )
 
     notify_admins_support(request)
-    
+
     # Clear state
     if 'videoshot_state' in user_data:
         del user_data['videoshot_state']
@@ -15945,7 +5304,7 @@ def ask_support_question(chat_id, user_id, template_id, field_index):
     if user_data.pop("_support_cancelled", None):
         bot.send_message(chat_id, "🚫 Заявка отменена.", reply_markup=create_main_menu())
         return
-    
+
     # Если состояние еще не создано (например, при отсутствии релизов), создаем его
     if 'support_state' not in user_data:
         user_data['support_state'] = {
@@ -15965,16 +5324,16 @@ def ask_support_question(chat_id, user_id, template_id, field_index):
 
     if field_index < len(fields):
         current_field = fields[field_index]
-        
+
         # Проверяем, есть ли автоматически заполненное значение для этого поля
         auto_data_key = map_field_to_auto_data(current_field)
         auto_value = None
         if auto_data_key and auto_data_key in state.get('auto_filled', {}):
             auto_value = state['auto_filled'][auto_data_key]
-        
+
         # Формируем текст вопроса
         question_text = f"📝 {template['title']}\n\n"
-        
+
         # Показываем информацию о выбранном релизе, если есть
         if state.get('release_id'):
             release_data = get_release_data_for_support(state['release_id'])
@@ -15984,16 +5343,16 @@ def ask_support_question(chat_id, user_id, template_id, field_index):
                 if date_str:
                     question_text += f" ({date_str})"
                 question_text += "\n\n"
-        
+
         question_text += f"Вопрос {field_index + 1}/{len(fields)}:\n{current_field}:"
-        
+
         # Если есть автоматически заполненное значение, показываем его
         if auto_value:
             question_text += f"\n\n✅ Автоматически заполнено: {auto_value}\n\nВы можете оставить это значение (отправьте \"+\", \"да\" или \"ок\") или ввести новое:"
             # Не предзаполняем сразу, дадим пользователю выбор
         else:
             question_text += "\n"
-        
+
         if template.get("note") and field_index == len(fields) - 1:
             question_text += f"\n{template['note']}"
 
@@ -16007,17 +5366,17 @@ def ask_support_question(chat_id, user_id, template_id, field_index):
 def process_support_answer(message, template_id, user_id):
     """Обработать ответ на вопрос заявки поддержки"""
     user_data = ensure_user_storage(user_id)
-    
+
     if 'support_state' not in user_data:
         user_data.pop("_support_cancelled", None)
         bot.send_message(message.chat.id, "🚫 Заявка отменена.", reply_markup=create_main_menu())
         return
-    
+
     if message.text and message.text.strip() in MAIN_MENU_BUTTONS:
         user_data.pop("support_state", None)
         handle_main_menu(message)
         return
-    
+
     if is_cancel_message(message):
         bot.reply_to(message, "🚫 Заявка отменена.", reply_markup=create_main_menu())
         if 'support_state' in user_data:
@@ -16036,20 +5395,20 @@ def process_support_answer(message, template_id, user_id):
     if current_field_index < len(fields):
         field_name = fields[current_field_index]
         user_input = message.text.strip()
-        
+
         # Проверяем, есть ли автоматически заполненное значение для этого поля
         auto_data_key = map_field_to_auto_data(field_name)
         auto_value = None
         if auto_data_key and auto_data_key in state.get('auto_filled', {}):
             auto_value = state['auto_filled'][auto_data_key]
-        
+
         # Если пользователь отправил "+", "да" или "ок", используем предзаполненное значение
         if user_input.lower() in ['+', 'да', 'yes', 'ok', 'ок', 'оставить', 'оставить как есть'] and auto_value:
             state['answers'][field_name] = auto_value
         else:
             # Пользователь ввел новое значение
             state['answers'][field_name] = user_input
-        
+
         # Переходим к следующему вопросу
         next_field_index = current_field_index + 1
         if next_field_index < len(fields):
@@ -16081,7 +5440,7 @@ def process_support_submission_final(chat_id, user_id, template_id):
     for field in template['fields']:
         answer = state['answers'].get(field, 'Не указано')
         details_lines.append(f"{field}: {answer}")
-    
+
     if template.get("note"):
         details_lines.append(f"\n{template['note']}")
 
@@ -16112,7 +5471,7 @@ def process_support_submission_final(chat_id, user_id, template_id):
         "release_name": release_name
     }
     SUPPORT_REQUESTS.append(request)
-    
+
     # Сохраняем в БД
     save_support_request_to_db(
         user_id=user_id,
@@ -16130,7 +5489,7 @@ def process_support_submission_final(chat_id, user_id, template_id):
     )
 
     notify_admins_support(request)
-    
+
     # Очищаем состояние
     if 'support_state' in user_data:
         del user_data['support_state']
@@ -16176,48 +5535,25 @@ def prompt_support_input(chat_id, template, release_id=None):
     bot.register_next_step_handler(msg, process_support_submission, template["id"], release_id)
 
 
-def prompt_design_brief(user_id, service):
-    template = DESIGN_BRIEF_TEMPLATES.get(service)
-    if not template:
-        return
-
-    instructions = [
-        f"📝 {template['title']}",
-        "Пожалуйста, отправьте одним сообщением данные по шаблону ниже:",
-        ""
-    ]
-    for field in template['fields']:
-        instructions.append(f"{field}: ...")
-    if template.get("note"):
-        instructions.extend(["", template["note"]])
-    instructions.append("")
-
-    try:
-        msg = bot.send_message(user_id, "\n".join(instructions), reply_markup=create_cancel_keyboard())
-        bot.register_next_step_handler(msg, process_design_brief, service)
-    except Exception as e:
-        logger.error(f"Failed to send design brief prompt to {user_id}: {e}")
-
-
 def save_support_request_to_db(user_id, template_id, template_title, details, release_id=None, release_name=None):
     """Сохранить заявку поддержки в базу данных"""
     conn = get_pg_connection()
     if not conn:
         logger.error("Не удалось подключиться к БД для сохранения заявки")
         return None
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Проверяем существование таблицы
         cursor.execute("""
             SELECT EXISTS (
-                SELECT FROM information_schema.tables 
+                SELECT FROM information_schema.tables
                 WHERE table_name = 'support_requests'
             )
         """)
         table_exists = cursor.fetchone()[0]
-        
+
         if not table_exists:
             # Создаем таблицу, если её нет
             cursor.execute('''
@@ -16236,26 +5572,26 @@ def save_support_request_to_db(user_id, template_id, template_title, details, re
                 )
             ''')
             conn.commit()
-        
+
         # Сохраняем заявку
         request_data = {
             "details": details,
             "release_id": release_id,
             "release_name": release_name
         }
-        
+
         cursor.execute("""
-            INSERT INTO support_requests 
+            INSERT INTO support_requests
             (user_id, template_id, template_title, details, request_data, status, release_id, release_name, created_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         """, (user_id, template_id, template_title, details, json.dumps(request_data), 'принят', release_id, release_name, datetime.now()))
-        
+
         request_db_id = cursor.fetchone()[0]
         conn.commit()
         logger.info(f"Заявка поддержки сохранена в БД с ID: {request_db_id}")
         return request_db_id
-        
+
     except Exception as e:
         logger.error(f"Ошибка при сохранении заявки в БД: {e}")
         conn.rollback()
@@ -16331,7 +5667,7 @@ def process_support_submission(message, template_id, release_id=None):
         "release_name": release_name
     }
     SUPPORT_REQUESTS.append(request)
-    
+
     # Сохраняем в БД
     save_support_request_to_db(
         user_id=message.from_user.id,
@@ -16351,286 +5687,6 @@ def process_support_submission(message, template_id, release_id=None):
     notify_admins_support(request)
 
 
-def process_design_brief(message, service):
-    if not message.text:
-        bot.reply_to(message, "Пожалуйста, отправьте текстовое описание брифа.")
-        prompt_design_brief(message.chat.id, service)
-        return
-
-    if is_cancel_message(message):
-        bot.reply_to(message, "🚫 Отправка брифа отменена.")
-        return
-
-    storage = ensure_user_storage(message.from_user.id)
-    briefs = storage.setdefault('design_briefs', {})
-    briefs[service] = message.text.strip()
-
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("💳 Оплатить", callback_data=f"pay_{service}"))
-
-    bot.reply_to(
-        message,
-        "✅ Бриф сохранён! Теперь нажмите «Оплатить», чтобы отправить заказ.",
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_SUPPORT_ENABLED and call.data.startswith("support_template:"))
-def handle_support_template_selection(call):
-    template_id = call.data.split(":", 1)[1]
-    template = get_support_template(template_id)
-
-    if not template:
-        bot.answer_callback_query(call.id, "Шаблон недоступен.", show_alert=True)
-        return
-
-    ensure_user_storage(call.from_user.id).pop("_support_cancelled", None)
-    bot.answer_callback_query(call.id)
-    prompt_support_details(call.message.chat.id, template, call.from_user.id)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_SUPPORT_ENABLED and call.data.startswith("support_select_release_move:"))
-def handle_support_release_selection_move(call):
-    """Обработчик выбора релиза для move_release - автоматически заполняет данные и сохраняет"""
-    try:
-        release_id = int(call.data.split(":")[1])
-        user_id = call.from_user.id
-        
-        # Получаем сохраненные данные из временного хранилища
-        user_data = ensure_user_storage(user_id)
-        support_data = user_data.get('support_request_data', {})
-        
-        if not support_data or support_data.get('template_id') != 'move_release':
-            bot.answer_callback_query(call.id, "Ошибка: данные не найдены. Начните заново.", show_alert=True)
-            return
-        
-        template = get_support_template('move_release')
-        if not template:
-            bot.answer_callback_query(call.id, "Шаблон не найден.", show_alert=True)
-            return
-        
-        # Получаем данные релиза из БД
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "Ошибка подключения к БД.", show_alert=True)
-            return
-        
-        try:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT release_name, release_date, upc_code, platform_links 
-                FROM releases 
-                WHERE id = %s AND user_id = %s
-            ''', (release_id, user_id))
-            release_data = cursor.fetchone()
-            
-            if not release_data:
-                bot.answer_callback_query(call.id, "Релиз не найден.", show_alert=True)
-                return
-            
-            name, date, upc_code, platform_links = release_data
-            date_str = date.strftime('%d.%m.%Y') if date else 'Дата не указана'
-            release_name = f"{name} ({date_str})"
-            
-            # Получаем ссылку на релиз из platform_links
-            release_link = "Не указана"
-            if platform_links:
-                try:
-                    if isinstance(platform_links, str):
-                        import json
-                        platform_links = json.loads(platform_links)
-                    
-                    # Ищем ссылку Яндекс.Музыки
-                    if isinstance(platform_links, dict):
-                        release_link = platform_links.get('Яндекс.Музыка') or platform_links.get('Яндекс Музыка') or \
-                                      platform_links.get('yandex') or platform_links.get('Yandex') or \
-                                      next(iter(platform_links.values())) if platform_links else "Не указана"
-                except:
-                    release_link = "Не указана"
-            
-            upc_code = upc_code or "Не указан"
-            
-            # Формируем полный текст заявки
-            fields_data = support_data.get('fields_data', '')
-            details_text = f"{fields_data}\n"
-            details_text += f"Ссылка на релиз: {release_link}\n"
-            details_text += f"UPC: {upc_code}"
-            
-            # Сохраняем заявку в БД и память
-            save_support_request_to_db(
-                user_id=user_id,
-                template_id='move_release',
-                template_title=template['title'],
-                details=details_text,
-                release_id=release_id,
-                release_name=release_name
-            )
-            
-            request = {
-                "id": generate_request_id(),
-                "template_id": 'move_release',
-                "template_title": template['title'],
-                "details": details_text,
-                "status": "принят",
-                "user_id": user_id,
-                "chat_id": call.message.chat.id,
-                "user_display": get_display_username(call.from_user),
-                "created_at": datetime.now().isoformat(),
-                "release_id": release_id,
-                "release_name": release_name
-            }
-            SUPPORT_REQUESTS.append(request)
-            
-            # Очищаем временные данные
-            if 'support_request_data' in user_data:
-                del user_data['support_request_data']
-            
-            bot.answer_callback_query(call.id, "✅ Релиз выбран, заявка создана")
-            bot.edit_message_text(
-                f"✅ Заявка «{template['title']}» принята. Текущий статус: принят.\n"
-                f"🎵 Релиз: {release_name}\n"
-                "Мы уведомили администратора и сообщим об обновлениях.",
-                call.message.chat.id,
-                call.message.message_id
-            )
-            
-            notify_admins_support(request)
-            
-        except Exception as e:
-            logger.error(f"Ошибка при обработке выбора релиза: {e}")
-            bot.answer_callback_query(call.id, "Ошибка при обработке.", show_alert=True)
-        finally:
-            if conn:
-                cursor.close()
-                return_pg_connection(conn)
-                
-    except Exception as e:
-        logger.error(f"Ошибка при выборе релиза: {e}")
-        bot.answer_callback_query(call.id, "Ошибка при выборе релиза.", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_SUPPORT_ENABLED and call.data.startswith("videoshot_select_release:"))
-def handle_videoshot_release_selection(call):
-    """Обработчик выбора релиза для видеошота"""
-    try:
-        _, template_id, release_id = call.data.split(":", 2)
-        user_id = call.from_user.id
-        user_data = ensure_user_storage(user_id)
-        
-        if 'videoshot_state' not in user_data:
-            bot.answer_callback_query(call.id, "Ошибка: состояние заявки не найдено. Начните заново.", show_alert=True)
-            return
-        
-        user_data['videoshot_state']['release_id'] = int(release_id)
-        bot.answer_callback_query(call.id, "Релиз выбран")
-        
-        # Start asking questions
-        ask_videoshot_question(call.message.chat.id, user_id, template_id, 0)
-        
-    except Exception as e:
-        logger.error(f"Ошибка при выборе релиза для видеошота: {e}")
-        bot.answer_callback_query(call.id, "Ошибка при выборе релиза.", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_SUPPORT_ENABLED and call.data.startswith("videoshot_skip_release:"))
-def handle_videoshot_skip_release(call):
-    """Обработчик пропуска релиза для видеошота"""
-    try:
-        _, template_id = call.data.split(":", 1)
-        user_id = call.from_user.id
-        user_data = ensure_user_storage(user_id)
-        
-        if 'videoshot_state' not in user_data:
-            bot.answer_callback_query(call.id, "Ошибка: состояние заявки не найдено. Начните заново.", show_alert=True)
-            return
-        
-        user_data['videoshot_state']['release_id'] = None  # Explicitly set to None
-        bot.answer_callback_query(call.id, "Пропущено")
-        
-        # Start asking questions
-        ask_videoshot_question(call.message.chat.id, user_id, template_id, 0)
-        
-    except Exception as e:
-        logger.error(f"Ошибка при пропуске релиза для видеошота: {e}")
-        bot.answer_callback_query(call.id, "Ошибка.", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_SUPPORT_ENABLED and call.data.startswith("support_select_release:"))
-def handle_support_release_selection(call):
-    """Обработчик выбора релиза в поддержке"""
-    try:
-        _, template_id, release_id = call.data.split(":", 2)
-        user_id = call.from_user.id
-        user_data = ensure_user_storage(user_id)
-        
-        template = get_support_template(template_id)
-        if not template:
-            bot.answer_callback_query(call.id, "Шаблон не найден.", show_alert=True)
-            return
-        
-        # Инициализируем состояние, если его еще нет
-        if 'support_state' not in user_data:
-            user_data['support_state'] = {
-                'template_id': template_id,
-                'current_field_index': 0,
-                'answers': {},
-                'release_id': None,
-                'auto_filled': {}
-            }
-        
-        release_id_int = int(release_id)
-        user_data['support_state']['release_id'] = release_id_int
-        
-        # Получаем автоматически заполненные данные из релиза и профиля пользователя
-        auto_data = get_auto_filled_data(template_id, release_id_int, user_id)
-        user_data['support_state']['auto_filled'] = auto_data
-        
-        bot.answer_callback_query(call.id, "Релиз выбран")
-        
-        # Начинаем поэтапный ввод
-        ask_support_question(call.message.chat.id, user_id, template_id, 0)
-    except Exception as e:
-        logger.error(f"Ошибка при выборе релиза: {e}")
-        bot.answer_callback_query(call.id, "Ошибка при выборе релиза.", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_SUPPORT_ENABLED and call.data.startswith("support_skip_release:"))
-def handle_support_skip_release(call):
-    """Обработчик пропуска выбора релиза"""
-    try:
-        _, template_id = call.data.split(":", 1)
-        user_id = call.from_user.id
-        user_data = ensure_user_storage(user_id)
-        
-        template = get_support_template(template_id)
-        if not template:
-            bot.answer_callback_query(call.id, "Шаблон не найден.", show_alert=True)
-            return
-        
-        # Инициализируем состояние, если его еще нет
-        if 'support_state' not in user_data:
-            user_data['support_state'] = {
-                'template_id': template_id,
-                'current_field_index': 0,
-                'answers': {},
-                'release_id': None,
-                'auto_filled': {}
-            }
-        
-        user_data['support_state']['release_id'] = None
-        
-        # Получаем автоматически заполненные данные только из профиля пользователя
-        auto_data = get_auto_filled_data(template_id, None, user_id)
-        user_data['support_state']['auto_filled'] = auto_data
-        
-        bot.answer_callback_query(call.id, "Пропущено")
-        
-        # Начинаем поэтапный ввод
-        ask_support_question(call.message.chat.id, user_id, template_id, 0)
-    except Exception as e:
-        logger.error(f"Ошибка при пропуске релиза: {e}")
-        bot.answer_callback_query(call.id, "Ошибка.", show_alert=True)
-
 
 def _clear_support_next_step_handlers(chat_id, user_id):
     """Сбрасывает все возможные ключи next_step для данного чата/пользователя (pyTelegramBotAPI может использовать chat_id или (chat_id, user_id))."""
@@ -16648,107 +5704,6 @@ def _clear_support_next_step_handlers(chat_id, user_id):
     except Exception:
         pass
 
-
-@bot.callback_query_handler(func=lambda call: LEGACY_SUPPORT_ENABLED and call.data == "support_cancel")
-def handle_support_cancel(call):
-    """Обработчик отмены заявки поддержки - очищает временные данные и сбрасывает ожидание следующего сообщения"""
-    user_id = call.from_user.id
-    chat_id = call.message.chat.id
-    user_data = ensure_user_storage(user_id)
-    _clear_support_next_step_handlers(chat_id, user_id)
-    if 'support_request_data' in user_data:
-        del user_data['support_request_data']
-    if 'videoshot_state' in user_data:
-        del user_data['videoshot_state']
-    if 'support_state' in user_data:
-        del user_data['support_state']
-    user_data['_support_cancelled'] = True
-    bot.answer_callback_query(call.id, "Отменено")
-    bot.send_message(chat_id, "🚫 Заявка отменена.", reply_markup=create_main_menu())
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_SUPPORT_ENABLED and call.data.startswith("support_status:"))
-def handle_support_status_change(call):
-    try:
-        _, request_id, new_status = call.data.split(":", 2)
-    except ValueError:
-        bot.answer_callback_query(call.id, "Неверные данные", show_alert=True)
-        return
-
-    if new_status not in SUPPORT_REQUEST_STATUSES:
-        bot.answer_callback_query(call.id, "Недопустимый статус", show_alert=True)
-        return
-
-    request = next((req for req in SUPPORT_REQUESTS if req["id"] == request_id), None)
-    if not request:
-        bot.answer_callback_query(call.id, "Заявка не найдена", show_alert=True)
-        return
-
-    request["status"] = new_status
-    markup = build_support_status_markup(request_id, new_status)
-    text = format_support_request_text(request)
-
-    try:
-        bot.edit_message_text(
-            text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-    except Exception as e:
-        logger.debug(f"Could not edit admin support message: {e}")
-
-    try:
-        bot.send_message(
-            request["chat_id"],
-            f"ℹ️ Статус вашей заявки «{request['template_title']}» обновлён: {new_status}."
-        )
-    except Exception as e:
-        logger.error(f"Failed to notify user about support status: {e}")
-
-    bot.answer_callback_query(call.id, f"Статус изменён на «{new_status}»")
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("design_status:"))
-def handle_design_status_change(call):
-    try:
-        _, request_id, new_status = call.data.split(":", 2)
-    except ValueError:
-        bot.answer_callback_query(call.id, "Неверные данные", show_alert=True)
-        return
-
-    if new_status not in DESIGN_ORDER_STATUSES:
-        bot.answer_callback_query(call.id, "Недопустимый статус", show_alert=True)
-        return
-
-    order = next((req for req in DESIGN_BRIEF_REQUESTS if req["id"] == request_id), None)
-    if not order:
-        bot.answer_callback_query(call.id, "Заказ не найден", show_alert=True)
-        return
-
-    order["status"] = new_status
-    markup = build_design_status_markup(request_id, new_status)
-    text = format_design_request_text(order)
-
-    try:
-        bot.edit_message_text(
-            text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-    except Exception as e:
-        logger.debug(f"Could not edit admin design message: {e}")
-
-    try:
-        bot.send_message(
-            order["chat_id"],
-            f"ℹ️ Статус вашего заказа ({DESIGN_BRIEF_TEMPLATES.get(order['service'], {}).get('title', order['service'])}) обновлён: {new_status}."
-        )
-    except Exception as e:
-        logger.error(f"Failed to notify user about design status: {e}")
-
-    bot.answer_callback_query(call.id, f"Статус изменён на «{new_status}»")
 
 
 def handle_admin_support_main(call):
@@ -16903,35 +5858,6 @@ def show_support_detail(call, request_id):
     )
 
 
-def show_order_detail(call, request_id):
-    order = next((req for req in DESIGN_BRIEF_REQUESTS if req["id"] == request_id), None)
-    if not order:
-        bot.answer_callback_query(call.id, "Заказ не найден", show_alert=True)
-        return
-
-    text = format_design_request_text(order)
-    markup = build_design_status_markup(request_id, order["status"])
-    markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"admin_orders_{order['service']}"))
-
-    bot.edit_message_text(
-        text,
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_SUPPORT_ENABLED and call.data.startswith("support_detail_"))
-def handle_admin_support_detail(call):
-    request_id = call.data.split("_", 2)[2]
-    show_support_detail(call, request_id)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("order_detail_"))
-def handle_admin_order_detail(call):
-    request_id = call.data.split("_", 2)[2]
-    show_order_detail(call, request_id)
-
 
 @require_channel_subscription
 def handle_help(message):
@@ -16957,26 +5883,26 @@ def handle_help(message):
 def handle_statistics(message):
     """Handle statistics section"""
     user_id = message.from_user.id
-    
+
     conn = get_pg_connection()
     if not conn:
         bot.reply_to(message, "❌ Ошибка подключения к базе данных.")
         return
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Получаем статистику пользователя
         cursor.execute('SELECT COUNT(*) FROM releases WHERE user_id = %s', (user_id,))
         releases_count = cursor.fetchone()[0]
-        
+
         cursor.execute('SELECT COALESCE(balance, 0) FROM label WHERE telegram_id = %s', (user_id,))
         balance_result = cursor.fetchone()
         balance = balance_result[0] if balance_result else 0
-        
+
         cursor.execute('SELECT COUNT(*) FROM orders WHERE user_id = %s AND status = %s', (user_id, 'completed'))
         orders_count = cursor.fetchone()[0]
-        
+
         stats_text = (
             f"📊 Ваша статистика\n\n"
             f"🎵 Релизов: {releases_count}\n"
@@ -16984,9 +5910,9 @@ def handle_statistics(message):
             f"✅ Завершенных заказов: {orders_count}\n\n"
             f"📈 Продолжайте развиваться!"
         )
-        
+
         bot.reply_to(message, stats_text)
-        
+
     except Exception as e:
         logger.error(f"Error getting user statistics: {e}")
         bot.reply_to(message, "❌ Ошибка при получении статистики.")
@@ -17006,30 +5932,15 @@ def handle_support(message):
         f"👑 Владелец: {OWNER_USERNAME}\n\n"
         "⬇️ Можете выбрать готовый шаблон обращения ниже или написать менеджеру напрямую."
     )
-    
+
     markup = build_support_keyboard()
     markup.add(types.InlineKeyboardButton(
         "👑 Связаться с владельцем",
         url=f"https://t.me/{OWNER_USERNAME[1:]}"
     ))
-    
+
     bot.reply_to(message, support_text, reply_markup=markup)
 
-
-@bot.message_handler(commands=['support'], func=lambda message: LEGACY_SUPPORT_ENABLED)
-@require_channel_subscription
-def handle_support_command(message):
-    """Обработчик команды /support - позволяет отправить любой вопрос"""
-    ensure_user_storage(message.from_user.id).pop("_support_cancelled", None)
-    support_text = (
-        "📞 Поддержка TWAS Label Studio\n\n"
-        "Напишите ваш вопрос, и мы передадим его администраторам.\n"
-        "Опишите проблему максимально подробно.\n\n"
-        "Для отмены отправьте /cancel"
-    )
-    
-    msg = bot.reply_to(message, support_text, reply_markup=create_support_cancel_inline_keyboard())
-    bot.register_next_step_handler(msg, process_free_support_question)
 
 
 def process_free_support_question(message):
@@ -17045,11 +5956,11 @@ def process_free_support_question(message):
         bot.reply_to(message, "Пожалуйста, отправьте текстовое сообщение.", reply_markup=create_support_cancel_inline_keyboard())
         bot.register_next_step_handler(message, process_free_support_question)
         return
-    
+
     if is_cancel_message(message):
         bot.reply_to(message, "🚫 Заявка отменена.", reply_markup=create_main_menu())
         return
-    
+
     request = {
         "id": generate_request_id(),
         "template_id": "free_question",
@@ -17064,13 +5975,13 @@ def process_free_support_question(message):
         "release_name": None
     }
     SUPPORT_REQUESTS.append(request)
-    
+
     bot.reply_to(
         message,
         "✅ Ваш вопрос принят. Текущий статус: принят.\n"
         "Мы уведомили администратора и сообщим об обновлениях."
     )
-    
+
     notify_admins_support(request)
 
 
@@ -17090,7 +6001,7 @@ def handle_about(message):
         f"📊 Детальная статистика\n"
         f"💰 Прозрачные выплаты"
     )
-    
+
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton(
         "📢 Подписаться на канал",
@@ -17100,1438 +6011,16 @@ def handle_about(message):
         "🌐 Открыть приложение",
         web_app=types.WebAppInfo(url=f"{WEB_APP_URL}?tgid={message.from_user.id}")
     ))
-    
+
     bot.reply_to(message, about_text, reply_markup=markup)
 
-
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_USERS_ENABLED and call.data == "admin_users")
-def handle_admin_users(call):
-    """Handle displaying all users in the admin panel"""
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных.", show_alert=True)
-        return
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute('SELECT telegram_id, tg, name FROM label ORDER BY name')
-        users = cursor.fetchall()
-
-        if not users:
-            message_text = "🤷‍♀️ В базе данных нет зарегистрированных пользователей."
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_back"))
-            bot.edit_message_text(message_text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-            return
-
-        markup = types.InlineKeyboardMarkup(row_width=1)
-
-        for i, (user_id, username, name) in enumerate(users):
-            display_name = f"{name} (@{username})" if name and username else f"ID: {user_id}"
-            
-            # Create a row with user name and action buttons
-            markup.row(
-                types.InlineKeyboardButton(display_name, callback_data=f"user_info_{user_id}")
-            )
-            
-            # Create a row with two action buttons
-            markup.row(
-                types.InlineKeyboardButton("🔧 Управление ролью", callback_data=f"user_role_{user_id}"),
-                types.InlineKeyboardButton("📊 Запросы отчетов", callback_data=f"user_reports_{user_id}")
-            )
-
-            # Row with start distribution on behalf button
-            markup.row(
-# Кнопка выгрузки релиза за артиста перенесена в раздел "Наши услуги"
-            )
-            
-            # Add separator between users (except for the last one)
-            if i < len(users) - 1:
-                markup.row(types.InlineKeyboardButton("━━━━━━━━━━━━━━━━━━━━", callback_data="separator"))
-
-        markup.add(
-            types.InlineKeyboardButton("📊 Запросы отчетов", callback_data="admin_report_requests"),
-            types.InlineKeyboardButton("📋 Управление договорами", callback_data="admin_contracts"),
-            types.InlineKeyboardButton("◀️ Назад", callback_data="admin_back")
-        )
-
-        bot.edit_message_text(
-            f"👥 Список всех пользователей ({len(users)})\n\n"
-            f"📋 Для каждого пользователя доступно:\n"
-            f"• 🔧 Управление ролями\n"
-            f"• 📊 Просмотр запросов отчетов\n\n"
-            f"💡 Быстрый доступ:\n"
-            f"• 📊 Запросы отчетов - все отчеты в одном месте\n"
-            f"• 📋 Управление договорами - загрузка готовых договоров\n\n"
-            f"Выберите пользователя для управления:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-    except Error as e:
-        logger.error(f"PostgreSQL error in handle_admin_users: {e}")
-        bot.answer_callback_query(call.id, "❌ Произошла ошибка при получении списка пользователей.", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_REPORTS_ENABLED and call.data == "admin_report_requests")
-def handle_admin_report_requests(call):
-    """Handle admin view of all report requests"""
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get all report requests with user info
-        cursor.execute('''
-            SELECT r.id, r.user_id, r.status, r.created_at, r.completed_at, r.request_type,
-                r.upc_code,
-                   l.name, l.tg
-            FROM report_requests r
-            JOIN label l ON r.user_id = l.telegram_id
-            ORDER BY r.created_at DESC
-        ''')
-        
-        reports = cursor.fetchall()
-        
-        if not reports:
-            message_text = "📊 Запросы отчетов отсутствуют"
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_users"))
-            bot.edit_message_text(message_text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-            return
-        
-        # Group reports by status
-        pending_reports = [r for r in reports if r[2] == 'pending']
-        processing_reports = [r for r in reports if r[2] == 'processing']
-        completed_reports = [r for r in reports if r[2] == 'completed']
-        rejected_reports = [r for r in reports if r[2] == 'rejected']
-        
-        message_text = "📊 Запросы отчетов\n\n"
-        message_text += f"⏳ В ожидании: {len(pending_reports)}\n"
-        message_text += f"🔄 В обработке: {len(processing_reports)}\n"
-        message_text += f"✅ Завершено: {len(completed_reports)}\n"
-        message_text += f"❌ Отклонено: {len(rejected_reports)}\n\n"
-        
-        # Show pending reports first
-        if pending_reports:
-            message_text += "🆕 Новые запросы (требуют внимания):\n"
-            for report in pending_reports[:5]:  # Show first 5
-                report_id, user_id, status, created_at, completed_at, request_type, user_name, username = report
-                created_str = created_at.strftime('%d.%m.%Y %H:%M') if created_at else "дата не указана"
-                message_text += f"• #{report_id} - {user_name} (@{username}) - {created_str}\n"
-            if len(pending_reports) > 5:
-                message_text += f"... и еще {len(pending_reports) - 5}\n"
-            message_text += "\n"
-        
-        # Create markup
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        
-        # Add buttons for each status
-        if pending_reports:
-            markup.add(types.InlineKeyboardButton("⏳ Обработать ожидающие", callback_data="admin_process_pending_reports"))
-        
-        if processing_reports:
-            markup.add(types.InlineKeyboardButton("🔄 В обработке", callback_data="admin_view_processing_reports"))
-        
-        if completed_reports:
-            markup.add(types.InlineKeyboardButton("✅ Завершенные", callback_data="admin_view_completed_reports"))
-        
-        markup.add(
-            types.InlineKeyboardButton("📊 Все отчеты", callback_data="admin_view_all_reports"),
-            types.InlineKeyboardButton("◀️ Назад", callback_data="admin_users")
-        )
-        
-        bot.edit_message_text(message_text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-        
-    except Exception as e:
-        logger.error(f"Error in handle_admin_report_requests: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при получении запросов отчетов", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
 
 
 # Дублированный обработчик удален - используется handle_admin_back на строке 8663
 
 
-@bot.callback_query_handler(func=lambda call: call.data == "admin_process_pending_reports")
-def handle_admin_process_pending_reports(call):
-    """Handle admin processing of pending report requests"""
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get pending reports
-        cursor.execute('''
-            SELECT r.id, r.user_id, r.created_at, r.request_type,
-                r.upc_code,
-                   l.name, l.tg
-            FROM report_requests r
-            JOIN label l ON r.user_id = l.telegram_id
-            WHERE r.status = 'pending'
-            ORDER BY r.created_at ASC
-        ''')
-        
-        pending_reports = cursor.fetchall()
-        
-        if not pending_reports:
-            bot.answer_callback_query(call.id, "✅ Нет ожидающих отчетов", show_alert=True)
-            return
-        
-        # Show first pending report
-        report = pending_reports[0]
-        report_id, user_id, created_at, request_type, user_name, username = report
-        
-        created_str = created_at.strftime('%d.%m.%Y %H:%M') if created_at else "дата не указана"
-        
-        message_text = f"📊 Обработка отчета #{report_id}\n\n"
-        message_text += f"👤 Пользователь: {user_name} (@{username})\n"
-        message_text += f"📅 Дата запроса: {created_str}\n"
-        message_text += f"📋 Тип запроса: {request_type}\n\n"
-        message_text += f"📊 Отчет будет создан в формате XLSX с детальной информацией\n"
-        message_text += f"💡 Выберите действие:"
-        
-        # Create markup
-        markup = types.InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            types.InlineKeyboardButton("✅ Принять в работу", callback_data=f"admin_start_report_{report_id}"),
-            types.InlineKeyboardButton("❌ Отклонить", callback_data=f"admin_reject_report_{report_id}")
-        )
-        
-        if len(pending_reports) > 1:
-            markup.add(types.InlineKeyboardButton(f"⏭️ Следующий ({len(pending_reports)-1} осталось)", callback_data=f"admin_next_pending_report"))
-        
-        markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_report_requests"))
-        
-        bot.edit_message_text(message_text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-        
-    except Exception as e:
-        logger.error(f"Error in handle_admin_process_pending_reports: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при получении ожидающих отчетов", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
 
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_start_report_"))
-def handle_admin_start_report(call):
-    """Handle admin starting work on a report"""
-    report_id = int(call.data.split("_")[3])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Update report status to processing
-        cursor.execute('''
-            UPDATE report_requests 
-            SET status = 'processing'
-            WHERE id = %s
-        ''', (report_id,))
-        
-        if cursor.rowcount == 0:
-            bot.answer_callback_query(call.id, "❌ Отчет не найден", show_alert=True)
-            return
-        
-        conn.commit()
-        
-        # Get user info for notification
-        cursor.execute('''
-            SELECT r.user_id, l.name, l.tg
-            FROM report_requests r
-            JOIN label l ON r.user_id = l.telegram_id
-            WHERE r.id = %s
-        ''', (report_id,))
-        
-        user_info = cursor.fetchone()
-        if user_info:
-            user_id, user_name, username = user_info
-            
-            # Notify user
-            try:
-                bot.send_message(
-                    user_id,
-                    f"📊 Ваш запрос отчета #{report_id} принят в работу!\n\n"
-                    f"🔄 Администратор начал подготовку отчета.\n"
-                    f"⏳ Обычно отчет готовится в течение 1-3 рабочих дней.\n\n"
-                    f"📊 Отчет будет подготовлен в формате XLSX с детальной информацией.\n"
-                    f"Вы получите уведомление, когда отчет будет готов."
-                )
-            except Exception as e:
-                logger.error(f"Failed to notify user {user_id} about report start: {e}")
-        
-        # Show success message to admin
-        bot.edit_message_text(
-            f"✅ Отчет #{report_id} принят в работу!\n\n"
-            f"📊 Статус изменен на 'В обработке'\n"
-            f"👤 Пользователь уведомлен\n\n"
-            f"💡 Теперь вы можете подготовить детальный XLSX отчет и отправить его пользователю.\n"
-            f"📊 Отчет будет содержать несколько листов с полной информацией.",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton("📎 Создать XLSX отчет", callback_data=f"admin_send_report_{report_id}"),
-                types.InlineKeyboardButton("◀️ Назад к отчетам", callback_data="admin_report_requests")
-            )
-        )
-        
-        logger.info(f"Admin started work on report {report_id}")
-        
-    except Exception as e:
-        logger.error(f"Error starting report {report_id}: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при изменении статуса отчета", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_send_report_"))
-def handle_admin_send_report(call):
-    """Handle admin sending completed report to user"""
-    report_id = int(call.data.split("_")[3])
-    
-    try:
-        # Get report and user info
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных")
-            return
-        
-        cursor = conn.cursor()
-        
-        # Get report info
-        cursor.execute('''
-            SELECT r.user_id, r.request_type, l.name, l.tg
-            FROM report_requests r
-            JOIN label l ON r.user_id = l.telegram_id
-            WHERE r.id = %s
-        ''', (report_id,))
-        
-        report_info = cursor.fetchone()
-        if not report_info:
-            bot.answer_callback_query(call.id, "❌ Отчет не найден")
-            return
-        
-        user_id, request_type, user_name, username = report_info
-        
-        # Get user data for report
-        cursor.execute('''
-            SELECT telegram_id, name, tg, email, created_at, status, role
-            FROM label 
-            WHERE telegram_id = %s
-        ''', (user_id,))
-        
-        user_data = cursor.fetchone()
-        if not user_data:
-            bot.answer_callback_query(call.id, "❌ Данные пользователя не найдены")
-            return
-        
-        # Get user releases
-        cursor.execute('''
-            SELECT id, name, type, status, created_at, updated_at, description
-            FROM releases 
-            WHERE user_id = %s
-            ORDER BY created_at DESC
-        ''', (user_id,))
-        
-        releases_data = cursor.fetchall()
-        
-        # Convert to list of dictionaries
-        releases_list = []
-        for release in releases_data:
-            releases_list.append({
-                'id': release[0],
-                'name': release[1],
-                'type': release[2],
-                'status': release[3],
-                'created_at': release[4],
-                'updated_at': release[5],
-                'description': release[6],
-                'track_count': 0  # Можно добавить подсчет треков если нужно
-            })
-        
-        # Create Excel report
-        if not XLSX_AVAILABLE:
-            bot.answer_callback_query(call.id, "❌ Модуль Excel недоступен")
-            return
-        
-        # Convert user data to dictionary
-        user_dict = {
-            'telegram_id': user_data[0],
-            'name': user_data[1],
-            'tg': user_data[2],
-            'email': user_data[3],
-            'created_at': user_data[4],
-            'status': user_data[5],
-            'role': user_data[6]
-        }
-        
-        # Get additional data for detailed report
-        # Get promo codes data
-        cursor.execute('''
-            SELECT id, code, amount, max_uses, current_uses, expires_at, is_active
-            FROM promo_codes 
-            WHERE user_id = %s
-            ORDER BY created_at DESC
-        ''', (user_id,))
-        
-        promo_codes_data = cursor.fetchall()
-        promo_codes_list = []
-        for promo in promo_codes_data:
-            promo_codes_list.append({
-                'id': promo[0],
-                'code': promo[1],
-                'amount': promo[2],
-                'max_uses': promo[3],
-                'current_uses': promo[4],
-                'expires_at': promo[5],
-                'is_active': promo[6]
-            })
-        
-        # Get orders data
-        cursor.execute('''
-            SELECT id, service_type, status, amount, created_at, completed_at, description
-            FROM orders 
-            WHERE user_id = %s
-            ORDER BY created_at DESC
-        ''', (user_id,))
-        
-        orders_data = cursor.fetchall()
-        orders_list = []
-        for order in orders_data:
-            orders_list.append({
-                'id': order[0],
-                'service_type': order[1],
-                'status': order[2],
-                'amount': order[3],
-                'created_at': order[4],
-                'completed_at': order[5],
-                'description': order[6]
-            })
-        
-        # Generate detailed XLSX report
-        wb = create_detailed_xlsx_report(user_dict, releases_list, promo_codes_list, orders_list)
-        
-        # Update report status
-        cursor.execute('''
-            UPDATE report_requests 
-            SET status = 'completed', 
-                completed_at = NOW(),
-                admin_id = %s
-            WHERE id = %s
-        ''', (call.from_user.id, report_id))
-        
-        conn.commit()
-        
-        # Send XLSX report to user
-        try:
-            filename = f"Отчет_{user_name}_{datetime.now().strftime('%d%m%Y')}.xlsx"
-            if send_xlsx_report(user_id, wb, filename):
-                # Notify admin
-                bot.edit_message_text(
-                    f"✅ Отчет #{report_id} успешно отправлен пользователю {user_name} (@{username or 'без username'})\n\n"
-                    f"📊 Тип отчета: {request_type}\n"
-                    f"📅 Дата отправки: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
-                    f"📎 Отчет отправлен в формате XLSX с детальной информацией\n"
-                    f"📋 Содержит {len(wb.worksheets)} листов с данными",
-                    call.message.chat.id,
-                    call.message.message_id,
-                    reply_markup=types.InlineKeyboardMarkup().add(
-                        types.InlineKeyboardButton("◀️ Назад к запросам", callback_data="admin_report_requests")
-                    )
-                )
-            else:
-                bot.answer_callback_query(call.id, "❌ Ошибка при отправке отчета")
-            
-        except Exception as e:
-            logger.error(f"Error sending report to user: {e}")
-            bot.answer_callback_query(call.id, f"❌ Ошибка отправки отчета: {str(e)}")
-        
-        conn.close()
-        
-    except Exception as e:
-        logger.error(f"Error in handle_admin_send_report: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}")
-
-
-def handle_admin_report_file_upload(message):
-    """Handle admin uploading report file"""
-    admin_id = message.from_user.id
-    
-    if admin_id not in bot.user_data or 'report_id' not in bot.user_data[admin_id]:
-        bot.reply_to(message, "❌ Ошибка: неверный контекст. Вернитесь в админ панель.")
-        return
-    
-    report_id = bot.user_data[admin_id]['report_id']
-    
-    # Validate file
-    if not message.document:
-        bot.reply_to(
-            message,
-            "❌ Пожалуйста, отправьте файл отчета",
-            reply_markup=types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton("◀️ Назад", callback_data="admin_report_requests")
-            )
-        )
-        return
-    
-    # Check file type
-    allowed_extensions = ['.pdf', '.xlsx', '.xls', '.docx', '.doc']
-    file_name = message.document.file_name.lower()
-    if not any(file_name.endswith(ext) for ext in allowed_extensions):
-        bot.reply_to(
-            message,
-            "❌ Неподдерживаемый формат файла\n\n"
-            f"Разрешены: {', '.join(allowed_extensions)}",
-            reply_markup=types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton("◀️ Назад", callback_data="admin_report_requests")
-            )
-        )
-        return
-    
-    try:
-        # Save file info to database
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-        
-        cursor = conn.cursor()
-        
-        # Update report with file info and mark as completed
-        cursor.execute('''
-            UPDATE report_requests 
-            SET status = 'completed', 
-                completed_at = NOW(),
-                report_file_id = %s
-            WHERE id = %s
-        ''', (message.document.file_id, report_id))
-        
-        if cursor.rowcount == 0:
-            bot.reply_to(message, "❌ Отчет не найден")
-            return
-        
-        # Get user info for notification
-        cursor.execute('''
-            SELECT r.user_id, l.name, l.tg
-            FROM report_requests r
-            JOIN label l ON r.user_id = l.telegram_id
-            WHERE r.id = %s
-        ''', (report_id,))
-        
-        user_info = cursor.fetchone()
-        if user_info:
-            user_id, user_name, username = user_info
-            
-            # Send report to user
-            try:
-                bot.send_document(
-                    user_id,
-                    message.document.file_id,
-                    caption=f"📊 Ваш отчет #{report_id} готов!\n\n"
-                    f"✅ Отчет успешно подготовлен и готов к использованию.\n"
-                    f"📅 Дата готовности: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
-                    f"💡 Если у вас есть вопросы по отчету, обратитесь к администратору."
-                )
-                
-                # Send notification
-                bot.send_message(
-                    user_id,
-                    f"📊 Отчет #{report_id} готов!\n\n"
-                    f"✅ Ваш запрос на отчет выполнен.\n"
-                    f"📎 Файл отчета отправлен выше в формате XLSX.\n\n"
-                    f"💡 Перейдите в 'Мой профиль' → 'Мои отчеты' для просмотра.\n"
-                    f"📊 Отчет содержит детальную информацию в удобном Excel формате."
-                )
-                
-            except Exception as e:
-                logger.error(f"Failed to send report to user {user_id}: {e}")
-        
-        conn.commit()
-        
-        # Success message to admin
-        bot.reply_to(
-            message,
-            f"✅ Отчет #{report_id} успешно отправлен пользователю!\n\n"
-            f"📊 Статус изменен на 'Завершен'\n"
-            f"👤 Пользователь уведомлен\n"
-            f"📎 Файл сохранен в базе данных",
-            reply_markup=types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton("◀️ Назад к отчетам", callback_data="admin_report_requests")
-            )
-        )
-        
-        # Clean up user data
-        if admin_id in bot.user_data:
-            del bot.user_data[admin_id]
-        
-        logger.info(f"Admin {admin_id} sent report {report_id} to user")
-        
-    except Exception as e:
-        logger.error(f"Error sending report {report_id}: {e}")
-        bot.reply_to(
-            message,
-            f"❌ Ошибка при отправке отчета: {str(e)}",
-            reply_markup=types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton("◀️ Назад", callback_data="admin_report_requests")
-            )
-        )
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_reject_report_"))
-def handle_admin_reject_report(call):
-    """Handle admin rejecting a report request"""
-    report_id = int(call.data.split("_")[3])
-    
-    # Store report_id in bot.user_data for rejection reason
-    admin_id = call.from_user.id
-    bot.user_data[admin_id] = {'report_id': report_id, 'action': 'reject_report'}
-    
-    bot.edit_message_text(
-        f"❌ Отклонение отчета #{report_id}\n\n"
-        f"📝 Укажите причину отклонения:\n\n"
-        f"💡 Примеры причин:\n"
-        f"• Недостаточно данных для составления отчета\n"
-        f"• Нарушение правил использования сервиса\n"
-        f"• Технические проблемы\n\n"
-        f"❌ Для отмены нажмите 'Отмена'",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=types.InlineKeyboardMarkup().add(
-            types.InlineKeyboardButton("❌ Отмена", callback_data="admin_report_requests")
-        )
-    )
-    
-    # Register handler for rejection reason
-    bot.register_next_step_handler(call.message, handle_admin_report_rejection_reason)
-
-
-def handle_admin_report_rejection_reason(message):
-    """Handle admin providing rejection reason for report"""
-    admin_id = message.from_user.id
-    
-    if admin_id not in bot.user_data or 'report_id' not in bot.user_data[admin_id]:
-        bot.reply_to(message, "❌ Ошибка: неверный контекст. Вернитесь в админ панель.")
-        return
-    
-    report_id = bot.user_data[admin_id]['report_id']
-    rejection_reason = message.text.strip()
-    
-    if not rejection_reason:
-        bot.reply_to(
-            message,
-            "❌ Пожалуйста, укажите причину отклонения",
-            reply_markup=types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton("◀️ Назад", callback_data="admin_report_requests")
-            )
-        )
-        return
-    
-    try:
-        # Update report status to rejected
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-        
-        cursor = conn.cursor()
-        
-        # Update report with rejection info
-        cursor.execute('''
-            UPDATE report_requests 
-            SET status = 'rejected', 
-                completed_at = NOW(),
-                rejection_reason = %s
-            WHERE id = %s
-        ''', (rejection_reason, report_id))
-        
-        if cursor.rowcount == 0:
-            bot.reply_to(message, "❌ Отчет не найден")
-            return
-        
-        # Get user info for notification
-        cursor.execute('''
-            SELECT r.user_id, l.name, l.tg
-            FROM report_requests r
-            JOIN label l ON r.user_id = l.telegram_id
-            WHERE r.id = %s
-        ''', (report_id,))
-        
-        user_info = cursor.fetchone()
-        if user_info:
-            user_id, user_name, username = user_info
-            
-            # Notify user about rejection
-            try:
-                bot.send_message(
-                    user_id,
-                    f"❌ Ваш запрос отчета #{report_id} отклонен\n\n"
-                    f"📝 Причина: {rejection_reason}\n\n"
-                    f"💡 Если вы считаете, что это ошибка, или хотите исправить проблему, "
-                    f"обратитесь к администратору.\n\n"
-                    f"🔄 Вы можете создать новый запрос отчета в разделе 'Мой профиль' → 'Мои отчеты'."
-                )
-                
-            except Exception as e:
-                logger.error(f"Failed to notify user {user_id} about report rejection: {e}")
-        
-        conn.commit()
-        
-        # Success message to admin
-        bot.reply_to(
-            message,
-            f"❌ Отчет #{report_id} отклонен!\n\n"
-            f"📊 Статус изменен на 'Отклонен'\n"
-            f"👤 Пользователь уведомлен\n"
-            f"📝 Причина: {rejection_reason}",
-            reply_markup=types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton("◀️ Назад к отчетам", callback_data="admin_report_requests")
-            )
-        )
-        
-        # Clean up user data
-        if admin_id in bot.user_data:
-            del bot.user_data[admin_id]
-        
-        logger.info(f"Admin {admin_id} rejected report {report_id} with reason: {rejection_reason}")
-        
-    except Exception as e:
-        logger.error(f"Error rejecting report {report_id}: {e}")
-        bot.reply_to(
-            message,
-            f"❌ Ошибка при отклонении отчета: {str(e)}",
-            reply_markup=types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton("◀️ Назад", callback_data="admin_report_requests")
-            )
-        )
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REPORTS_ENABLED and call.data.startswith("download_report_"))
-def handle_download_report(call):
-    """Handle user downloading a completed report"""
-    report_id = int(call.data.split("_")[2])
-    user_id = call.from_user.id
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get report info
-        cursor.execute('''
-            SELECT report_file_id, status
-            FROM report_requests 
-            WHERE id = %s AND user_id = %s
-        ''', (report_id, user_id))
-        
-        report = cursor.fetchone()
-        if not report:
-            bot.answer_callback_query(call.id, "❌ Отчет не найден", show_alert=True)
-            return
-        
-        report_file_id, status = report
-        
-        if status != 'completed':
-            bot.answer_callback_query(call.id, "❌ Отчет еще не готов", show_alert=True)
-            return
-        
-        if not report_file_id:
-            bot.answer_callback_query(call.id, "❌ Файл отчета не найден", show_alert=True)
-            return
-        
-        # Send the report file
-        try:
-            bot.send_document(
-                call.message.chat.id,
-                report_file_id,
-                caption=f"📊 Отчет #{report_id}\n\n"
-                f"✅ Ваш отчет готов к использованию!\n"
-                f"📅 Дата скачивания: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
-                f"💡 Если у вас есть вопросы по отчету, обратитесь к администратору."
-            )
-            
-            bot.answer_callback_query(call.id, "✅ Отчет отправлен!")
-            
-        except Exception as e:
-            logger.error(f"Error sending report file {report_id}: {e}")
-            bot.answer_callback_query(call.id, "❌ Ошибка при отправке файла", show_alert=True)
-        
-    except Exception as e:
-        logger.error(f"Error downloading report {report_id}: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при получении отчета", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_COMMON_ENABLED and call.data == "separator")
-def handle_separator(call):
-    """Handle separator button clicks (do nothing)"""
-    bot.answer_callback_query(call.id, "", show_alert=False)
-
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_USER_ROLES_ENABLED and call.data.startswith("user_role_"))
-def handle_user_role_management(call):
-    """Handle user role management"""
-    user_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get current user roles
-        cursor.execute('SELECT name, tg, admin, artist, owner, creator FROM label WHERE telegram_id = %s', (user_id,))
-        user_info = cursor.fetchone()
-        
-        if not user_info:
-            bot.answer_callback_query(call.id, "❌ Пользователь не найден", show_alert=True)
-            return
-        
-        name, username, admin_status, artist_status, owner_status, creator_status = user_info
-        
-        # Create role management menu
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        
-        # Admin role toggle
-        admin_text = "✅ Администратор" if admin_status else "❌ Администратор"
-        markup.add(types.InlineKeyboardButton(
-            admin_text, 
-            callback_data=f"toggle_admin_{user_id}"
-        ))
-        
-        # Artist role toggle
-        artist_text = "✅ Артист" if artist_status else "❌ Артист"
-        markup.add(types.InlineKeyboardButton(
-            artist_text, 
-            callback_data=f"toggle_artist_{user_id}"
-        ))
-        
-        # Owner role toggle
-        owner_text = "✅ Owner" if owner_status else "❌ Owner"
-        markup.add(types.InlineKeyboardButton(
-            owner_text, 
-            callback_data=f"toggle_owner_{user_id}"
-        ))
-        
-
-        
-        # Creator role toggle
-        creator_text = "✅ Creator" if creator_status else "❌ Creator"
-        markup.add(types.InlineKeyboardButton(
-            creator_text, 
-            callback_data=f"toggle_creator_{user_id}"
-        ))
-        
-        # Back buttons
-        markup.add(types.InlineKeyboardButton("◀️ К списку пользователей", callback_data="admin_users"))
-        markup.add(types.InlineKeyboardButton("◀️ В админ панель", callback_data="admin_back"))
-        
-        display_name = f"{name} (@{username})" if name and username else f"ID: {user_id}"
-        
-        bot.edit_message_text(
-            f"🔧 Управление ролями пользователя\n\n"
-            f"Пользователь: {display_name}\n"
-            f"Текущие роли:\n"
-            f"• Администратор: {'Да' if admin_status else 'Нет'}\n"
-            f"• Артист: {'Да' if artist_status else 'Нет'}\n"
-            f"• Owner: {'Да' if owner_status else 'Нет'}\n"
-            f"• Creator: {'Да' if creator_status else 'Нет'}\n\n"
-            f"Нажмите на роль для изменения:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in user role management: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("toggle_admin_"))
-def handle_toggle_admin_role(call):
-    """Toggle admin role for user"""
-    user_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get current admin status
-        cursor.execute('SELECT admin, name, tg FROM label WHERE telegram_id = %s', (user_id,))
-        user_info = cursor.fetchone()
-        
-        if not user_info:
-            bot.answer_callback_query(call.id, "❌ Пользователь не найден", show_alert=True)
-            return
-        
-        current_admin, name, username = user_info
-        new_admin = 0 if current_admin else 1
-        
-        # Update admin status
-        cursor.execute('UPDATE label SET admin = %s WHERE telegram_id = %s', (new_admin, user_id))
-        conn.commit()
-        
-        display_name = f"{name} (@{username})" if name and username else f"ID: {user_id}"
-        status_text = "назначен администратором" if new_admin else "снят с администратора"
-        
-        bot.answer_callback_query(
-            call.id, 
-            f"✅ {display_name} {status_text}", 
-            show_alert=True
-        )
-        
-        # Refresh the role management menu
-        handle_user_role_management(call)
-        
-    except Exception as e:
-        logger.error(f"Error toggling admin role: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("toggle_artist_"))
-def handle_toggle_artist_role(call):
-    """Toggle artist role for user"""
-    user_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get current artist status
-        cursor.execute('SELECT artist, name, tg FROM label WHERE telegram_id = %s', (user_id,))
-        user_info = cursor.fetchone()
-        
-        if not user_info:
-            bot.answer_callback_query(call.id, "❌ Пользователь не найден", show_alert=True)
-            return
-        
-        current_artist, name, username = user_info
-        new_artist = 0 if current_artist else 1
-        
-        # Update artist status
-        cursor.execute('UPDATE label SET artist = %s WHERE telegram_id = %s', (new_artist, user_id))
-        conn.commit()
-        
-        display_name = f"{name} (@{username})" if name and username else f"ID: {user_id}"
-        status_text = "назначен артистом" if new_artist else "снят с артиста"
-        
-        bot.answer_callback_query(
-            call.id, 
-            f"✅ {display_name} {status_text}", 
-            show_alert=True
-        )
-        
-        # Refresh the role management menu
-        return handle_user_role_management(call)
-        
-    except Exception as e:
-        logger.error(f"Error toggling artist role: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("toggle_owner_"))
-def handle_toggle_owner_role(call):
-    """Toggle owner role for user"""
-    user_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get current owner status
-        cursor.execute('SELECT owner, name, tg FROM label WHERE telegram_id = %s', (user_id,))
-        user_info = cursor.fetchone()
-        
-        if not user_info:
-            bot.answer_callback_query(call.id, "❌ Пользователь не найден", show_alert=True)
-            return
-        
-        current_owner, name, username = user_info
-        new_owner = 0 if current_owner else 1
-        
-        # Update owner status
-        cursor.execute('UPDATE label SET owner = %s WHERE telegram_id = %s', (new_owner, user_id))
-        conn.commit()
-        
-        display_name = f"{name} (@{username})" if name and username else f"ID: {user_id}"
-        status_text = "назначен Owner" if new_owner else "снят с Owner"
-        
-        bot.answer_callback_query(
-            call.id, 
-            f"✅ {display_name} {status_text}", 
-            show_alert=True
-        )
-        
-        # Refresh the role management menu
-        handle_user_role_management(call)
-        
-    except Exception as e:
-        logger.error(f"Error toggling owner role: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("toggle_steezy_"))
-def handle_toggle_steezy_role(call):
-    """Toggle steezy role for user"""
-    user_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get current steezy status
-        cursor.execute('SELECT steezy, name, tg FROM label WHERE telegram_id = %s', (user_id,))
-        user_info = cursor.fetchone()
-        
-        if not user_info:
-            bot.answer_callback_query(call.id, "❌ Пользователь не найден", show_alert=True)
-            return
-        
-        current_steezy, name, username = user_info
-        new_steezy = 0 if current_steezy else 1
-        
-        # Update steezy status
-        cursor.execute('UPDATE label SET steezy = %s WHERE telegram_id = %s', (new_steezy, user_id))
-        conn.commit()
-        
-        display_name = f"{name} (@{username})" if name and username else f"ID: {user_id}"
-        status_text = "назначен Steezy" if new_steezy else "снят с Steezy"
-        
-        bot.answer_callback_query(
-            call.id, 
-            f"✅ {display_name} {status_text}", 
-            show_alert=True
-        )
-        
-        # Refresh the role management menu
-        handle_user_role_management(call)
-        
-    except Exception as e:
-        logger.error(f"Error toggling steezy role: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("toggle_bibi_"))
-def handle_toggle_bibi_role(call):
-    """Toggle bibi role for user"""
-    user_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get current bibi status
-        cursor.execute('SELECT bibi, name, tg FROM label WHERE telegram_id = %s', (user_id,))
-        user_info = cursor.fetchone()
-        
-        if not user_info:
-            bot.answer_callback_query(call.id, "❌ Пользователь не найден", show_alert=True)
-            return
-        
-        current_bibi, name, username = user_info
-        new_bibi = 0 if current_bibi else 1
-        
-        # Update bibi status
-        cursor.execute('UPDATE label SET bibi = %s WHERE telegram_id = %s', (new_bibi, user_id))
-        conn.commit()
-        
-        display_name = f"{name} (@{username})" if name and username else f"ID: {user_id}"
-        status_text = "назначен Bibi" if new_bibi else "снят с Bibi"
-        
-        bot.answer_callback_query(
-            call.id, 
-            f"✅ {display_name} {status_text}", 
-            show_alert=True
-        )
-        
-        # Refresh the role management menu
-        handle_user_role_management(call)
-        
-    except Exception as e:
-        logger.error(f"Error toggling bibi role: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("toggle_shvepz_"))
-def handle_toggle_shvepz_role(call):
-    """Toggle shvepz role for user"""
-    user_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get current shvepz status
-        cursor.execute('SELECT shvepz, name, tg FROM label WHERE telegram_id = %s', (user_id,))
-        user_info = cursor.fetchone()
-        
-        if not user_info:
-            bot.answer_callback_query(call.id, "❌ Пользователь не найден", show_alert=True)
-            return
-        
-        current_shvepz, name, username = user_info
-        new_shvepz = 0 if current_shvepz else 1
-        
-        # Update shvepz status
-        cursor.execute('UPDATE label SET shvepz = %s WHERE telegram_id = %s', (new_shvepz, user_id))
-        conn.commit()
-        
-        display_name = f"{name} (@{username})" if name and username else f"ID: {user_id}"
-        status_text = "назначен Shvepz" if new_shvepz else "снят с Shvepz"
-        
-        bot.answer_callback_query(
-            call.id, 
-            f"✅ {display_name} {status_text}", 
-            show_alert=True
-        )
-        
-        # Refresh the role management menu
-        handle_user_role_management(call)
-        
-    except Exception as e:
-        logger.error(f"Error toggling shvepz role: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("toggle_creator_"))
-def handle_toggle_creator_role(call):
-    """Toggle creator role for user"""
-    user_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get current creator status
-        cursor.execute('SELECT creator, name, tg FROM label WHERE telegram_id = %s', (user_id,))
-        user_info = cursor.fetchone()
-        
-        if not user_info:
-            bot.answer_callback_query(call.id, "❌ Пользователь не найден", show_alert=True)
-            return
-        
-        current_creator, name, username = user_info
-        new_creator = 0 if current_creator else 1
-        
-        # Update creator status
-        cursor.execute('UPDATE label SET creator = %s WHERE telegram_id = %s', (new_creator, user_id))
-        conn.commit()
-        
-        display_name = f"{name} (@{username})" if name and username else f"ID: {user_id}"
-        status_text = "назначен Creator" if new_creator else "снят с Creator"
-        
-        bot.answer_callback_query(
-            call.id, 
-            f"✅ {display_name} {status_text}", 
-            show_alert=True
-        )
-        
-        # Refresh the role management menu
-        handle_user_role_management(call)
-        
-    except Exception as e:
-        logger.error(f"Error toggling creator role: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_USER_REPORTS_ENABLED and call.data.startswith("user_reports_"))
-def handle_user_reports(call):
-    """Handle user report requests"""
-    user_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get user info
-        cursor.execute('SELECT name, tg FROM label WHERE telegram_id = %s', (user_id,))
-        user_info = cursor.fetchone()
-        
-        if not user_info:
-            bot.answer_callback_query(call.id, "❌ Пользователь не найден", show_alert=True)
-            return
-        
-        name, username = user_info
-        
-        # Get report requests for this user
-        cursor.execute('''
-            SELECT id, release_type, request_type, status, created_at, notes 
-            FROM report_requests 
-            WHERE user_id = %s 
-            ORDER BY created_at DESC
-        ''', (user_id,))
-        
-        reports = cursor.fetchall()
-        
-        if not reports:
-            message_text = f"📊 Запросы отчетов пользователя {name} (@{username})\n\n❌ У пользователя нет запросов отчетов"
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ К списку пользователей", callback_data="admin_users"))
-            markup.add(types.InlineKeyboardButton("◀️ В админ панель", callback_data="admin_back"))
-            
-            bot.edit_message_text(
-                message_text,
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-            return
-        
-        # Format reports list
-        display_name = f"{name} (@{username})" if name and username else f"ID: {user_id}"
-        
-        reports_text = f"📊 Запросы отчетов пользователя {display_name}\n\n"
-        
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        
-        for report_id, release_type, request_type, status, created_at, notes in reports:
-            status_emoji = {
-                'pending': '⏳',
-                'processing': '🔄',
-                'completed': '✅',
-                'rejected': '❌'
-            }.get(status, '❓')
-            
-            date_str = created_at.strftime('%d.%m.%Y %H:%M') if created_at else 'Не указана'
-            
-            reports_text += (
-                f"{status_emoji} <b>{request_type}</b> - {release_type}\n"
-                f"📅 {date_str}\n"
-                f"📝 Статус: {status}\n"
-            )
-            
-            if notes:
-                reports_text += f"💬 {notes}\n"
-            
-            reports_text += "\n"
-            
-            # Add button to view/edit report
-            markup.add(types.InlineKeyboardButton(
-                f"📋 {request_type} - {release_type} ({status})",
-                callback_data=f"view_report_{report_id}"
-            ))
-        
-        # Add back buttons
-        markup.add(types.InlineKeyboardButton("◀️ К списку пользователей", callback_data="admin_users"))
-        markup.add(types.InlineKeyboardButton("◀️ В админ панель", callback_data="admin_back"))
-        
-        bot.edit_message_text(
-            reports_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup,
-        )
-        
-    except Exception as e:
-        logger.error(f"Error showing user reports: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_USER_INFO_ENABLED and call.data.startswith("user_info_"))
-def handle_user_info(call):
-    """Show detailed user information"""
-    logger.info(f"handle_user_info called with data: {call.data}")
-    
-    try:
-        user_id = int(call.data.split("_")[2])
-        logger.info(f"Extracted user_id: {user_id}")
-    except (ValueError, IndexError) as e:
-        logger.error(f"Error parsing user_id from callback data: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка данных", show_alert=True)
-        return
-    
-    conn = get_pg_connection()
-    if not conn:
-        logger.error("Failed to get database connection in handle_user_info")
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get user information with safe column handling
-        try:
-            cursor.execute('''
-                SELECT name, tg, admin, artist, owner, creator, balance, created_date, email, fio, phone 
-                FROM label WHERE telegram_id = %s
-            ''', (user_id,))
-            user_info = cursor.fetchone()
-        except Exception as e:
-            logger.error(f"Error fetching user info with all columns: {e}")
-            # Fallback query without potentially missing columns
-            cursor.execute('''
-                SELECT name, tg, admin, artist, 
-                       COALESCE(owner, 0) as owner, 
-                       COALESCE(creator, 0) as creator, 
-                       COALESCE(balance, 0) as balance, 
-                       created_date,
-                       COALESCE(email, '') as email,
-                       COALESCE(fio, '') as fio
-                FROM label WHERE telegram_id = %s
-            ''', (user_id,))
-            user_info_partial = cursor.fetchone()
-            if user_info_partial:
-                # Add missing phone as empty string
-                user_info = user_info_partial + ('',)
-            else:
-                user_info = None
-        
-        if not user_info:
-            bot.answer_callback_query(call.id, "❌ Пользователь не найден", show_alert=True)
-            return
-        
-        name, username, admin_status, artist_status, owner_status, creator_status, balance, created_date, email, fio, phone = user_info
-        
-        # Get user releases count
-        cursor.execute('SELECT COUNT(*) FROM releases WHERE user_id = %s', (user_id,))
-        releases_count = cursor.fetchone()[0]
-        
-        # Format the message
-        display_name = f"{name} (@{username})" if name and username else f"ID: {user_id}"
-        
-        info_text = (
-            f"👤 Информация о пользователе\n\n"
-            f"Имя: {name or 'Не указано'}\n"
-            f"Username: @{username or 'Не указан'}\n"
-            f"ID: {user_id}\n"
-            f"Роли:\n"
-            f"• Администратор: {'Да' if admin_status else 'Нет'}\n"
-            f"• Артист: {'Да' if artist_status else 'Нет'}\n"
-            f"• Owner: {'Да' if owner_status else 'Нет'}\n"
-            f"• Creator: {'Да' if creator_status else 'Нет'}\n"
-            f"Баланс: {balance or 0}₽\n"
-            f"Дата регистрации: {created_date.strftime('%d.%m.%Y') if created_date else 'Не указана'}\n"
-            f"Email: {email or 'Не указан'}\n"
-            f"ФИО: {fio or 'Не указано'}\n"
-            f"Телефон: {phone or 'Не указан'}\n"
-            f"Количество релизов: {releases_count}"
-        )
-        
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        markup.add(types.InlineKeyboardButton("🔧 Управление ролями", callback_data=f"user_role_{user_id}"))
-        markup.add(types.InlineKeyboardButton("📀 Релизы пользователя", callback_data=f"user_releases_{user_id}"))
-        markup.add(types.InlineKeyboardButton("◀️ К списку пользователей", callback_data="admin_users"))
-        markup.add(types.InlineKeyboardButton("◀️ В админ панель", callback_data="admin_back"))
-        
-        # Check message length to avoid Telegram limits
-        if len(info_text) > 4000:
-            info_text = info_text[:4000] + "..."
-        
-        bot.edit_message_text(
-            info_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error showing user info: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
+# Admin report file upload flow migrated to handlers/admin_report_flow.py.
 
 
 def handle_my_releases(message, user_id=None, admin_mode=False):
@@ -18550,8 +6039,8 @@ def handle_my_releases(message, user_id=None, admin_mode=False):
 
         # Get albums
         cursor.execute('''
-            SELECT id, release_name, release_date, status 
-            FROM releases 
+            SELECT id, release_name, release_date, status
+            FROM releases
             WHERE user_id = %s AND is_album = TRUE
             ORDER BY release_date DESC
         ''', (user_id,))
@@ -18559,8 +6048,8 @@ def handle_my_releases(message, user_id=None, admin_mode=False):
 
         # Get single tracks (not part of album)
         cursor.execute('''
-            SELECT id, release_name, release_date, status 
-            FROM releases 
+            SELECT id, release_name, release_date, status
+            FROM releases
             WHERE user_id = %s AND is_album = FALSE AND is_track = FALSE
             ORDER BY release_date DESC
         ''', (user_id,))
@@ -18621,23 +6110,6 @@ def handle_my_releases(message, user_id=None, admin_mode=False):
             return_pg_connection(conn)
 
 
-@bot.callback_query_handler(
-    func=lambda call: LEGACY_RELEASE_DETAILS_ENABLED
-    and call.data.startswith(("album_detail_", "my_release_detail_"))
-    and call.data.endswith("_admin")
-)
-def handle_admin_release_details(call):
-    """Handle release details in admin mode"""
-    logger.info(f"handle_admin_release_details called with callback_data: {call.data}")
-    if call.data.startswith("album_detail_"):
-        album_id = int(call.data.split("_")[2])
-        logger.info(f"Processing album_detail_ with album_id: {album_id}")
-        show_album_details(call, album_id, admin_mode=True)
-    elif call.data.startswith("my_release_detail_"):
-        release_id = int(call.data.split("_")[3])
-        logger.info(f"Processing my_release_detail_ with release_id: {release_id}")
-        show_my_release_details(call, release_id, admin_mode=True)
-
 
 def show_album_details(call, album_id, admin_mode=False):
     """Show details of an album and its tracks (admin mode support)"""
@@ -18655,7 +6127,7 @@ def show_album_details(call, album_id, admin_mode=False):
         # Get album info
         query = '''
             SELECT release_name, release_date, status, user_id, upc_code, platform_links
-            FROM releases 
+            FROM releases
             WHERE id = %s
         '''
         params = (album_id,)
@@ -18688,8 +6160,8 @@ def show_album_details(call, album_id, admin_mode=False):
 
         # Get tracks in album
         cursor.execute('''
-            SELECT id, release_name, track_number 
-            FROM releases 
+            SELECT id, release_name, track_number
+            FROM releases
             WHERE album_id = %s
             ORDER BY track_number
         ''', (album_id,))
@@ -18762,177 +6234,7 @@ def show_album_details(call, album_id, admin_mode=False):
             return_pg_connection(conn)
 
 
-@bot.callback_query_handler(func=lambda call: LEGACY_RELEASE_STATUS_MENU_ENABLED and call.data.startswith("album_status_update_"))
-def handle_album_status_update(call):
-    """Handle album status update request"""
-    try:
-        parts = call.data.split("_")
-        album_id = int(parts[3])
-        
-        # Check admin access
-        if not has_access_level(call.from_user.id, ["admin"]):
-            bot.answer_callback_query(call.id, "❌ Только администраторы могут изменять статус", show_alert=True)
-            return
-        
-        # Create status selection keyboard
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        
-        # Add all status options
-        for status in RELEASE_STATUSES:
-            markup.add(types.InlineKeyboardButton(
-                f"🔄 {status.capitalize()}",
-                callback_data=f"album_status_confirm_{album_id}_{status}"
-            ))
-        
-        # Add back button
-        markup.add(types.InlineKeyboardButton(
-            "◀️ Назад к альбому",
-            callback_data=f"album_detail_{album_id}_admin"
-        ))
-        
-        bot.edit_message_text(
-            "🔄 Выберите новый статус для альбома:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in handle_album_status_update: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
 
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("album_status_confirm_"))
-def handle_album_status_confirm(call):
-    """Handle album status confirmation"""
-    try:
-        parts = call.data.split("_")
-        album_id = int(parts[3])
-        new_status = "_".join(parts[4:])  # Reconstruct status name
-        
-        # Check admin access
-        if not has_access_level(call.from_user.id, ["admin"]):
-            bot.answer_callback_query(call.id, "❌ Только администраторы могут изменять статус", show_alert=True)
-            return
-        
-        # Update status in database
-        if update_release_status(album_id, new_status):
-            # Notify user
-            notify_user_about_status_change(album_id, new_status)
-            
-            bot.answer_callback_query(
-                call.id,
-                f"✅ Статус альбома обновлен на: {new_status}",
-                show_alert=True
-            )
-            
-            # Return to album details
-            show_album_details(call, album_id, admin_mode=True)
-        else:
-            bot.answer_callback_query(
-                call.id,
-                "❌ Ошибка при обновлении статуса альбома",
-                show_alert=True
-            )
-            
-    except Exception as e:
-        logger.error(f"Error in handle_album_status_confirm: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("album_upc_update_"))
-def handle_album_upc_update(call):
-    """Handle album UPC code update request"""
-    try:
-        parts = call.data.split("_")
-        album_id = int(parts[3])
-        
-        # Check admin access
-        if not has_access_level(call.from_user.id, ["admin"]):
-            bot.answer_callback_query(call.id, "❌ Только администраторы могут изменять UPC код", show_alert=True)
-            return
-        
-        # Get current UPC code
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-            return
-        
-        cursor = conn.cursor()
-        cursor.execute('SELECT upc_code FROM releases WHERE id = %s', (album_id,))
-        result = cursor.fetchone()
-        current_upc = result[0] if result else "пока что нет"
-        
-        # Create back button
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(
-            "◀️ Назад к альбому",
-            callback_data=f"album_detail_{album_id}_admin"
-        ))
-        
-        bot.edit_message_text(
-            f"🏷️ Текущий UPC код альбома: {current_upc}\n\n"
-            "Введите новый UPC код для альбома:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-        # Register next step handler
-        bot.register_next_step_handler(call.message, process_album_upc_update, album_id)
-        
-    except Exception as e:
-        logger.error(f"Error in handle_album_upc_update: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-
-
-def process_album_upc_update(message, album_id):
-    """Process and save new UPC code for album (admin only)"""
-    # Повторная проверка прав администратора
-    if not has_access_level(message.from_user.id, ["admin"]):
-        bot.reply_to(message, "❌ Только администраторы могут изменять UPC-код")
-        return
-
-    new_upc = message.text.strip()
-    conn = get_pg_connection()
-    if not conn:
-        bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-        return
-
-    try:
-        cursor = conn.cursor()
-        
-        # Update UPC code for the album and all its tracks
-        cursor.execute('''
-            UPDATE releases 
-            SET upc_code = %s 
-            WHERE id = %s OR album_id = %s
-        ''', (new_upc, album_id, album_id))
-        
-        conn.commit()
-
-        # Отправляем подтверждение
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton(
-                "◀️ Назад к альбому",
-                callback_data=f"album_detail_{album_id}_admin"
-            )
-        )
-
-        bot.send_message(
-            message.chat.id,
-            f"✅ UPC код альбома успешно обновлен на: {new_upc}",
-            reply_markup=markup
-        )
-
-    except Error as e:
-        logger.error(f"Error updating album UPC code: {e}")
-        bot.reply_to(message, "❌ Ошибка при обновлении UPC кода альбома")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
 
 
 def show_my_release_details(call, release_id, admin_mode=False):
@@ -18946,12 +6248,12 @@ def show_my_release_details(call, release_id, admin_mode=False):
     try:
         cursor = conn.cursor()
         query = '''
-            SELECT 
+            SELECT
                 release_type, artist_name, release_name, producer, genre,
                 release_date, performer_name, music_author, explicit_content,
                 yandex_soon, create_links, tiktok_commercial, tiktok_full_version, status,
                 upc_code, user_id, platform_links, preview_start
-            FROM releases 
+            FROM releases
             WHERE id = %s
         '''
         params = (release_id,)
@@ -19075,564 +6377,6 @@ def show_my_release_details(call, release_id, admin_mode=False):
             return_pg_connection(conn)
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("change_upc_"))
-def handle_change_upc_request(call):
-    """Handle UPC code change request (admin only)"""
-    # Проверяем права администратора
-    if not has_access_level(call.from_user.id, ["admin"]):
-        bot.answer_callback_query(
-            call.id,
-            "❌ Только администраторы могут изменять UPC-код",
-            show_alert=True
-        )
-        return
-
-    release_id = call.data.split("_")[2]
-    bot.edit_message_text(
-        "✏️ Введите новый UPC код для релиза:",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    bot.register_next_step_handler(call.message, process_upc_update, release_id)
-
-
-def process_upc_update(message, release_id):
-    """Process and save new UPC code (admin only)"""
-    # Повторная проверка прав администратора
-    if not has_access_level(message.from_user.id, ["admin"]):
-        bot.reply_to(message, "❌ Только администраторы могут изменять UPC-код")
-        return
-
-    new_upc = message.text.strip()
-    conn = get_pg_connection()
-    if not conn:
-        bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-        return
-
-    try:
-        cursor = conn.cursor()
-        
-        # Check if this release is an album
-        cursor.execute('SELECT is_album FROM releases WHERE id = %s', (release_id,))
-        result = cursor.fetchone()
-        
-        if result and result[0]:  # If it's an album
-            # Update UPC code for the album and all its tracks
-            cursor.execute('''
-                UPDATE releases 
-                SET upc_code = %s 
-                WHERE id = %s OR album_id = %s
-            ''', (new_upc, release_id, release_id))
-        else:
-            # Update UPC code for single release only
-            cursor.execute(
-                'UPDATE releases SET upc_code = %s WHERE id = %s',
-                (new_upc, release_id)
-            )
-        
-        conn.commit()
-
-        # Отправляем подтверждение
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton(
-                "◀️ Назад к релизу",
-                callback_data=f"my_release_detail_{release_id}_admin"
-            )
-        )
-
-        bot.send_message(
-            message.chat.id,
-            f"✅ UPC код успешно обновлен на: {new_upc}",
-            reply_markup=markup
-        )
-
-    except Error as e:
-        logger.error(f"Error updating UPC code: {e}")
-        bot.reply_to(message, "❌ Ошибка при обновлении UPC кода")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_RELEASE_LINKS_ENABLED and call.data.startswith("manage_platform_links_"))
-def handle_manage_platform_links_request(call):
-    """Handle platform links management request (admin only)"""
-    # Проверяем права администратора
-    if not has_access_level(call.from_user.id, ["admin"]):
-        bot.answer_callback_query(
-            call.id,
-            "❌ Только администраторы могут управлять информацией о площадках",
-            show_alert=True
-        )
-        return
-
-    release_id = call.data.split("_")[3]
-    
-    # Определяем правильный callback для кнопки "Назад"
-    back_callback = get_back_callback_for_release(release_id)
-    back_text = "◀️ Назад к альбому" if "album_detail" in back_callback else "◀️ Назад к релизу"
-    
-    # Показываем меню управления ссылками
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("➕ Добавить информацию", callback_data=f"add_platform_link_{release_id}"),
-        types.InlineKeyboardButton("📝 Редактировать информацию", callback_data=f"edit_platform_links_{release_id}"),
-        types.InlineKeyboardButton("❌ Удалить информацию", callback_data=f"delete_platform_links_{release_id}"),
-        types.InlineKeyboardButton("👁️ Просмотреть информацию", callback_data=f"view_platform_links_{release_id}"),
-        types.InlineKeyboardButton(back_text, callback_data=back_callback)
-    )
-    
-    bot.edit_message_text(
-        "🔗 Управление ссылками\n\n"
-        "Выберите действие:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("add_platform_link_"))
-def handle_add_platform_link_request(call):
-    """Handle add platform link request"""
-    release_id = call.data.split("_")[3]
-    
-    bot.edit_message_text(
-        "🔗 Добавление информации о площадке\n\n"
-        "Введите любую информацию в любом формате:\n\n"
-        "Примеры:\n"
-        "• Spotify|https://open.spotify.com/track/...\n"
-        "• VK|ID: 123456789\n"
-        "• Telegram|@channel_name\n"
-        "• Примечания|Любая дополнительная информация\n"
-        "• Просто текст без разделителей\n"
-        "• Многострочный текст\n"
-        "• Любые символы и эмодзи 🎵🎤🎹",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    bot.register_next_step_handler(call.message, process_add_platform_link, release_id)
-
-
-def get_back_callback_for_release(release_id):
-    """Determine if release is an album and return appropriate back callback"""
-    conn = get_pg_connection()
-    if not conn:
-        return f"my_release_detail_{release_id}_admin"
-    
-    try:
-        cursor = conn.cursor()
-        cursor.execute('SELECT is_album FROM releases WHERE id = %s', (release_id,))
-        result = cursor.fetchone()
-        
-        if result and result[0]:
-            return f"album_detail_{release_id}_admin"
-        else:
-            return f"my_release_detail_{release_id}_admin"
-    except Exception:
-        return f"my_release_detail_{release_id}_admin"
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-def prompt_new_platform_link_input(chat_id, release_id):
-    """Prompt admin to send new platform link info"""
-    instructions = (
-        "🔗 Отправьте новую ссылку или информацию о площадке.\n\n"
-        "Формат (рекомендуется):\n"
-        "Площадка|https://example.com/...\n\n"
-        "Можно отправить любой текст, если требуется заметка."
-    )
-    msg = bot.send_message(chat_id, instructions)
-    bot.register_next_step_handler(msg, process_add_platform_link, release_id)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("quick_link_menu_"))
-def handle_quick_link_menu(call):
-    """Prompt admin to send new platform link directly"""
-    if not has_access_level(call.from_user.id, ["admin"]):
-        bot.answer_callback_query(call.id, "❌ Недостаточно прав", show_alert=True)
-        return
-
-    release_id = call.data.split("_")[-1]
-    bot.answer_callback_query(call.id, "✏️ Отправьте новую ссылку сообщением")
-    prompt_new_platform_link_input(call.message.chat.id, release_id)
-
-
-def process_add_platform_link(message, release_id):
-    """Process and save new platform link"""
-    if not has_access_level(message.from_user.id, ["admin"]):
-        bot.reply_to(message, "❌ Только администраторы могут добавлять информацию о площадках")
-        return
-
-    try:
-        # Принимаем любой текст без ограничений
-        user_input = message.text.strip()
-        
-        # Если пользователь ввел формат НАЗВАНИЕ|ИНФОРМАЦИЯ - используем его
-        if '|' in user_input:
-            parts = user_input.split('|', 1)  # Разделяем только по первому символу |
-            platform_name = parts[0].strip()
-            platform_info = parts[1].strip()
-        else:
-            # Если нет разделителя - создаем автоматическое название
-            platform_name = f"Информация {datetime.now().strftime('%H:%M')}"
-            platform_info = user_input
-        
-        # Валидация URL убрана - можно вводить любую информацию
-        
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-        
-        try:
-            cursor = conn.cursor()
-            
-            # Получаем текущие ссылки
-            cursor.execute('SELECT platform_links FROM releases WHERE id = %s', (release_id,))
-            result = cursor.fetchone()
-            
-            if result and result[0]:
-                current_links = result[0]
-            else:
-                current_links = {}
-            
-            # Добавляем новую информацию
-            current_links[platform_name] = platform_info
-            
-            # Обновляем базу данных
-            cursor.execute(
-                'UPDATE releases SET platform_links = %s WHERE id = %s',
-                (json.dumps(current_links), release_id)
-            )
-            conn.commit()
-            
-            # Определяем правильный callback для кнопки "Назад"
-            back_callback = get_back_callback_for_release(release_id)
-            back_text = "◀️ Назад к альбому" if "album_detail" in back_callback else "◀️ Назад к релизу"
-            
-            # Отправляем подтверждение
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton(
-                    back_text,
-                    callback_data=back_callback
-                )
-            )
-            
-            bot.reply_to(
-                message,
-                f"✅ Информация добавлена!\n\n"
-                f"Название: {platform_name}\n"
-                f"Содержание: {platform_info}",
-                reply_markup=markup
-            )
-            
-        except Error as e:
-            logger.error(f"Error adding platform link: {e}")
-            bot.reply_to(message, "❌ Ошибка при добавлении информации о площадке")
-        finally:
-            if conn:
-                cursor.close()
-                return_pg_connection(conn)
-                
-    except Exception as e:
-        logger.error(f"Error processing platform information: {e}")
-        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_RELEASE_LINKS_ENABLED and call.data.startswith("view_platform_links_"))
-def handle_view_platform_links_request(call):
-    """Handle view platform links request"""
-    release_id = call.data.split("_")[3]
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        cursor.execute('SELECT platform_links FROM releases WHERE id = %s', (release_id,))
-        result = cursor.fetchone()
-        
-        if result and result[0] and result[0] != '{}':
-            platform_links = result[0]
-            if isinstance(platform_links, str):
-                platform_links = json.loads(platform_links)
-            
-            links_text = "🔗 Добавленная информация:\n\n"
-            for platform, url in platform_links.items():
-                links_text += f"📱 {platform}: {url}\n"
-        else:
-            links_text = "🔗 Информация не добавлена"
-        
-        # Определяем правильный callback для кнопки "Назад"
-        back_callback = get_back_callback_for_release(release_id)
-        back_text = "◀️ Назад к альбому" if "album_detail" in back_callback else "◀️ Назад к релизу"
-        
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton(
-                back_text,
-                callback_data=back_callback
-            )
-        )
-        
-        bot.edit_message_text(
-            links_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error viewing platform information: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("edit_platform_links_"))
-def handle_edit_platform_links_request(call):
-    """Handle edit platform links request"""
-    release_id = call.data.split("_")[3]
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        cursor.execute('SELECT platform_links FROM releases WHERE id = %s', (release_id,))
-        result = cursor.fetchone()
-        
-        if result and result[0] and result[0] != '{}':
-            platform_links = result[0]
-            if isinstance(platform_links, str):
-                platform_links = json.loads(platform_links)
-            
-            # Создаем кнопки для каждой площадки
-            markup = types.InlineKeyboardMarkup(row_width=1)
-            for platform in platform_links.keys():
-                markup.add(
-                    types.InlineKeyboardButton(
-                        f"✏️ {platform}",
-                        callback_data=f"edit_platform_{release_id}_{platform}"
-                    )
-                )
-            
-            # Определяем правильный callback для кнопки "Назад"
-            back_callback = get_back_callback_for_release(release_id)
-            back_text = "◀️ Назад к альбому" if "album_detail" in back_callback else "◀️ Назад к релизу"
-            
-            markup.add(
-                types.InlineKeyboardButton(
-                    back_text,
-                    callback_data=back_callback
-                )
-            )
-            
-            bot.edit_message_text(
-                "✏️ Редактирование информации\n\n"
-                "Выберите элемент для редактирования:",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-        else:
-            # Определяем правильный callback для кнопки "Назад"
-            back_callback = get_back_callback_for_release(release_id)
-            back_text = "◀️ Назад к альбому" if "album_detail" in back_callback else "◀️ Назад к релизу"
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton(
-                    back_text,
-                    callback_data=back_callback
-                )
-            )
-            
-            bot.edit_message_text(
-                "🔗 Информация не добавлена\n\n"
-                "Сначала добавьте информацию.",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-        
-    except Exception as e:
-        logger.error(f"Error editing platform information: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(
-    func=lambda call: call.data.startswith("edit_platform_")
-    and not call.data.startswith("edit_platform_links_")
-)
-def handle_edit_specific_platform_request(call):
-    """Handle edit specific platform link request"""
-    parts = call.data.split("_")
-    release_id = parts[2]
-    platform_name = parts[3]
-    
-    bot.edit_message_text(
-        f"✏️ Редактирование информации: {platform_name}\n\n"
-        "Введите новую информацию в любом формате:\n"
-        "• Текст\n"
-        "• Ссылки\n"
-        "• Многострочный текст\n"
-        "• Любые символы и эмодзи 🎵🎤🎹",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    bot.register_next_step_handler(call.message, process_edit_platform_link, release_id, platform_name)
-
-
-def process_edit_platform_link(message, release_id, platform_name):
-    """Process and save edited platform link"""
-    if not has_access_level(message.from_user.id, ["admin"]):
-        bot.reply_to(message, "❌ Только администраторы могут редактировать информацию о площадках")
-        return
-
-    try:
-        new_url = message.text.strip()
-        
-        # Валидация URL убрана - можно вводить любую информацию
-        
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-        
-        try:
-            cursor = conn.cursor()
-            
-            # Получаем текущие ссылки
-            cursor.execute('SELECT platform_links FROM releases WHERE id = %s', (release_id,))
-            result = cursor.fetchone()
-            
-            if result and result[0]:
-                current_links = result[0]
-                if isinstance(current_links, str):
-                    current_links = json.loads(current_links)
-            else:
-                current_links = {}
-            
-            # Обновляем ссылку
-            current_links[platform_name] = new_url
-            
-            # Обновляем базу данных
-            cursor.execute(
-                'UPDATE releases SET platform_links = %s WHERE id = %s',
-                (json.dumps(current_links), release_id)
-            )
-            conn.commit()
-            
-            # Определяем правильный callback для кнопки "Назад"
-            back_callback = get_back_callback_for_release(release_id)
-            back_text = "◀️ Назад к альбому" if "album_detail" in back_callback else "◀️ Назад к релизу"
-            
-            # Отправляем подтверждение
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton(
-                    back_text,
-                    callback_data=back_callback
-                )
-            )
-            
-            bot.reply_to(
-                message,
-                f"✅ Информация для площадки {platform_name} обновлена!\n\n"
-                f"Новая информация: {new_url}",
-                reply_markup=markup
-            )
-            
-        except Error as e:
-            logger.error(f"Error updating platform link: {e}")
-            bot.reply_to(message, "❌ Ошибка при обновлении информации о площадке")
-        finally:
-            if conn:
-                cursor.close()
-                return_pg_connection(conn)
-                
-    except Exception as e:
-        logger.error(f"Error processing platform information edit: {e}")
-        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("delete_platform_links_"))
-def handle_delete_platform_links_request(call):
-    """Handle delete platform links request"""
-    release_id = call.data.split("_")[3]
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Очищаем всю информацию
-        cursor.execute(
-            'UPDATE releases SET platform_links = %s WHERE id = %s',
-            ('{}', release_id)
-        )
-        conn.commit()
-        
-        # Определяем правильный callback для кнопки "Назад"
-        back_callback = get_back_callback_for_release(release_id)
-        back_text = "◀️ Назад к альбому" if "album_detail" in back_callback else "◀️ Назад к релизу"
-        
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton(
-                back_text,
-                callback_data=back_callback
-            )
-        )
-        
-        bot.edit_message_text(
-            "✅ Вся информация удалена!",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error deleting platform information: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_RELEASE_STATUS_MENU_ENABLED and call.data.startswith("change_status_"))
-def handle_change_status_request(call):
-    """Handle status change request from inline button"""
-    release_id = call.data.split("_")[2]
-
-    bot.edit_message_text(
-        f"Выберите новый статус для релиза ID {release_id}:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=create_status_selection_keyboard(release_id)
-    )
-
 
 def create_status_selection_keyboard(release_id):
     """Create keyboard with status options for a specific release"""
@@ -19647,226 +6391,9 @@ def create_status_selection_keyboard(release_id):
     return markup
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("user_detail_"))
-def show_user_detail(call):
-    """Show detailed information about user and their releases"""
-    user_id = int(call.data.split("_")[2])
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        # Get user info
-        cursor.execute('''
-            SELECT name, tg, kanal, fio, role, created_date 
-            FROM label 
-            WHERE telegram_id = %s
-        ''', (user_id,))
-        user_info = cursor.fetchone()
-
-        if not user_info:
-            bot.answer_callback_query(call.id, "❌ Пользователь не найден", show_alert=True)
-            return
-
-        name, username, channel, fio, role, created_date = user_info
-
-        # Get user's releases
-        cursor.execute('''
-            SELECT id, release_name, release_date, status 
-            FROM releases 
-            WHERE user_id = %s
-            ORDER BY release_date DESC
-        ''', (user_id,))
-        releases = cursor.fetchall()
-
-        # Format user info
-        user_text = (
-            f"👤 Информация о пользователе:\n\n"
-            f"🎤 Имя: {name or 'Не указано'}\n"
-            f"📱 Username: @{username or 'Не указан'}\n"
-            f"📺 Канал: {channel or 'Не указан'}\n"
-            f"👥 ФИО: {fio or 'Не указано'}\n"
-            f"🔑 Роль: {role or 'Не указана'}\n"
-            f"📅 Дата регистрации: {created_date.strftime('%d.%m.%Y') if created_date else 'Неизвестно'}\n\n"
-            f"📀 Всего релизов: {len(releases)}"
-        )
-
-        markup = types.InlineKeyboardMarkup(row_width=1)
-
-        # Add buttons for each release
-        for release_id, release_name, release_date, status in releases:
-            btn_text = f"{release_name} ({release_date.strftime('%d.%m.%Y') if release_date else 'нет даты'}) - {status}"
-            markup.add(types.InlineKeyboardButton(
-                btn_text,
-                callback_data=f"my_release_detail_{release_id}_admin"  # Добавлен суффикс _admin
-            ))
-
-        markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_users"))
-
-        bot.edit_message_text(
-            user_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-
-    except Error as e:
-        logger.error(f"PostgreSQL error in show_user_detail: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("release_detail_"))
-def show_release_details(call):
-    """Show detailed information about specific release"""
-    release_id = int(call.data.split("_")[2])
-
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        # Убраны комментарии из SQL-запроса
-        cursor.execute('''
-            SELECT 
-                r.release_type, r.artist_name, r.release_name, r.producer, r.genre,
-                r.cover_file_id, r.audio_file_id, r.release_date, r.performer_name,
-                r.music_author, r.contract_file_id, r.videoshot_url, r.explicit_content,
-                r.lyrics_file_id, r.preview_start, r.yandex_soon, r.create_links,
-                r.tiktok_commercial, r.tiktok_full_version, r.status, r.created_at,
-                r.upc_code,
-                l.telegram_id, 
-                l.tg, 
-                l.name 
-            FROM releases r
-            JOIN label l ON r.user_id = l.telegram_id
-            WHERE r.id = %s
-        ''', (release_id,))
-
-        release = cursor.fetchone()
-
-        if not release:
-            bot.answer_callback_query(call.id, "❌ Релиз не найден", show_alert=True)
-            return
-
-        # Индексы полей (соответствуют порядку в SELECT)
-        RELEASE_TYPE = 0
-        ARTIST_NAME = 1
-        RELEASE_NAME = 2
-        PRODUCER = 3
-        GENRE = 4
-        COVER_FILE_ID = 5
-        AUDIO_FILE_ID = 6
-        RELEASE_DATE = 7
-        PERFORMER_NAME = 8
-        MUSIC_AUTHOR = 9
-        CONTRACT_FILE_ID = 10
-        VIDEOSHOT_URL = 11
-        EXPLICIT_CONTENT = 12
-        LYRICS_FILE_ID = 13
-        PREVIEW_START = 14
-        YANDEX_SOON = 15
-        CREATE_LINKS = 16
-        TIKTOK_COMMERCIAL = 17
-        TIKTOK_FULL_VERSION = 18
-        STATUS = 19
-        CREATED_AT = 20
-        UPC_CODE = 21
-        USER_ID = 22
-        USERNAME = 23
-        NAME = 24
-        
-        # Форматирование данных о релизеtiktok_seconds_text = f"{release[PREVIEW_START]} сек" if release[PREVIEW_START] else "Не указано"
-
-        # Форматирование данных о релизе
-        message_text = (
-            f"📀 Полная информация о релизе:\n\n"
-            f"👤 Артист: {release[NAME]} (@{release[USERNAME]})\n"
-            f"🎵 Тип релиза: {release[RELEASE_TYPE]}\n"
-            f"📌 Название: {release[RELEASE_NAME]}\n"
-            f"🎹 Продюсер: {release[PRODUCER] or 'Не указан'}\n"
-            f"🎼 Жанр: {release[GENRE]}\n"
-            f"📅 Дата релиза: {release[RELEASE_DATE].strftime('%d.%m.%Y') if release[RELEASE_DATE] else 'Не указана'}\n"
-            f"👤 Исполнитель: {release[PERFORMER_NAME]}\n"
-            f"✍️ Автор музыки: {release[MUSIC_AUTHOR]}\n"
-            f"🔞 Explicit: {'Да' if release[EXPLICIT_CONTENT] else 'Нет'}\n"
-            f"🟢 Яндекс 'Скоро': {'Да' if release[YANDEX_SOON] else 'Нет'}\n"
-            f"🔗 Создать ссылки: {'Да' if release[CREATE_LINKS] else 'Нет'}\n"
-            f"📱 TikTok коммерч.: {'Да' if release[TIKTOK_COMMERCIAL] else 'Нет'}\n"
-            f"🎵 TikTok полная версия: {'Да' if release[TIKTOK_FULL_VERSION] else 'Нет'}\n"
-            f"⏱️ Секунды TikTok: {tiktok_seconds_text}\n"
-            f"🔖 UPC код: {release[UPC_CODE] or 'пока что нет'}\n"
-            f"🟢 Статус: {release[STATUS]}\n"
-            f"📅 Создан: {release[CREATED_AT].strftime('%d.%m.%Y %H:%M') if release[CREATED_AT] else 'Неизвестно'}"
-        )
-
-        markup = types.InlineKeyboardMarkup(row_width=1)
-
-        # Кнопки для просмотра файлов
-        if release[COVER_FILE_ID]:
-            markup.add(types.InlineKeyboardButton(
-                "🎨 Просмотреть обложку",
-                callback_data=f"view_cover_{release_id}"
-            ))
-        if release[AUDIO_FILE_ID]:
-            markup.add(types.InlineKeyboardButton(
-                "🎧 Просмотреть аудио",
-                callback_data=f"view_audio_{release_id}"
-            ))
-        if release[CONTRACT_FILE_ID]:
-            markup.add(types.InlineKeyboardButton(
-                "📄 Просмотреть контракт",
-                callback_data=f"view_release_contract_{release_id}"
-            ))
-
-        markup.add(types.InlineKeyboardButton(
-            "◀️ Назад к релизам пользователя",
-            callback_data=f"user_releases_{release[USER_ID]}"
-        ))
-
-        bot.edit_message_text(
-            message_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-
-    except Error as e:
-        logger.error(f"Ошибка PostgreSQL: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка базы данных: {str(e)}", show_alert=True)
-    except Exception as e:
-        logger.error(f"Неизвестная ошибка: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
 
 def handle_service_release_for_artist(call):
-    """Handle admin service: create release for artist"""
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Эта функция доступна только администраторам", show_alert=True)
-        return
-
-    bot.edit_message_text(
-        "📤 Выгрузка релиза за артиста\n\n"
-        "Введите Telegram ID пользователя, для которого нужно создать релиз:\n\n"
-        "💡 Можно найти ID пользователя в админ-панели → Пользователи",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    bot.register_next_step_handler(call.message, process_artist_user_id)
+    return service_artist_release.handle_service_release_for_artist(call)
 
 
 def process_artist_user_id(message):
@@ -19877,45 +6404,45 @@ def process_artist_user_id(message):
 
     try:
         target_user_id = int(message.text.strip())
-        
+
         # Проверяем, существует ли пользователь в БД
         conn = get_pg_connection()
         if not conn:
             bot.reply_to(message, "❌ Ошибка подключения к базе данных")
             return
-            
+
         cursor = conn.cursor()
         cursor.execute('SELECT tg FROM label WHERE telegram_id = %s', (target_user_id,))
         user_result = cursor.fetchone()
         conn.close()
-        
+
         if not user_result:
             bot.reply_to(message, f"❌ Пользователь с ID {target_user_id} не найден в базе данных")
             return
-        
+
         username = user_result[0] or f"ID_{target_user_id}"
-        
+
         # Сохраняем target_user_id для админа
         bot.admin_release_target = getattr(bot, 'admin_release_target', {})
         bot.admin_release_target[message.from_user.id] = target_user_id
-        
+
         markup = types.InlineKeyboardMarkup()
         markup.add(
             types.InlineKeyboardButton("✅ Начать создание релиза", callback_data="service_distribution"),
             types.InlineKeyboardButton("◀️ Назад к услугам", callback_data="services_back")
         )
-        
+
         bot.reply_to(
-            message, 
+            message,
             f"✅ Выбран пользователь: {username} (ID: {target_user_id})\n\n"
             "Теперь вы будете проходить обычный процесс дистрибуции, "
             "но релиз будет создан от имени этого пользователя.",
             reply_markup=markup
         )
-        
+
         # Модифицируем процесс дистрибуции для работы от имени другого пользователя
         modify_distribution_for_artist_release(message.from_user.id, target_user_id)
-        
+
     except ValueError:
         bot.reply_to(message, "❌ Неверный формат ID. Введите числовой Telegram ID:")
         bot.register_next_step_handler(message, process_artist_user_id)
@@ -19929,24 +6456,24 @@ def modify_distribution_for_artist_release(admin_id: int, target_user_id: int):
     # Перехватываем функцию save_release_data_for_user для этого админа
     if not hasattr(bot, 'original_save_release_data_for_user'):
         bot.original_save_release_data_for_user = save_release_data_for_user
-    
+
     def custom_save_release_data_for_user(user_id: int, chat_id: int) -> None:
         """Custom save function that creates release for target user"""
         if user_id == admin_id and hasattr(bot, 'admin_release_target') and bot.admin_release_target.get(admin_id):
             actual_user_id = bot.admin_release_target[admin_id]
             logger.info(f"Admin {admin_id} creating release for user {actual_user_id}")
-            
+
             user_data = bot.user_data.get(admin_id, {})
             release_type = user_data.get('release_type', '')
-            
+
             conn = get_pg_connection()
             if not conn:
                 bot.send_message(chat_id, "❌ Ошибка подключения к БД")
                 return
-            
+
             try:
                 cursor = conn.cursor()
-                
+
                 if release_type == "Single":
                     # Создаем одиночный релиз для target_user_id
                     cursor.execute('''
@@ -19982,26 +6509,26 @@ def modify_distribution_for_artist_release(admin_id: int, target_user_id: int):
                         'pending'
                     ))
                     release_id = cursor.fetchone()[0]
-                    
+
                     conn.commit()
-                    
+
                     # Уведомляем админа
                     bot.send_message(chat_id, f"✅ Релиз #{release_id} создан за пользователя {actual_user_id}")
-                    
+
                     # Уведомляем пользователя
                     try:
                         bot.send_message(actual_user_id, "📀 Для вас создан релиз администратором. Проверьте раздел 'Мои релизы'.")
                     except Exception:
                         pass
-                    
+
                     # Очищаем target_user_id после создания релиза
                     if hasattr(bot, 'admin_release_target') and admin_id in bot.admin_release_target:
                         del bot.admin_release_target[admin_id]
-                        
+
                 else:
                     # Для других типов релизов вызываем оригинальную функцию
                     bot.original_save_release_data_for_user(actual_user_id, chat_id)
-                    
+
             except Exception as e:
                 logger.error(f"Error creating release for artist: {e}")
                 bot.send_message(chat_id, f"❌ Ошибка создания релиза: {str(e)}")
@@ -20012,95 +6539,11 @@ def modify_distribution_for_artist_release(admin_id: int, target_user_id: int):
         else:
             # Обычное поведение для других пользователей
             bot.original_save_release_data_for_user(user_id, chat_id)
-    
+
     # Временно заменяем функцию
     globals()['save_release_data_for_user'] = custom_save_release_data_for_user
 
 
-@bot.callback_query_handler(func=lambda call: LEGACY_INFO_ENABLED and call.data == "back_to_main")
-def handle_back_to_main(call):
-    """Return to main menu from callback"""
-    try:
-        # Удаляем текущее сообщение
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception as e:
-        logger.error(f"Error deleting message: {e}")
-
-    # Отправляем главное меню
-    markup = create_main_menu()
-    menu_text = (
-        "🏠 Главное меню\n\n"
-        "Выберите нужную опцию из меню ниже 👇"
-    )
-    bot.send_message(
-        call.message.chat.id,
-        menu_text,
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_INFO_ENABLED and call.data == "services_back")
-def handle_services_back(call):
-    """Handle back button in services menu"""
-    try:
-        # Удаляем текущее сообщение с услугами
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception as e:
-        logger.error(f"Error deleting message: {e}")
-
-    # Отправляем главное меню
-    markup = create_main_menu()
-    menu_text = (
-        "🏠 Главное меню\n\n"
-        "Выберите нужную опцию из меню ниже 👇"
-    )
-    bot.send_message(
-        call.message.chat.id,
-        menu_text,
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(
-    func=lambda call: call.data.startswith(("view_cover_", "view_audio_"))
-    or call.data.startswith("view_release_contract_")
-)
-def handle_view_file(call):
-    """Handle viewing release files"""
-    if call.data.startswith("view_release_contract_"):
-        release_id = int(call.data.split("_")[3])
-        file_type = "contract"
-    else:
-        action, release_id = call.data.split("_", 1)
-        release_id = int(release_id.split("_")[0])
-        file_type = action.split("_")[1]  # cover or audio
-
-    try:
-        if file_type not in {"contract", "cover", "audio"}:
-            bot.answer_callback_query(call.id, "❌ Неверный тип файла", show_alert=True)
-            return
-
-        file_id = get_release_file_id(release_id, file_type)
-        if not file_id:
-            bot.answer_callback_query(call.id, f"❌ Файл не найден", show_alert=True)
-            return
-
-        # Send file based on type
-        if file_type == 'contract':
-            bot.send_document(call.message.chat.id, file_id, caption="📝 Контракт на релиз")
-        elif file_type == 'cover':
-            send_file_smart(call.message.chat.id, file_id, caption="🎨 Обложка релиза", file_type_hint='photo')
-        elif file_type == 'audio':
-            bot.send_audio(call.message.chat.id, file_id, caption="🎧 Аудиофайл релиза")
-
-        bot.answer_callback_query(call.id, "Файл отправлен в чат")
-
-    except Error as e:
-        logger.error(f"PostgreSQL error in handle_view_file: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    except Exception as e:
-        logger.error(f"Error in handle_view_file: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
 
 
 def handle_admin_finance(call):
@@ -20162,91 +6605,6 @@ def handle_admin_finance(call):
             return_pg_connection(conn)
 
 
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_FINANCE_ENABLED and call.data == "finance_stats")
-def handle_finance_stats(call):
-    """Handle detailed finance statistics with monthly breakdown"""
-    bot.answer_callback_query(call.id)
-    conn = get_pg_connection()
-    if not conn:
-        bot.edit_message_text(
-            "❌ Ошибка подключения к базе данных. Попробуйте позже.",
-            call.message.chat.id,
-            call.message.message_id
-        )
-        return
-
-    try:
-        cursor = conn.cursor()
-        
-        # Get total revenue
-        cursor.execute('SELECT SUM(amount) FROM orders WHERE status = %s', ("completed",))
-        result_total = cursor.fetchone()
-        total_revenue = float(result_total[0]) if result_total and result_total[0] is not None else 0.0
-        
-        # Calculate Artem's share (15%)
-        artem_share = total_revenue * 0.15
-        remaining_income = total_revenue - artem_share
-        
-        # Get monthly revenue for current month
-        current_month = datetime.now().replace(day=1)
-        cursor.execute('''
-            SELECT SUM(amount) FROM orders 
-            WHERE status = %s AND created_date >= %s
-        ''', ("completed", current_month))
-        result_month = cursor.fetchone()
-        monthly_revenue = float(result_month[0]) if result_month and result_month[0] is not None else 0.0
-        
-        # Calculate monthly Artem's share
-        monthly_artem_share = monthly_revenue * 0.15
-        monthly_remaining = monthly_revenue - monthly_artem_share
-        
-        # Get today's revenue
-        today = datetime.now().date()
-        cursor.execute('SELECT SUM(amount) FROM orders WHERE status = %s AND DATE(created_date) = %s',
-                       ("completed", today,))
-        result_today = cursor.fetchone()
-        today_revenue = float(result_today[0]) if result_today and result_today[0] is not None else 0.0
-        
-        # Calculate today's Artem's share
-        today_artem_share = today_revenue * 0.15
-        today_remaining = today_revenue - today_artem_share
-
-        stats_text = (
-            "📊 Подробная финансовая статистика\n\n"
-            f"💰 Общий доход: {total_revenue:,.2f}₽\n"
-            f"👤 Доля Артёма (15%): {artem_share:,.2f}₽\n"
-            f"🏢 Оставшийся доход: {remaining_income:,.2f}₽\n\n"
-            f"📅 Доход за месяц: {monthly_revenue:,.2f}₽\n"
-            f"👤 Доля Артёма за месяц: {monthly_artem_share:,.2f}₽\n"
-            f"🏢 Оставшийся доход за месяц: {monthly_remaining:,.2f}₽\n\n"
-            f"📆 Доход за сегодня: {today_revenue:,.2f}₽\n"
-            f"👤 Доля Артёма за сегодня: {today_artem_share:,.2f}₽\n"
-            f"🏢 Оставшийся доход за сегодня: {today_remaining:,.2f}₽"
-        )
-
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        markup.add(
-            types.InlineKeyboardButton("◀️ Назад", callback_data="admin_finance")
-        )
-
-        bot.edit_message_text(
-            stats_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-    except Error as e:
-        logger.error(f"PostgreSQL error in handle_finance_stats: {e}")
-        bot.edit_message_text(
-            "❌ Произошла ошибка при получении подробной статистики.",
-            call.message.chat.id,
-            call.message.message_id
-        )
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
 
 def handle_admin_promo(call):
     """Handle promo codes management"""
@@ -20266,594 +6624,12 @@ def handle_admin_promo(call):
     )
 
 
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_PROMOS_ENABLED and call.data == "finance_promo")
-def handle_finance_promo(call):
-    """Handle promo codes management from finance menu"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("➕ Создать промокод", callback_data="promo_create"),
-        types.InlineKeyboardButton("📊 Статистика промокодов", callback_data="promo_stats"),
-        types.InlineKeyboardButton("❌ Удалить промокоды", callback_data="promo_delete"),
-        types.InlineKeyboardButton("◀️ Назад", callback_data="admin_finance")
-    )
-
-    bot.edit_message_text(
-        "🎟 Управление промокодами",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
-
 
 # Обработчик handle_promo_fix_structure удален
 
 
 # Обработчик handle_fix_promo_table удален
 
-
-@bot.callback_query_handler(func=lambda call: call.data == "promo_create")
-def handle_promo_create(call):
-    """Handle promo code creation request — выбор: пополнение или скидка"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("💰 Промокод на пополнение баланса", callback_data="promo_create_balance"),
-        types.InlineKeyboardButton("🎟 Промокод на скидку", callback_data="promo_create_discount"),
-        types.InlineKeyboardButton("◀️ Назад", callback_data="finance_promo")
-    )
-    bot.edit_message_text(
-        "🎟 Создание промокода\n\n"
-        "Выберите тип промокода:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "promo_create_balance")
-def handle_promo_create_balance(call):
-    """Выбор ограничения для промокода на пополнение"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("🔢 С ограничением по использованию", callback_data="promo_create_limited"),
-        types.InlineKeyboardButton("⏰ С ограничением по времени", callback_data="promo_create_timed"),
-        types.InlineKeyboardButton("♾️ Без ограничений", callback_data="promo_create_unlimited"),
-        types.InlineKeyboardButton("◀️ Назад", callback_data="promo_create")
-    )
-    bot.edit_message_text(
-        "💰 Промокод на пополнение баланса\n\n"
-        "Выберите тип ограничения:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "promo_create_discount")
-def handle_promo_create_discount(call):
-    """Выбор ограничения для промокода на скидку"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("🔢 С ограничением по использованию", callback_data="promo_create_discount_limited"),
-        types.InlineKeyboardButton("⏰ С ограничением по времени", callback_data="promo_create_discount_timed"),
-        types.InlineKeyboardButton("♾️ Без ограничений", callback_data="promo_create_discount_unlimited"),
-        types.InlineKeyboardButton("◀️ Назад", callback_data="promo_create")
-    )
-    bot.edit_message_text(
-        "🎟 Промокод на скидку\n\n"
-        "Выберите тип ограничения:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "promo_create_limited")
-def handle_promo_create_limited(call):
-    """Handle promo code creation with usage limit"""
-    bot.edit_message_text(
-        "🔢 Создание промокода с ограничением по использованию\n\n"
-        "Введите данные в формате:\n"
-        "КОД СУММА КОЛИЧЕСТВО_ИСПОЛЬЗОВАНИЙ\n\n"
-        "Например: WELCOME2024 1000 50",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    bot.register_next_step_handler(call.message, process_promo_create_limited)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "promo_create_timed")
-def handle_promo_create_timed(call):
-    """Handle promo code creation with time limit"""
-    bot.edit_message_text(
-        "⏰ Создание промокода с ограничением по времени\n\n"
-        "Введите данные в формате:\n"
-        "КОД СУММА ДАТА_ОКОНЧАНИЯ\n\n"
-        "Например: SUMMER2024 500 31.12.2024\n"
-        "Формат даты: ДД.ММ.ГГГГ",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    bot.register_next_step_handler(call.message, process_promo_create_timed)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "promo_create_unlimited")
-def handle_promo_create_unlimited(call):
-    """Handle promo code creation without limits"""
-    bot.edit_message_text(
-        "♾️ Создание промокода без ограничений\n\n"
-        "Введите данные в формате:\n"
-        "КОД СУММА\n\n"
-        "Например: VIP2024 2000\n"
-        "Этот промокод будет действовать всегда и без ограничений!",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    bot.register_next_step_handler(call.message, process_promo_create_unlimited)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "promo_create_discount_limited")
-def handle_promo_create_discount_limited(call):
-    """Промокод на скидку с лимитом использований"""
-    bot.edit_message_text(
-        "🔢 Промокод на скидку с ограничением по использованию\n\n"
-        "Введите в формате: КОД ПРОЦЕНТ КОЛИЧЕСТВО_АКТИВАЦИЙ\n\n"
-        "Например: SALE20 20 100",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    user_id = call.from_user.id
-    bot.user_data.setdefault(user_id, {})['promo_discount_type'] = 'limited'
-    bot.register_next_step_handler(call.message, process_promo_create_discount)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "promo_create_discount_timed")
-def handle_promo_create_discount_timed(call):
-    """Промокод на скидку с ограничением по времени"""
-    bot.edit_message_text(
-        "⏰ Промокод на скидку с ограничением по времени\n\n"
-        "Введите в формате: КОД ПРОЦЕНТ ДАТА_ОКОНЧАНИЯ\n\n"
-        "Например: SALE20 20 31.12.2025\nФормат даты: ДД.ММ.ГГГГ",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    user_id = call.from_user.id
-    bot.user_data.setdefault(user_id, {})['promo_discount_type'] = 'timed'
-    bot.register_next_step_handler(call.message, process_promo_create_discount)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "promo_create_discount_unlimited")
-def handle_promo_create_discount_unlimited(call):
-    """Промокод на скидку без ограничений"""
-    bot.edit_message_text(
-        "♾️ Промокод на скидку без ограничений\n\n"
-        "Введите в формате: КОД ПРОЦЕНТ\n\n"
-        "Например: SALE20 20",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    user_id = call.from_user.id
-    bot.user_data.setdefault(user_id, {})['promo_discount_type'] = 'unlimited'
-    bot.register_next_step_handler(call.message, process_promo_create_discount)
-
-
-def process_promo_create_discount(message):
-    """Обработка ввода промокода на скидку (limited/timed/unlimited)."""
-    user_id = message.from_user.id
-    discount_type = bot.user_data.get(user_id, {}).get('promo_discount_type', 'unlimited')
-    conn = get_pg_connection()
-    if not conn:
-        bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-        return
-    cursor = None
-    try:
-        cursor = conn.cursor()
-        parts = (message.text or "").strip().split()
-        code = parts[0].upper() if parts else ""
-        if not code:
-            bot.reply_to(message, "❌ Введите код и процент скидки")
-            return
-        if len(parts) < 2:
-            bot.reply_to(message, "❌ Формат: КОД ПРОЦЕНТ [лимит или дата]")
-            return
-        try:
-            discount_pct = float(parts[1])
-        except ValueError:
-            bot.reply_to(message, "❌ Процент скидки должен быть числом")
-            return
-        if discount_pct <= 0 or discount_pct >= 100:
-            bot.reply_to(message, "❌ Процент скидки: от 1 до 99")
-            return
-        max_uses = None
-        expires_at = None
-        if discount_type == 'limited':
-            if len(parts) < 3:
-                bot.reply_to(message, "❌ Для лимита по использованию введите: КОД ПРОЦЕНТ КОЛИЧЕСТВО")
-                return
-            try:
-                max_uses = int(parts[2])
-                if max_uses <= 0:
-                    bot.reply_to(message, "❌ Количество активаций должно быть > 0")
-                    return
-            except ValueError:
-                bot.reply_to(message, "❌ Количество активаций — целое число")
-                return
-        elif discount_type == 'timed':
-            if len(parts) < 3:
-                bot.reply_to(message, "❌ Для лимита по времени введите: КОД ПРОЦЕНТ ДАТА (ДД.ММ.ГГГГ)")
-                return
-            from datetime import datetime
-            try:
-                d = datetime.strptime(parts[2], "%d.%m.%Y")
-                expires_at = d
-            except ValueError:
-                bot.reply_to(message, "❌ Дата в формате ДД.ММ.ГГГГ")
-                return
-        cursor.execute(
-            'INSERT INTO promo_codes (code, amount, discount, created_by, max_uses, current_uses, expires_at, is_active) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)',
-            (code, 0, discount_pct, user_id, max_uses, 0, expires_at, True)
-        )
-        conn.commit()
-        bot.user_data.get(user_id, {}).pop('promo_discount_type', None)
-        msg = f"✅ Промокод на скидку создан!\n\nКод: {code}\nСкидка: {discount_pct:.0f}%"
-        if max_uses:
-            msg += f"\nМакс. активаций: {max_uses}"
-        if expires_at:
-            msg += f"\nДействует до: {expires_at.strftime('%d.%m.%Y')}"
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="finance_promo"))
-        bot.reply_to(message, msg, reply_markup=markup)
-    except Exception as e:
-        if "duplicate" in str(e).lower():
-            bot.reply_to(message, "❌ Промокод с таким кодом уже существует")
-        else:
-            bot.reply_to(message, f"❌ Ошибка: {str(e)}")
-    finally:
-        if cursor:
-            cursor.close()
-        return_pg_connection(conn)
-
-
-def process_promo_create_unlimited(message):
-    """Process promo code creation without limits"""
-    try:
-        parts = message.text.strip().split()
-        if len(parts) != 2:
-            bot.reply_to(message, "❌ Неверный формат. Используйте: КОД СУММА")
-            return
-        
-        code = parts[0].upper()
-        amount = float(parts[1])
-        
-        if amount <= 0:
-            bot.reply_to(message, "❌ Сумма должна быть больше 0")
-            return
-        
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-        
-        try:
-            cursor = conn.cursor()
-            
-            # Check if all required columns exist, if not - create them
-            required_columns = ['amount', 'discount', 'is_used', 'created_by', 'used_by', 'used_at', 'max_uses', 'current_uses', 'expires_at', 'is_active']
-            for column in required_columns:
-                cursor.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'promo_codes' AND column_name = '{column}'
-                """)
-                
-                if not cursor.fetchone():
-                    # Column doesn't exist, add it
-                    if column == 'amount':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN amount NUMERIC(10, 2) DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET amount = 0 WHERE amount IS NULL")
-                    elif column == 'discount':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN discount NUMERIC(10, 2) DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET discount = 0 WHERE discount IS NULL")
-                    elif column == 'is_used':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN is_used BOOLEAN DEFAULT FALSE")
-                        cursor.execute("UPDATE promo_codes SET is_used = FALSE WHERE is_used IS NULL")
-                    elif column == 'created_by':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN created_by BIGINT DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET created_by = 0 WHERE created_by IS NULL")
-                    elif column == 'used_by':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN used_by BIGINT")
-                    elif column == 'used_at':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN used_at TIMESTAMP")
-                    elif column == 'max_uses':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN max_uses INTEGER DEFAULT NULL")
-                    elif column == 'current_uses':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN current_uses INTEGER DEFAULT 0")
-                    elif column == 'expires_at':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN expires_at TIMESTAMP DEFAULT NULL")
-                    elif column == 'is_active':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN is_active BOOLEAN DEFAULT TRUE")
-                    
-                    logger.info(f"✅ Added column {column} to promo_codes table during promo creation")
-            
-            # Now insert the promo code without limits
-            cursor.execute(
-                'INSERT INTO promo_codes (code, amount, discount, created_by, max_uses, current_uses, expires_at, is_active) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)',
-                (code, amount, 0, message.from_user.id, None, 0, None, True)
-            )
-            conn.commit()
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="finance_promo"))
-            
-            bot.reply_to(
-                message,
-                f"✅ Промокод без ограничений создан!\n\n"
-                f"Код: {code}\n"
-                f"Сумма: {amount}₽\n"
-                f"♾️ Действует всегда и без ограничений!",
-                reply_markup=markup
-            )
-            
-        except Error as e:
-            if "duplicate key" in str(e).lower():
-                bot.reply_to(message, "❌ Промокод с таким кодом уже существует")
-            else:
-                bot.reply_to(message, f"❌ Ошибка создания промокода: {str(e)}")
-        finally:
-            cursor.close()
-            return_pg_connection(conn)
-            
-    except ValueError:
-        bot.reply_to(message, "❌ Неверный формат. Введите корректные числа")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
-
-
-def process_promo_create(message):
-    """Process promo code creation"""
-    try:
-        parts = message.text.strip().split()
-        if len(parts) != 2:
-            bot.reply_to(message, "❌ Неверный формат. Используйте: КОД СУММА")
-            return
-        
-        code = parts[0].upper()
-        amount = float(parts[1])
-        
-        if amount <= 0:
-            bot.reply_to(message, "❌ Сумма должна быть больше 0")
-            return
-        
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-        
-        try:
-            cursor = conn.cursor()
-            
-            # Check if all required columns exist, if not - create them
-            required_columns = ['amount', 'discount', 'is_used', 'created_by', 'used_by', 'used_at', 'max_uses', 'current_uses', 'expires_at', 'is_active']
-            for column in required_columns:
-                cursor.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'promo_codes' AND column_name = '{column}'
-                """)
-                
-                if not cursor.fetchone():
-                    # Column doesn't exist, add it
-                    if column == 'amount':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN amount NUMERIC(10, 2) DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET amount = 0 WHERE amount IS NULL")
-                    elif column == 'discount':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN discount NUMERIC(10, 2) DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET discount = 0 WHERE discount IS NULL")
-                    elif column == 'is_used':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN is_used BOOLEAN DEFAULT FALSE")
-                        cursor.execute("UPDATE promo_codes SET is_used = FALSE WHERE is_used IS NULL")
-                    elif column == 'created_by':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN created_by BIGINT DEFAULT 0")
-                        cursor.execute("UPDATE promo_codes SET created_by = 0 WHERE created_by IS NULL")
-                    elif column == 'used_by':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN used_by BIGINT")
-                    elif column == 'used_at':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN used_at TIMESTAMP")
-                    elif column == 'max_uses':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN max_uses INTEGER DEFAULT NULL")
-                    elif column == 'current_uses':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN current_uses INTEGER DEFAULT 0")
-                    elif column == 'expires_at':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN expires_at TIMESTAMP DEFAULT NULL")
-                    elif column == 'is_active':
-                        cursor.execute("ALTER TABLE promo_codes ADD COLUMN is_active BOOLEAN DEFAULT TRUE")
-                    
-                    logger.info(f"✅ Added column {column} to promo_codes table during promo creation")
-            
-            # Now insert the promo code
-            cursor.execute(
-                'INSERT INTO promo_codes (code, amount, discount, created_by) VALUES (%s, %s, %s, %s)',
-                (code, amount, 0, message.from_user.id)
-            )
-            conn.commit()
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="finance_promo"))
-            
-            bot.reply_to(
-                message,
-                f"✅ Промокод создан!\n\n"
-                f"Код: {code}\n"
-                f"Сумма: {amount}₽",
-                reply_markup=markup
-            )
-            
-        except Error as e:
-            if "duplicate key" in str(e).lower():
-                bot.reply_to(message, "❌ Промокод с таким кодом уже существует")
-            else:
-                bot.reply_to(message, f"❌ Ошибка создания промокода: {str(e)}")
-        finally:
-            cursor.close()
-            return_pg_connection(conn)
-            
-    except ValueError:
-        bot.reply_to(message, "❌ Неверная сумма. Введите число")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_PROMOS_ENABLED and call.data == "promo_stats")
-def handle_promo_stats(call):
-    """Handle promo codes statistics"""
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get total promo codes
-        cursor.execute('SELECT COUNT(*) FROM promo_codes')
-        total = cursor.fetchone()[0]
-        
-        # Get active promo codes
-        cursor.execute('SELECT COUNT(*) FROM promo_codes WHERE is_active = TRUE')
-        active = cursor.fetchone()[0]
-        
-        # Get expired promo codes
-        cursor.execute('SELECT COUNT(*) FROM promo_codes WHERE expires_at < CURRENT_TIMESTAMP AND expires_at IS NOT NULL')
-        expired = cursor.fetchone()[0]
-        
-        # Get promo codes with usage limits
-        cursor.execute('SELECT COUNT(*) FROM promo_codes WHERE max_uses IS NOT NULL')
-        limited_usage = cursor.fetchone()[0]
-        
-        # Get total amount from all codes
-        cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM promo_codes')
-        total_amount = cursor.fetchone()[0]
-        
-        # Get total amount from used codes
-        cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM promo_codes WHERE current_uses > 0')
-        used_amount = cursor.fetchone()[0]
-        
-        stats_text = (
-            "📊 Статистика промокодов\n\n"
-            f"Всего промокодов: {total}\n"
-            f"Активных: {active}\n"
-            f"Истекших: {expired}\n"
-            f"С лимитом использований: {limited_usage}\n"
-            f"Общая сумма всех: {total_amount}₽\n"
-            f"Сумма использованных: {used_amount}₽"
-        )
-        
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="finance_promo"))
-        
-        bot.edit_message_text(
-            stats_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Error as e:
-        logger.error(f"PostgreSQL error in promo stats: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка получения статистики", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "promo_delete")
-def handle_promo_delete(call):
-    """Handle promo code deletion request"""
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        cursor.execute('SELECT code, amount FROM promo_codes WHERE is_used = FALSE')
-        unused_codes = cursor.fetchall()
-        
-        if not unused_codes:
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="finance_promo"))
-            
-            bot.edit_message_text(
-                "❌ Нет неиспользованных промокодов для удаления",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-            return
-        
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        for code, amount in unused_codes:
-            markup.add(types.InlineKeyboardButton(
-                f"❌ {code} ({amount}₽)",
-                callback_data=f"delete_promo_{code}"
-            ))
-        
-        markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="finance_promo"))
-        
-        bot.edit_message_text(
-            "❌ Выберите промокод для удаления:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Error as e:
-        logger.error(f"PostgreSQL error in promo delete: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка получения списка промокодов", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("delete_promo_"))
-def handle_delete_promo(call):
-    """Handle specific promo code deletion"""
-    code = call.data.split("_")[2]
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM promo_codes WHERE code = %s AND is_used = FALSE', (code,))
-        
-        if cursor.rowcount > 0:
-            conn.commit()
-            bot.answer_callback_query(call.id, f"✅ Промокод {code} удален")
-            
-            # Return to promo management
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="finance_promo"))
-            
-            bot.edit_message_text(
-                f"✅ Промокод {code} успешно удален",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-        else:
-            bot.answer_callback_query(call.id, "❌ Промокод не найден или уже использован", show_alert=True)
-            
-    except Error as e:
-        logger.error(f"PostgreSQL error in delete promo: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка удаления промокода", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
 
 
 def handle_admin_schedule(call):
@@ -20948,354 +6724,10 @@ def handle_admin_levels(call):
     )
 
 
-def add_transaction(user_id, amount, description):
-    """Add transaction to user's balance"""
-    conn = get_pg_connection()
-    if not conn:
-        logger.error("Could not connect to database in add_transaction")
-        return
-
-    try:
-        cursor = conn.cursor()
-
-        # Check if 'balance' column exists in 'label' table. If not, add it.
-        cursor.execute("""
-            ALTER TABLE label
-            ADD COLUMN IF NOT EXISTS balance NUMERIC(10, 2) DEFAULT 0;
-        """)
-
-        # Update user balance in label table
-        cursor.execute('UPDATE label SET balance = COALESCE(balance, 0) + %s WHERE telegram_id = %s', (amount, user_id))
-
-        # Add transaction record
-        cursor.execute('''
-            INSERT INTO transactions (user_id, amount, description, created_date)
-            VALUES (%s, %s, %s, %s)
-        ''', (user_id, amount, description, datetime.now()))
-
-        conn.commit()
-
-        # Get user info for notification
-        cursor.execute('SELECT tg FROM label WHERE telegram_id = %s', (user_id,))
-        result = cursor.fetchone()
-        username = result[0] if result else "Неизвестный пользователь"
-
-        # Notify user about transaction
-        notification = (
-            "💰 Новое начисление\n\n"
-            f"Сумма: {amount:+,.2f}₽\n"
-            f"Описание: {description}\n\n"
-            "Проверить баланс можно в разделе 'Мои финансы'"
-        )
-
-        try:
-            bot.send_message(user_id, notification)
-        except Exception as e:
-            logger.error(f"Failed to send transaction notification to user {username}: {e}")
-    except Error as e:
-        logger.error(f"PostgreSQL error in add_transaction: {e}")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
 
 # =================== WEB AUTHORIZATION COMMANDS ===================
 
-@bot.message_handler(commands=['код', 'webauth'], func=lambda message: LEGACY_WEB_AUTH_ENABLED)
-def handle_web_auth_code(message):
-    """Генерация кода для веб-авторизации"""
-    user_id = message.from_user.id
-    username = message.from_user.username or f"user_{user_id}"
-    
-    try:
-        # Генерируем 6-значный код
-        auth_code = str(random.randint(100000, 999999))
-        
-        # Подключаемся к базе данных
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-            
-        cursor = conn.cursor()
-        
-        # Проверяем существование таблицы auth_codes
-        cursor.execute("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_name = 'auth_codes'
-            )
-        """)
-        table_exists = cursor.fetchone()[0]
-        
-        if not table_exists:
-            # Создаем таблицу auth_codes
-            cursor.execute("""
-                CREATE TABLE auth_codes (
-                    id SERIAL PRIMARY KEY,
-                    code VARCHAR(6) UNIQUE NOT NULL,
-                    user_id BIGINT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    expires_at TIMESTAMP NOT NULL,
-                    used BOOLEAN DEFAULT FALSE,
-                    used_at TIMESTAMP NULL
-                )
-            """)
-            logger.info("Таблица auth_codes создана")
-        
-        # Удаляем старые неиспользованные коды этого пользователя
-        cursor.execute("""
-            DELETE FROM auth_codes 
-            WHERE user_id = %s AND used = FALSE
-        """, (user_id,))
-        
-        # Вычисляем время истечения (5 минут)
-        expires_at = datetime.now() + timedelta(minutes=5)
-        
-        # Сохраняем новый код
-        cursor.execute("""
-            INSERT INTO auth_codes (code, user_id, expires_at)
-            VALUES (%s, %s, %s)
-        """, (auth_code, user_id, expires_at))
-        
-        conn.commit()
-        
-        # Отправляем ответ пользователю с кнопкой Web App
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(
-            "🌐 Открыть приложение",
-            web_app=types.WebAppInfo(url=f"{WEB_APP_URL}?tgid={user_id}")
-        ))
-        
-        bot.reply_to(
-            message,
-            f"🔐 **Код для веб-авторизации:**\n\n"
-            f"**`{auth_code}`**\n\n"
-            f"⏰ Код действителен 5 минут\n"
-            f"🌐 Нажмите кнопку ниже для автоматического входа\n\n"
-            f"🔗 Сайт: {WEB_APP_URL}",
-            parse_mode='Markdown',
-            reply_markup=markup
-        )
-        
-        logger.info(f"Сгенерирован код веб-авторизации {auth_code} для пользователя {user_id} (@{username})")
-        
-    except Exception as e:
-        logger.error(f"Ошибка генерации кода веб-авторизации: {e}")
-        bot.reply_to(message, f"❌ Ошибка генерации кода: {str(e)}")
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
 
-@bot.message_handler(commands=['finance'])
-def handle_finance_command(message):
-    """Handle finance command for admins"""
-    if not has_access_level(message.from_user.id, ["admin", "owner"]):
-        bot.reply_to(message, "❌ У вас нет доступа к этой команде")
-        return
-
-    bot.reply_to(
-        message,
-        "Введите данные в формате:\n"
-        "@username сумма описание\n\n"
-        "Например: @user 1000 Начисление за стриминг"
-    )
-    bot.register_next_step_handler(message, process_finance_command)
-
-
-def process_finance_command(message):
-    """Process finance command input"""
-    try:
-        username, amount_str, *description_parts = message.text.split()
-        amount = float(amount_str)
-        description = " ".join(description_parts)
-
-        if not username.startswith("@"):
-            raise ValueError("Username должен начинаться с @")
-
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных. Попробуйте позже.")
-            return
-
-        try:
-            cursor = conn.cursor()
-
-            # Get user ID by username from label table
-            # Remove the '@' from the username for the database query
-            username_without_at = username[1:]
-            cursor.execute('SELECT telegram_id FROM label WHERE tg = %s', (username_without_at,))
-            result = cursor.fetchone()
-
-            if not result:
-                bot.reply_to(message, f"❌ Пользователь {username} не найден")
-                return
-
-            user_id = result[0]
-
-            # Add transaction
-            add_transaction(user_id, amount, description)
-
-            bot.reply_to(
-                message,
-                f"✅ Начисление выполнено\n\n"
-                f"Пользователь: {username}\n"
-                f"Сумма: {amount:+,.2f}₽\n"
-                f"Описание: {description}"
-            )
-        except Error as e:
-            logger.error(f"PostgreSQL error in process_finance_command: {e}")
-            bot.reply_to(message, f"❌ Произошла ошибка при обработке финансовой команды: {str(e)}")
-    except ValueError as e:
-        bot.reply_to(
-            message,
-            f"❌ Ошибка: {str(e)}\n\n"
-            "Используйте формат:\n"
-            "@username сумма описание"
-        )
-    except Exception as e:
-        bot.reply_to(message, f"❌ Произошла непредвиденная ошибка: {str(e)}")
-    finally:
-        if 'cursor' in locals():
-            cursor.close()
-        if 'conn' in locals() and conn:
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "skip_channel")
-def skip_channel_handler(call):
-    """Handle skipping channel input"""
-    try:
-        # Подключаемся к PostgreSQL
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных. Попробуйте позже.")
-            return
-
-        cursor = conn.cursor()
-        username = call.from_user.username
-
-        # Обновляем запись в таблице label, добавляя "не указал" в колонку kanal
-        cursor.execute("""
-            UPDATE label 
-            SET kanal = %s 
-            WHERE tg = %s
-        """, ("не указал", username))
-
-        conn.commit()
-        logger.info(f"User {username} skipped channel input")
-
-        # Создаем клавиатуру главного меню
-        markup = create_main_menu()
-
-        # Отправляем сообщение о завершении регистрации
-        bot.edit_message_text(
-            "✅ Регистрация успешно завершена!\n\n"
-            "Теперь вы можете пользоваться всеми функциями бота.\n\n"
-            "Выберите действие в меню ниже 👇",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-
-    except Exception as e:
-        logger.error(f"Error handling skip_channel: {e}")
-        bot.answer_callback_query(call.id, "❌ Произошла ошибка. Попробуйте позже.")
-
-    finally:
-        if 'cursor' in locals():
-            cursor.close()
-        if 'conn' in locals() and conn:
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "add_channel")
-def request_channel_handler(call):
-    """Handle channel input request"""
-    bot.edit_message_text(
-        "Пожалуйста, отправьте ссылку на ваш Telegram-канал в формате @channel или https://t.me/channel",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    bot.register_next_step_handler(call.message, save_channel)
-
-
-def save_channel(message):
-    """Save channel to database"""
-    channel = message.text.strip()
-
-    # Проверяем формат канала
-    if not (channel.startswith('@') or channel.startswith('https://t.me/') or channel.startswith('t.me/')):
-        bot.reply_to(message,
-                     "❌ Неверный формат ссылки. Пожалуйста, используйте формат @channel или https://t.me/channel")
-        bot.register_next_step_handler(message, save_channel)
-        return
-
-    # Преобразуем ссылку в формат @username
-    if channel.startswith('https://t.me/'):
-        channel = channel.split('/')[-1]
-    elif channel.startswith('t.me/'):
-        channel = channel.split('/')[-1]
-    elif channel.startswith('@'):
-        channel = channel[1:]
-
-    try:
-        # Подключаемся к PostgreSQL
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных. Попробуйте позже.")
-            return
-
-        cursor = conn.cursor()
-        username = message.from_user.username
-
-        # Обновляем запись в таблице label, добавляя канал в колонку kanal
-        cursor.execute("""
-            UPDATE label 
-            SET kanal = %s 
-            WHERE tg = %s
-        """, (channel, username))
-
-        conn.commit()
-        logger.info(f"User {username} added channel {channel}")
-
-        # Отправляем сообщение об успешной регистрации
-        bot.reply_to(
-            message,
-            f"✅ Канал {channel} успешно сохранен!\n\nРегистрация завершена. Теперь вы можете пользоваться всеми функциями бота.",
-            reply_markup=create_main_menu()
-        )
-
-    except Exception as e:
-        logger.error(f"Error saving channel: {e}")
-        bot.reply_to(message, "❌ Произошла ошибка при сохранении канала. Попробуйте позже.")
-
-    finally:
-        if 'cursor' in locals():
-            cursor.close()
-        if 'conn' in locals() and conn:
-            return_pg_connection(conn)
-
-
-
-
-
-@bot.message_handler(func=lambda message: LEGACY_REVIEWS_ENABLED and message.text == "⭐️ Отзывы")
-def handle_reviews_menu(message):
-    """Handle reviews menu"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("👀 Посмотреть отзывы", callback_data="reviews_view_menu"),
-        types.InlineKeyboardButton("✍️ Оставить отзыв", callback_data="reviews_create_menu")
-    )
-
-    bot.reply_to(
-        message,
-        "⭐️ Отзывы\n\nВыберите действие:",
-        reply_markup=markup
-    )
 
 
 # Start the bot
@@ -21372,55 +6804,6 @@ def run_web_server():
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)), debug=False)
 
 
-@bot.message_handler(commands=['test_cover'])
-def test_cover_command(message):
-    """Команда /test_cover для проверки данных пользователя"""
-    user_id = message.from_user.id
-    debug_user_data(user_id, "test_cover_command")
-
-    user_data = bot.user_data.get(user_id, {})
-    cover_file_id = user_data.get('cover_file_id')
-
-    if cover_file_id:
-        bot.send_message(
-            message.chat.id,
-            f"✅ Cover file ID найден: {cover_file_id}\n\n"
-            f"Все ключи в user_data: {list(user_data.keys())}"
-        )
-    else:
-        bot.send_message(
-            message.chat.id,
-            f"❌ Cover file ID не найден!\n\n"
-            f"Все ключи в user_data: {list(user_data.keys())}"
-        )
-
-
-@bot.message_handler(content_types=['photo', 'document'])
-def handle_cover_test(message):
-    """Простой обработчик для тестирования загрузки обложек"""
-    user_id = message.from_user.id
-
-    if user_id not in bot.user_data:
-        bot.user_data[user_id] = {}
-
-    # Check if user is trying to attach an XLSX report file
-    if message.document and user_id in bot.user_data and 'attaching_xlsx_report' in bot.user_data[user_id]:
-        report_id = bot.user_data[user_id]['attaching_xlsx_report']
-        process_xlsx_report_file(message, report_id)
-        return
-
-    if message.photo:
-        file_id = message.photo[-1].file_id
-        bot.user_data[user_id]['test_cover_file_id'] = file_id
-        logger.info(f"Test: Saved photo cover for user {user_id}: {file_id}")
-        bot.send_message(message.chat.id, f"✅ Тестовое фото сохранено: {file_id}")
-
-    elif message.document:
-        file_id = message.document.file_id
-        bot.user_data[user_id]['test_cover_file_id'] = file_id
-        logger.info(f"Test: Saved document cover for user {user_id}: {file_id}")
-        bot.send_message(message.chat.id, f"✅ Тестовый документ сохранен: {file_id}")
-
 
 def main():
     """Главная функция запуска"""
@@ -21445,7 +6828,7 @@ def main():
         # Migrate orders data if needed
         logger.info("🔄 Checking orders data migration...")
         migrate_orders_data()
-        
+
         # Структура таблицы промокодов проверяется при инициализации БД
         logger.info("✅ Promo codes table structure checked")
 
@@ -21464,2196 +6847,10 @@ def main():
     run_bot()
 
 
-# Report request handlers
-@bot.callback_query_handler(func=lambda call: call.data.startswith("request_report_"))
-def handle_report_request(call):
-    """Handle report request from user"""
-    try:
-        parts = call.data.split("_")
-        if len(parts) >= 4:
-            report_type = parts[2]  # album, single, etc.
-            release_id = int(parts[3])
-            
-            conn = get_pg_connection()
-            if not conn:
-                bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-                return
-            
-            try:
-                cursor = conn.cursor()
-                
-                # Get release info
-                cursor.execute('''
-                    SELECT release_name, release_type, user_id 
-                    FROM releases 
-                    WHERE id = %s AND user_id = %s
-                ''', (release_id, call.from_user.id))
-                
-                release_info = cursor.fetchone()
-                
-                if not release_info:
-                    bot.answer_callback_query(call.id, "❌ Релиз не найден", show_alert=True)
-                    return
-                
-                release_name, release_type, user_id = release_info
-                
-                # Check if report request already exists
-                cursor.execute('''
-                    SELECT id FROM report_requests 
-                    WHERE user_id = %s AND release_id = %s AND status = 'pending'
-                ''', (user_id, release_id))
-                
-                if cursor.fetchone():
-                    bot.answer_callback_query(call.id, "❌ Запрос отчета уже существует", show_alert=True)
-                    return
-                
-                # Create new report request
-                cursor.execute('''
-                    INSERT INTO report_requests (user_id, release_id, release_type, request_type, status)
-                    VALUES (%s, %s, %s, %s, 'pending')
-                ''', (user_id, release_id, release_type, f"Отчет по {report_type}"))
-                
-                conn.commit()
-                
-                # Notify all admins with quick access buttons
-                admin_ids = get_all_admins()
-                for admin_id in admin_ids:
-                    try:
-                        markup = types.InlineKeyboardMarkup()
-                        markup.add(
-                            types.InlineKeyboardButton("👥 Пользователи", callback_data="admin_users"),
-                            types.InlineKeyboardButton("📊 Запросы отчетов", callback_data="admin_report_requests")
-                        )
-                        
-                        bot.send_message(
-                            admin_id,
-                            f"📊 Новый запрос отчета!\n\n"
-                            f"👤 Пользователь: @{call.from_user.username or 'без username'}\n"
-                            f"📀 Релиз: {release_name}\n"
-                            f"🎵 Тип: {release_type}\n"
-                            f"📋 Запрос: Отчет по {report_type}\n\n"
-                            f"💡 Используйте кнопки ниже для быстрого доступа:",
-                            reply_markup=markup
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to notify admin {admin_id}: {e}")
-                
-                bot.answer_callback_query(
-                    call.id, 
-                    "✅ Запрос отчета отправлен администраторам!", 
-                    show_alert=True
-                )
-                
-                # Return to reports menu
-                markup = types.InlineKeyboardMarkup()
-                markup.add(
-                    types.InlineKeyboardButton("📊 Запросить новый отчет", callback_data="request_new_report"),
-                    types.InlineKeyboardButton("◀️ Назад в профиль", callback_data="back_to_profile")
-                )
-                
-                try:
-                    bot.edit_message_text(
-                        "✅ Запрос отчета отправлен администраторам!\n\nОжидайте уведомления о готовности отчета.",
-                        call.message.chat.id,
-                        call.message.message_id,
-                        reply_markup=markup
-                    )
-                except Exception:
-                    # If edit fails, send new message
-                    bot.send_message(
-                        call.message.chat.id,
-                        "✅ Запрос отчета отправлен администраторам!\n\nОжидайте уведомления о готовности отчета.",
-                        reply_markup=markup
-                    )
-                
-            except Exception as e:
-                logger.error(f"Error creating report request: {e}")
-                bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-            finally:
-                if conn:
-                    cursor.close()
-                    return_pg_connection(conn)
-                    
-    except Exception as e:
-        logger.error(f"Error in report request handler: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_REPORTS_ENABLED and call.data == "admin_report_requests")
-def handle_admin_report_requests(call):
-    """Handle admin report requests panel"""
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Только администраторы могут просматривать запросы отчетов", show_alert=True)
-        return
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get all pending report requests
-        cursor.execute('''
-            SELECT 
-                rr.id, rr.user_id, rr.release_id, rr.release_type, rr.request_type, 
-                rr.status, rr.created_at, rr.completed_at, rr.report_file_id,
-                r.upc_code,
-                l.name, l.tg, r.release_name, r.artist_name
-            FROM report_requests rr
-            JOIN label l ON rr.user_id = l.telegram_id
-            JOIN releases r ON rr.release_id = r.id
-            ORDER BY rr.created_at DESC
-        ''')
-        
-        reports = cursor.fetchall()
-        
-        if not reports:
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_back"))
-            
-            bot.edit_message_text(
-                "📊 Запросы отчетов\n\n❌ Нет активных запросов отчетов",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-            return
-        
-        # Create report list
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        
-        for report in reports:
-            report_id, user_id, release_id, release_type, request_type, status, created_at, completed_at, report_file_id, user_name, username, release_name, artist_name = report
-            
-            # Format dates
-            created_str = created_at.strftime('%d.%m.%Y %H:%M') if created_at else "дата не указана"
-            
-            # Status emoji and text
-            status_emoji = {
-                'pending': '⏳',
-                'processing': '🔄',
-                'completed': '✅',
-                'rejected': '❌'
-            }.get(status, '❓')
-            
-            # Create button text
-            btn_text = f"{status_emoji} {user_name} - {release_name} ({created_str})"
-            
-            markup.add(types.InlineKeyboardButton(
-                btn_text,
-                callback_data=f"admin_view_report_{report_id}"
-            ))
-        
-        markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_back"))
-        
-        bot.edit_message_text(
-            f"📊 Запросы отчетов ({len(reports)})\n\n"
-            f"📋 Список всех запросов отчетов:\n"
-            f"⏳ Ожидающие обработки\n"
-            f"🔄 В процессе\n"
-            f"✅ Завершенные\n"
-            f"❌ Отклоненные\n\n"
-            f"Выберите отчет для просмотра:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in admin report requests: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при получении запросов отчетов", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_CONTRACTS_ENABLED and call.data == "admin_contracts")
-def handle_admin_contracts(call):
-    """Handle admin contracts management panel"""
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Только администраторы могут управлять договорами", show_alert=True)
-        return
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get all contracts
-        cursor.execute('''
-            SELECT 
-                c.id, c.user_id, c.contract_number, c.contract_type, c.status, 
-                c.created_at, c.completed_at, c.contract_file_id,
-                l.name, l.tg
-            FROM contracts c
-            JOIN label l ON c.user_id = l.telegram_id
-            ORDER BY c.created_at DESC
-        ''')
-        
-        contracts = cursor.fetchall()
-        
-        if not contracts:
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_users"))
-            
-            bot.edit_message_text(
-                "📋 Управление договорами\n\n❌ Нет активных договоров",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-            return
-        
-        # Create contract list
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        
-        for contract in contracts:
-            contract_id, user_id, contract_number, contract_type, status, created_at, completed_at, contract_file_id, user_name, username = contract
-            
-            # Format dates
-            created_str = created_at.strftime('%d.%m.%Y %H:%M') if created_at else "дата не указана"
-            
-            # Status emoji and text
-            status_emoji = {
-                'pending': '⏳',
-                'processing': '🔄',
-                'completed': '✅',
-                'rejected': '❌'
-            }.get(status, '❓')
-            
-            # Create button text
-            btn_text = f"{status_emoji} {user_name} - {contract_number} ({created_str})"
-            
-            markup.add(types.InlineKeyboardButton(
-                btn_text,
-                callback_data=f"admin_view_contract_{contract_id}"
-            ))
-        
-        markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_users"))
-        
-        bot.edit_message_text(
-            f"📋 Управление договорами ({len(contracts)})\n\n"
-            f"📋 Список всех договоров:\n"
-            f"⏳ Ожидающие обработки\n"
-            f"🔄 В процессе\n"
-            f"✅ Завершенные\n"
-            f"❌ Отклоненные\n\n"
-            f"Выберите договор для просмотра:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in admin contracts: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при получении договоров", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_ADMIN_CONTRACTS_ENABLED and call.data.startswith("admin_view_contract_"))
-def handle_admin_view_contract(call):
-    """Handle admin viewing specific contract"""
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Только администраторы могут просматривать договоры", show_alert=True)
-        return
-    
-    contract_id = int(call.data.split("_")[3])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get contract details
-        cursor.execute('''
-            SELECT 
-                c.user_id, c.contract_number, c.contract_type, c.status, 
-                c.created_at, c.completed_at, c.contract_file_id,
-                l.name, l.tg
-            FROM contracts c
-            JOIN label l ON c.user_id = l.telegram_id
-            WHERE c.id = %s
-        ''', (contract_id,))
-        
-        contract = cursor.fetchone()
-        if not contract:
-            bot.answer_callback_query(call.id, "❌ Договор не найден", show_alert=True)
-            return
-        
-        user_id, contract_number, contract_type, status, created_at, completed_at, contract_file_id, user_name, username = contract
-        
-        # Format dates
-        created_str = created_at.strftime('%d.%m.%Y %H:%M') if created_at else "дата не указана"
-        completed_str = completed_at.strftime('%d.%m.%Y %H:%M') if completed_at else "не завершен"
-        
-        # Status emoji and text
-        status_emoji = {
-            'pending': '⏳',
-            'processing': '🔄',
-            'completed': '✅',
-            'rejected': '❌'
-        }.get(status, '❓')
-        
-        # Create contract info text
-        contract_text = (
-            f"📋 Детали договора #{contract_id}\n\n"
-            f"👤 Пользователь: {user_name} (@{username})\n"
-            f"📄 Номер: {contract_number}\n"
-            f"📋 Тип: {contract_type}\n"
-            f"📅 Создан: {created_str}\n"
-            f"✅ Завершен: {completed_str}\n"
-            f"🔄 Статус: {status_emoji} {status}\n"
-        )
-        
-        if contract_file_id:
-            contract_text += f"📎 Файл договора: Прикреплен\n"
-        else:
-            contract_text += f"📎 Файл договора: Не прикреплен\n"
-        
-        # Create markup based on status
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        
-        if status == 'pending':
-            markup.add(
-                types.InlineKeyboardButton("🔄 Взять в работу", callback_data=f"start_contract_{contract_id}"),
-                types.InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_contract_{contract_id}")
-            )
-        elif status == 'processing':
-            markup.add(
-                types.InlineKeyboardButton("📎 Прикрепить договор", callback_data=f"attach_contract_{contract_id}"),
-                types.InlineKeyboardButton("✅ Завершить", callback_data=f"complete_contract_{contract_id}")
-            )
-        elif status == 'completed':
-            markup.add(
-                types.InlineKeyboardButton("📎 Просмотреть договор", callback_data=f"view_contract_file_{contract_id}"),
-                types.InlineKeyboardButton("🔄 Переоткрыть", callback_data=f"reopen_contract_{contract_id}")
-            )
-        
-        markup.add(
-            types.InlineKeyboardButton("👥 К списку пользователей", callback_data="admin_users"),
-            types.InlineKeyboardButton("📋 К договорам", callback_data="admin_contracts"),
-            types.InlineKeyboardButton("◀️ Назад", callback_data="admin_back")
-        )
-        
-        bot.edit_message_text(
-            contract_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error viewing contract {contract_id}: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при просмотре договора", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_view_report_"))
-def handle_admin_view_report(call):
-    """Handle admin viewing specific report request"""
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Только администраторы могут просматривать отчеты", show_alert=True)
-        return
-    
-    report_id = int(call.data.split("_")[3])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get report details
-        cursor.execute('''
-            SELECT 
-                rr.user_id, rr.release_id, rr.release_type, rr.request_type, 
-                rr.status, rr.created_at, rr.completed_at, rr.report_file_id,
-                r.upc_code,
-                l.name, l.tg, r.release_name, r.artist_name
-            FROM report_requests rr
-            JOIN label l ON rr.user_id = l.telegram_id
-            JOIN releases r ON rr.release_id = r.id
-            WHERE rr.id = %s
-        ''', (report_id,))
-        
-        report = cursor.fetchone()
-        if not report:
-            bot.answer_callback_query(call.id, "❌ Отчет не найден", show_alert=True)
-            return
-        
-        user_id, release_id, release_type, request_type, status, created_at, completed_at, report_file_id, user_name, username, release_name, artist_name = report
-        
-        # Format dates
-        created_str = created_at.strftime('%d.%m.%Y %H:%M') if created_at else "дата не указана"
-        completed_str = completed_at.strftime('%d.%m.%Y %H:%M') if completed_at else "не завершен"
-        
-        # Status emoji and text
-        status_emoji = {
-            'pending': '⏳',
-            'processing': '🔄',
-            'completed': '✅',
-            'rejected': '❌'
-        }.get(status, '❓')
-        
-        # Create report info text
-        report_text = (
-            f"📊 Детали запроса отчета #{report_id}\n\n"
-            f"👤 Пользователь: {user_name} (@{username})\n"
-            f"📀 Релиз: {release_name}\n"
-            f"🎵 Тип: {release_type}\n"
-            f"📋 Запрос: {request_type}\n"
-            f"📅 Создан: {created_str}\n"
-            f"✅ Завершен: {completed_str}\n"
-            f"🔄 Статус: {status_emoji} {status}\n"
-        )
-        
-        if report_file_id:
-            report_text += f"📎 Файл отчета: Прикреплен\n"
-        else:
-            report_text += f"📎 Файл отчета: Не прикреплен\n"
-        
-        # Create markup based on status
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        
-        if status == 'pending':
-            markup.add(
-                types.InlineKeyboardButton("🔄 Взять в работу", callback_data=f"start_report_{report_id}"),
-                types.InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_report_{report_id}")
-            )
-        elif status == 'processing':
-            markup.add(
-                types.InlineKeyboardButton("📎 Прикрепить XLSX отчет", callback_data=f"attach_xlsx_report_{report_id}"),
-                types.InlineKeyboardButton("✅ Завершить", callback_data=f"complete_report_{report_id}")
-            )
-        elif status == 'completed':
-            markup.add(
-                types.InlineKeyboardButton("📎 Просмотреть отчет", callback_data=f"view_report_file_{report_id}"),
-                types.InlineKeyboardButton("🔄 Переоткрыть", callback_data=f"reopen_report_{report_id}")
-            )
-        
-        markup.add(
-            types.InlineKeyboardButton("👥 К списку пользователей", callback_data="admin_users"),
-            types.InlineKeyboardButton("📊 К запросам отчетов", callback_data="admin_report_requests"),
-            types.InlineKeyboardButton("◀️ Назад", callback_data="admin_back")
-        )
-        
-        bot.edit_message_text(
-            report_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error viewing report {report_id}: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при просмотре отчета", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("start_report_"))
-def handle_start_report(call):
-    """Handle starting work on report"""
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Только администраторы могут управлять отчетами", show_alert=True)
-        return
-    
-    report_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        cursor.execute('UPDATE report_requests SET status = %s WHERE id = %s', ('processing', report_id))
-        conn.commit()
-        
-        bot.answer_callback_query(call.id, "✅ Отчет взят в работу", show_alert=True)
-        
-        # Refresh the report view
-        call.data = f"admin_view_report_{report_id}"
-        handle_admin_view_report(call)
-        
-    except Exception as e:
-        logger.error(f"Error starting report {report_id}: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при изменении статуса", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("reject_report_"))
-def handle_reject_report(call):
-    """Handle rejecting report"""
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Только администраторы могут управлять отчетами", show_alert=True)
-        return
-    
-    report_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        cursor.execute('UPDATE report_requests SET status = %s WHERE id = %s', ('rejected', report_id))
-        conn.commit()
-        
-        bot.answer_callback_query(call.id, "❌ Отчет отклонен", show_alert=True)
-        
-        # Refresh the report view
-        call.data = f"admin_view_report_{report_id}"
-        handle_admin_view_report(call)
-        
-    except Exception as e:
-        logger.error(f"Error rejecting report {report_id}: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при изменении статуса", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("attach_report_"))
-def handle_attach_report(call):
-    """Handle attaching report file - now requests XLSX file upload"""
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Только администраторы могут прикреплять отчеты", show_alert=True)
-        return
-    
-    report_id = int(call.data.split("_")[2])
-    
-    # Redirect to XLSX file attachment
-    call.data = f"attach_xlsx_report_{report_id}"
-    handle_attach_xlsx_report(call)
-
-
-def process_report_file(message, report_id):
-    """Process uploaded report file"""
-    if not is_admin(message.from_user.id):
-        bot.reply_to(message, "❌ Только администраторы могут прикреплять отчеты")
-        return
-    
-    if not message.document:
-        bot.reply_to(message, "❌ Пожалуйста, отправьте файл")
-        return
-    
-    # Отчеты теперь создаются автоматически в формате XLSX
-    bot.reply_to(message, "❌ Отчеты больше не прикрепляются вручную!\n\n📊 Для создания отчета используйте функцию '📎 Создать XLSX отчет' в админ панели.")
-    return
-    
-    try:
-        # Get file info
-        file_info = bot.get_file(message.document.file_id)
-        file_path = file_info.file_path
-        
-        # Download file
-        downloaded_file = bot.download_file(file_path)
-        
-        # Store file_id in database
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-        
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                'UPDATE report_requests SET report_file_id = %s WHERE id = %s',
-                (message.document.file_id, report_id)
-            )
-            conn.commit()
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton("✅ Завершить отчет", callback_data=f"complete_report_{report_id}"),
-                types.InlineKeyboardButton("📊 К деталям отчета", callback_data=f"admin_view_report_{report_id}")
-            )
-            
-            bot.reply_to(
-                message,
-                f"✅ Файл отчета успешно прикреплен к отчету #{report_id}",
-                reply_markup=markup
-            )
-            
-        except Exception as e:
-            logger.error(f"Error saving report file: {e}")
-            bot.reply_to(message, "❌ Ошибка при сохранении файла")
-        finally:
-            if conn:
-                cursor.close()
-                return_pg_connection(conn)
-                
-    except Exception as e:
-        logger.error(f"Error processing report file: {e}")
-        bot.reply_to(message, "❌ Ошибка при обработке файла")
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("complete_report_"))
-def handle_complete_report(call):
-    """Handle completing report"""
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Только администраторы могут завершать отчеты", show_alert=True)
-        return
-    
-    report_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Check if report file is attached
-        cursor.execute('SELECT report_file_id, user_id FROM report_requests WHERE id = %s', (report_id,))
-        result = cursor.fetchone()
-        
-        if not result:
-            bot.answer_callback_query(call.id, "❌ Отчет не найден", show_alert=True)
-            return
-        
-        report_file_id, user_id = result
-        
-        if not report_file_id:
-            bot.answer_callback_query(call.id, "❌ Сначала прикрепите файл отчета", show_alert=True)
-            return
-        
-        # Update status and completion date
-        cursor.execute(
-            'UPDATE report_requests SET status = %s, completed_at = %s WHERE id = %s',
-            ('completed', datetime.now(), report_id)
-        )
-        conn.commit()
-        
-        # Notify user
-        try:
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("📊 Мои отчеты", callback_data="my_reports"))
-            
-            bot.send_message(
-                user_id,
-                f"✅ Ваш отчет готов!\n\n"
-                f"📊 Отчет #{report_id} был завершен администратором.\n"
-                f"📎 Файл отчета прикреплен\n\n"
-                f"Просмотрите отчет в разделе 'Мои отчеты'",
-                reply_markup=markup
-            )
-        except Exception as e:
-            logger.error(f"Failed to notify user {user_id}: {e}")
-        
-        bot.answer_callback_query(call.id, "✅ Отчет завершен", show_alert=True)
-        
-        # Refresh the report view
-        call.data = f"admin_view_report_{report_id}"
-        handle_admin_view_report(call)
-        
-    except Exception as e:
-        logger.error(f"Error completing report {report_id}: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при завершении отчета", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("view_report_"))
-def handle_view_report(call):
-    """Handle viewing and managing report requests"""
-    report_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get report request details
-        cursor.execute('''
-            SELECT rr.id, rr.user_id, rr.release_id, rr.release_type, rr.request_type, 
-                   rr.status, rr.created_at, rr.notes, rr.report_file_id,
-                r.upc_code,
-                   l.name, l.tg, r.release_name
-            FROM report_requests rr
-            JOIN label l ON rr.user_id = l.telegram_id
-            LEFT JOIN releases r ON rr.release_id = r.id
-            WHERE rr.id = %s
-        ''', (report_id,))
-        
-        report = cursor.fetchone()
-        
-        if not report:
-            bot.answer_callback_query(call.id, "❌ Запрос отчета не найден", show_alert=True)
-            return
-        
-        (report_id, user_id, release_id, release_type, request_type, status, 
-         created_at, notes, report_file_id, user_name, username, release_name) = report
-        
-        status_emoji = {
-            'pending': '⏳',
-            'processing': '🔄',
-            'completed': '✅',
-            'rejected': '❌'
-        }.get(status, '❓')
-        
-        display_name = f"{user_name} (@{username})" if user_name and username else f"ID: {user_id}"
-        
-        report_text = (
-            f"📊 Запрос отчета #{report_id}\n\n"
-            f"👤 Пользователь: {display_name}\n"
-            f"🎵 Релиз: {release_name or 'Не указан'}\n"
-            f"📀 Тип: {release_type}\n"
-            f"📋 Запрос: {request_type}\n"
-            f"{status_emoji} Статус: {status}\n"
-            f"📅 Создан: {created_at.strftime('%d.%m.%Y %H:%M') if created_at else 'Не указана'}\n"
-        )
-        
-        if notes:
-            report_text += f"💬 Заметки: {notes}\n"
-        
-        if report_file_id:
-            report_text += f"📎 Отчет прикреплен\n"
-        
-        markup = types.InlineKeyboardMarkup(row_width=2)
-        
-        # Check if user is admin or report owner
-        is_admin_user = is_admin(call.from_user.id)
-        is_owner = call.from_user.id == user_id
-        
-        if is_admin_user:
-            if status == 'pending':
-                markup.add(
-                    types.InlineKeyboardButton("✅ Принять", callback_data=f"accept_report_{report_id}"),
-                    types.InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_report_{report_id}")
-                )
-            
-            if status in ['pending', 'processing']:
-                markup.add(types.InlineKeyboardButton("📎 Прикрепить XLSX отчет", callback_data=f"attach_xlsx_report_{report_id}"))
-        else:
-            # User viewing their own report
-            if status == 'completed' and report_file_id:
-                markup.add(types.InlineKeyboardButton("📎 Скачать отчет", callback_data=f"download_report_{report_id}"))
-        
-        # Back button
-        if is_admin_user:
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"user_reports_{user_id}"))
-        else:
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="my_reports"))
-        
-        bot.edit_message_text(
-            report_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error viewing report: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("attach_xlsx_report_"))
-def handle_attach_xlsx_report(call):
-    """Handle XLSX report file attachment request"""
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Только администраторы могут прикреплять отчеты", show_alert=True)
-        return
-    
-    report_id = int(call.data.split("_")[3])
-    
-    # Store report_id in user data for file handling
-    bot.user_data[call.from_user.id] = {'attaching_xlsx_report': report_id}
-    
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data=f"admin_view_report_{report_id}"))
-    
-    bot.edit_message_text(
-        f"📎 Прикрепление XLSX отчета #{report_id}\n\n"
-        f"📊 Отправьте готовый файл отчета в формате .xlsx\n\n"
-        f"⚠️ Требования к файлу:\n"
-        f"• Формат: .xlsx (Excel)\n"
-        f"• Размер: до 50MB\n"
-        f"• Содержание: детальная информация о пользователе\n\n"
-        f"Отправьте XLSX файл в следующем сообщении.",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
-    
-    # Register handler for file
-    bot.register_next_step_handler(call.message, process_xlsx_report_file, report_id)
-
-
-def process_xlsx_report_file(message, report_id):
-    """Process uploaded XLSX report file"""
-    if not is_admin(message.from_user.id):
-        bot.reply_to(message, "❌ Только администраторы могут прикреплять отчеты")
-        return
-    
-    if not message.document:
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data=f"admin_view_report_{report_id}"))
-        bot.reply_to(message, "❌ Пожалуйста, отправьте файл", reply_markup=markup)
-        return
-    
-    # Check file type
-    file_name = message.document.file_name.lower()
-    if not file_name.endswith('.xlsx'):
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data=f"admin_view_report_{report_id}"))
-        bot.reply_to(message, "❌ Файл должен быть в формате .xlsx (Excel)", reply_markup=markup)
-        return
-    
-    # Check file size (max 50MB)
-    file_size = message.document.file_size
-    if file_size > 50 * 1024 * 1024:
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data=f"admin_view_report_{report_id}"))
-        bot.reply_to(message, "❌ Файл слишком большой. Максимум 50MB", reply_markup=markup)
-        return
-    
-    try:
-        # Get report and user info
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-        
-        cursor = conn.cursor()
-        
-        # Get report info
-        cursor.execute('''
-            SELECT r.user_id, r.request_type, l.name, l.tg
-            FROM report_requests r
-            JOIN label l ON r.user_id = l.telegram_id
-            WHERE r.id = %s
-        ''', (report_id,))
-        
-        report_info = cursor.fetchone()
-        if not report_info:
-            bot.reply_to(message, "❌ Отчет не найден")
-            return
-        
-        user_id, request_type, user_name, username = report_info
-        
-        # Update report with file info and mark as completed
-        cursor.execute('''
-            UPDATE report_requests 
-            SET status = 'completed', 
-                completed_at = NOW(),
-                report_file_id = %s,
-                admin_id = %s
-            WHERE id = %s
-        ''', (message.document.file_id, message.from_user.id, report_id))
-        
-        conn.commit()
-        
-        # Send report to user
-        try:
-            bot.send_document(
-                user_id,
-                message.document.file_id,
-                caption=f"📊 Ваш отчет #{report_id} готов!\n\n"
-                        f"📋 Тип запроса: {request_type}\n"
-                        f"👤 Подготовлен администратором\n"
-                        f"📅 Дата: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
-                        f"📎 Отчет содержит детальную информацию в формате Excel.\n"
-                        f"💾 Файл сохранен в формате XLSX для удобного просмотра и анализа.",
-                visible_file_name=f"Отчет_{user_name}_{datetime.now().strftime('%d%m%Y')}.xlsx"
-            )
-            
-            # Success message to admin
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад к отчетам", callback_data="admin_report_requests"))
-            
-            bot.reply_to(
-                message,
-                f"✅ XLSX отчет #{report_id} успешно отправлен пользователю {user_name} (@{username or 'без username'})\n\n"
-                f"📊 Тип отчета: {request_type}\n"
-                f"📅 Дата отправки: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
-                f"📎 Отчет отправлен в формате XLSX",
-                reply_markup=markup
-            )
-            
-        except Exception as e:
-            logger.error(f"Error sending report to user: {e}")
-            bot.reply_to(message, f"❌ Ошибка отправки отчета: {str(e)}")
-        
-        conn.close()
-        
-    except Exception as e:
-        logger.error(f"Error processing XLSX report file: {e}")
-        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
-
-
-def process_report_file_upload(message, report_id):
-    """Process uploaded report file - legacy function, now redirects to XLSX"""
-    # Redirect to XLSX processing
-    process_xlsx_report_file(message, report_id)
-    
-    # Get file info
-    user_id = message.from_user.id
-    file_id = message.document.file_id
-    file_size = message.document.file_size
-    file_name = message.document.file_name or "report_file"
-    
-    # Check file size (max 10MB)
-    if file_size > 10 * 1024 * 1024:
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data=f"view_report_{report_id}"))
-        bot.reply_to(message, "❌ Файл слишком большой. Максимум 10MB", reply_markup=markup)
-        return
-    
-    # Store file info for confirmation
-    if not hasattr(bot, 'user_data'):
-        bot.user_data = {}
-    
-    if user_id not in bot.user_data:
-        bot.user_data[user_id] = {}
-    
-    bot.user_data[user_id]['report_file_info'] = {
-        'report_id': report_id,
-        'file_id': file_id,
-        'file_name': file_name,
-        'file_size': file_size
-    }
-    
-    # Show confirmation
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("✅ Подтвердить", callback_data=f"confirm_report_upload_{report_id}"),
-        types.InlineKeyboardButton("❌ Отмена", callback_data=f"view_report_{report_id}")
-    )
-    
-    bot.reply_to(
-        message,
-        f"📎 Подтвердите прикрепление файла:\n\n"
-        f"📄 Файл: {file_name}\n"
-        f"📏 Размер: {file_size / 1024:.1f} KB\n"
-        f"🔖 ID файла: {file_id}",
-        reply_markup=markup
-    )
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("confirm_report_upload_"))
-def handle_confirm_report_upload(call):
-    """Handle report file upload confirmation"""
-    report_id = int(call.data.split("_")[3])
-    user_id = call.from_user.id
-    
-    # Check if user is admin
-    if not has_access_level(user_id, ["admin"]):
-        bot.answer_callback_query(call.id, "❌ Только администраторы могут прикреплять отчеты", show_alert=True)
-        return
-    
-    # Get file info from user_data
-    if not hasattr(bot, 'user_data') or user_id not in bot.user_data:
-        bot.answer_callback_query(call.id, "❌ Информация о файле не найдена", show_alert=True)
-        return
-    
-    file_info = bot.user_data[user_id].get('report_file_info')
-    if not file_info or file_info['report_id'] != report_id:
-        bot.answer_callback_query(call.id, "❌ Информация о файле не найдена", show_alert=True)
-        return
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Update report request with file info
-        cursor.execute('''
-            UPDATE report_requests 
-            SET report_file_id = %s, status = 'completed', completed_at = CURRENT_TIMESTAMP, admin_id = %s
-            WHERE id = %s
-        ''', (file_info['file_id'], user_id, report_id))
-        
-        conn.commit()
-        
-        # Get report details for notification
-        cursor.execute('''
-            SELECT rr.user_id, rr.release_type, rr.request_type, l.name, l.tg
-            FROM report_requests rr
-            JOIN label l ON rr.user_id = l.telegram_id
-            WHERE rr.id = %s
-        ''', (report_id,))
-        
-        report_info = cursor.fetchone()
-        if report_info:
-            report_user_id, release_type, request_type, user_name, username = report_info
-            
-            # Notify user that report is ready
-            try:
-                bot.send_message(
-                    report_user_id,
-                    f"✅ Ваш отчет готов!\n\n"
-                    f"📊 Запрос: {request_type}\n"
-                    f"🎵 Тип: {release_type}\n"
-                    f"📎 Файл отчета прикреплен администратором"
-                )
-            except Exception as e:
-                logger.error(f"Failed to notify user {report_user_id}: {e}")
-        
-        # Clean up user_data
-        if user_id in bot.user_data:
-            del bot.user_data[user_id]['report_file_info']
-        
-        bot.answer_callback_query(
-            call.id, 
-            "✅ Отчет успешно прикреплен!", 
-            show_alert=True
-        )
-        
-        # Return to report view
-        try:
-            handle_view_report(call)
-        except Exception as e:
-            logger.error(f"Error returning to report view: {e}")
-            # If there's an error, just show success message
-            bot.answer_callback_query(
-                call.id, 
-                "✅ Отчет успешно прикреплен! Обновите страницу.", 
-                show_alert=True
-            )
-        
-    except Exception as e:
-        logger.error(f"Error updating report with file: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("accept_report_"))
-def handle_accept_report(call):
-    """Handle report acceptance"""
-    report_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Update report status to processing
-        cursor.execute('''
-            UPDATE report_requests 
-            SET status = 'processing', admin_id = %s
-            WHERE id = %s
-        ''', (call.from_user.id, report_id))
-        
-        conn.commit()
-        
-        bot.answer_callback_query(
-            call.id, 
-            "✅ Запрос принят в обработку!", 
-            show_alert=True
-        )
-        
-        # Refresh report view
-        try:
-            handle_view_report(call)
-        except Exception as e:
-            logger.error(f"Error refreshing report view: {e}")
-            # If there's an error, just show success message
-            bot.answer_callback_query(
-                call.id, 
-                "✅ Запрос принят в обработку! Обновите страницу.", 
-                show_alert=True
-            )
-        
-    except Exception as e:
-        logger.error(f"Error accepting report: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: False and call.data.startswith("reject_report_"))
-def handle_reject_report(call):
-    """Handle report rejection"""
-    report_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Update report status to rejected
-        cursor.execute('''
-            UPDATE report_requests 
-            SET status = 'rejected', admin_id = %s
-            WHERE id = %s
-        ''', (call.from_user.id, report_id))
-        
-        conn.commit()
-        
-        bot.answer_callback_query(
-            call.id, 
-            "❌ Запрос отклонен!", 
-            show_alert=True)
-        
-        # Refresh report view
-        try:
-            handle_view_report(call)
-        except Exception as e:
-            logger.error(f"Error refreshing report view: {e}")
-            # If there's an error, just show success message
-            bot.answer_callback_query(
-                call.id, 
-                "❌ Запрос отклонен! Обновите страницу.", 
-                show_alert=True
-            )
-        
-    except Exception as e:
-        logger.error(f"Error rejecting report: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_CONTRACTS_ENABLED and call.data == "my_contracts")
-def handle_my_contracts(call):
-    """Handle user viewing their contracts"""
-    user_id = call.from_user.id
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get user's contracts
-        cursor.execute('''
-            SELECT id, contract_number, contract_type, status, created_at, completed_at, contract_file_id
-            FROM contracts 
-            WHERE user_id = %s
-            ORDER BY created_at DESC
-        ''', (user_id,))
-        
-        contracts = cursor.fetchall()
-        
-        if not contracts:
-            response_text = "📋 У вас пока нет договоров\n\n💡 Создайте новый договор в разделе '📋 Получить договор'"
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton("📋 Создать договор", callback_data="create_contract"),
-                types.InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_main")
-            )
-        else:
-            response_text = "📋 Ваши договоры:\n\n"
-            
-            # Create inline keyboard
-            markup = types.InlineKeyboardMarkup(row_width=1)
-
-            for contract in contracts:
-                contract_id, contract_number, contract_type, status, created_at, completed_at, contract_file_id = contract
-                
-                # Format dates
-                created_str = created_at.strftime('%d.%m.%Y %H:%M') if created_at else "дата не указана"
-                completed_str = completed_at.strftime('%d.%m.%Y %H:%M') if completed_at else "не завершен"
-                
-                # Status emoji
-                status_emoji = {
-                    'pending': '⏳',
-                    'processing': '🔄',
-                    'completed': '✅',
-                    'rejected': '❌'
-                }.get(status, '❓')
-                
-                # Add contract button
-                btn_text = f"{status_emoji} {contract_number} ({created_str})"
-                markup.add(types.InlineKeyboardButton(
-                    btn_text,
-                    callback_data=f"view_user_contract_{contract_id}"
-                ))
-
-            markup.add(
-                types.InlineKeyboardButton("📋 Создать новый договор", callback_data="create_contract"),
-                types.InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_main")
-            )
-
-        bot.edit_message_text(
-            response_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-
-    except Exception as e:
-        logger.error(f"Error fetching contracts: {e}")
-        bot.answer_callback_query(call.id, "❌ Произошла ошибка при получении списка договоров.", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(
-    func=lambda call: LEGACY_CONTRACTS_ENABLED and call.data.startswith("view_user_contract_")
-)
-def handle_view_contract(call):
-    """Handle user viewing specific contract"""
-    contract_id = int(call.data.split("_")[3])
-    user_id = call.from_user.id
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get contract details and check ownership
-        cursor.execute('''
-            SELECT contract_number, contract_type, status, created_at, completed_at, contract_file_id
-            FROM contracts 
-            WHERE id = %s AND user_id = %s
-        ''', (contract_id, user_id))
-        
-        contract = cursor.fetchone()
-        if not contract:
-            bot.answer_callback_query(call.id, "❌ Договор не найден или недоступен", show_alert=True)
-            return
-        
-        contract_number, contract_type, status, created_at, completed_at, contract_file_id = contract
-        
-        # Format dates
-        created_str = created_at.strftime('%d.%m.%Y %H:%M') if created_at else "дата не указана"
-        completed_str = completed_at.strftime('%d.%m.%Y %H:%M') if completed_at else "не завершен"
-        
-        # Status emoji and text
-        status_emoji = {
-            'pending': '⏳',
-            'processing': '🔄',
-            'completed': '✅',
-            'rejected': '❌'
-        }.get(status, '❓')
-        
-        # Create contract info text
-        contract_text = (
-            f"📋 Детали договора #{contract_id}\n\n"
-            f"📄 Номер: {contract_number}\n"
-            f"📋 Тип: {contract_type}\n"
-            f"📅 Создан: {created_str}\n"
-            f"✅ Завершен: {completed_str}\n"
-            f"🔄 Статус: {status_emoji} {status}\n"
-        )
-        
-        if contract_file_id:
-            contract_text += f"📎 Файл договора: Прикреплен\n"
-        else:
-            contract_text += f"📎 Файл договора: Не прикреплен\n"
-        
-        # Create markup
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        
-        if status == 'completed' and contract_file_id:
-            markup.add(types.InlineKeyboardButton("📎 Скачать договор", callback_data=f"download_contract_{contract_id}"))
-        
-        markup.add(
-            types.InlineKeyboardButton("📋 К списку договоров", callback_data="my_contracts"),
-            types.InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_main")
-        )
-        
-        bot.edit_message_text(
-            contract_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
-        
-        # If contract is completed and has file, send it automatically
-        if status == 'completed' and contract_file_id:
-            try:
-                bot.send_document(
-                    call.message.chat.id,
-                    contract_file_id,
-                    caption=f"📎 Договор #{contract_id}\n\n"
-                            f"📄 Номер: {contract_number}\n"
-                            f"✅ Статус: Завершен"
-                )
-            except Exception as e:
-                logger.error(f"Error sending contract file: {e}")
-                bot.answer_callback_query(call.id, "❌ Ошибка при отправке файла договора", show_alert=True)
-        
-    except Exception as e:
-        logger.error(f"Error viewing contract {contract_id}: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при просмотре договора", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-def _legacy_view_contract_should_open_user_contract(call, contract_id):
-    """Resolve old ambiguous view_contract_<id> callbacks from already sent messages."""
-    message_text = getattr(call.message, "text", "") or getattr(call.message, "caption", "") or ""
-    if "Ваши договоры" in message_text or "Детали договора" in message_text:
-        return True
-    if "Полная информация о релизе" in message_text:
-        return False
-
-    conn = get_pg_connection()
-    if not conn:
-        return False
-
-    cursor = None
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT 1 FROM contracts WHERE id = %s AND user_id = %s",
-            (contract_id, call.from_user.id),
-        )
-        return cursor.fetchone() is not None
-    except Exception as e:
-        logger.error(f"Error resolving legacy view_contract callback: {e}")
-        return False
-    finally:
-        if conn:
-            if cursor:
-                cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(
-    func=lambda call: call.data.startswith("view_contract_")
-    and not call.data.startswith("view_contract_file_")
-)
-def handle_legacy_view_contract(call):
-    """Compatibility dispatcher for old ambiguous view_contract_<id> buttons."""
-    original_data = call.data
-    try:
-        contract_or_release_id = int(call.data.split("_")[2])
-    except (ValueError, IndexError):
-        bot.answer_callback_query(call.id, "❌ Ошибка данных", show_alert=True)
-        return
-
-    try:
-        if _legacy_view_contract_should_open_user_contract(call, contract_or_release_id):
-            call.data = f"view_user_contract_{contract_or_release_id}"
-            handle_view_contract(call)
-        else:
-            call.data = f"view_release_contract_{contract_or_release_id}"
-            handle_view_file(call)
-    finally:
-        call.data = original_data
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REPORTS_ENABLED and call.data.startswith("download_report_"))
-def handle_download_report(call):
-    """Handle report download by user"""
-    report_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get report details and check ownership
-        cursor.execute('''
-            SELECT rr.report_file_id, rr.request_type, rr.release_type, r.release_name
-            FROM report_requests rr
-            LEFT JOIN releases r ON rr.release_id = r.id
-            WHERE rr.id = %s AND rr.user_id = %s AND rr.status = 'completed'
-        ''', (report_id, call.from_user.id))
-        
-        report = cursor.fetchone()
-        if not report:
-            bot.answer_callback_query(call.id, "❌ Отчет не найден или недоступен", show_alert=True)
-            return
-        
-        report_file_id, request_type, release_type, release_name = report
-        
-        if not report_file_id:
-            bot.answer_callback_query(call.id, "❌ Файл отчета не прикреплен", show_alert=True)
-            return
-        
-        # Send the report file
-        try:
-            bot.send_document(
-                call.message.chat.id,
-                report_file_id,
-                caption=f"📎 Отчет #{report_id}\n\n"
-                        f"📀 Релиз: {release_name or 'Не указан'}\n"
-                        f"📋 Тип: {request_type}\n"
-                        f"✅ Статус: Завершен"
-            )
-            bot.answer_callback_query(call.id, "✅ Отчет отправлен", show_alert=False)
-        except Exception as e:
-            logger.error(f"Error sending report file: {e}")
-            bot.answer_callback_query(call.id, "❌ Ошибка при отправке файла отчета", show_alert=True)
-            
-    except Exception as e:
-        logger.error(f"Error downloading report {report_id}: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при получении отчета", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("start_contract_"))
-def handle_start_contract(call):
-    """Handle starting work on contract"""
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Только администраторы могут управлять договорами", show_alert=True)
-        return
-    
-    contract_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        cursor.execute('UPDATE contracts SET status = %s WHERE id = %s', ('processing', contract_id))
-        conn.commit()
-        
-        bot.answer_callback_query(call.id, "✅ Договор взят в работу", show_alert=True)
-        
-        # Refresh the contract view
-        call.data = f"admin_view_contract_{contract_id}"
-        handle_admin_view_contract(call)
-        
-    except Exception as e:
-        logger.error(f"Error starting contract {contract_id}: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при изменении статуса", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("reject_contract_"))
-def handle_reject_contract(call):
-    """Handle rejecting contract"""
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Только администраторы могут управлять договорами", show_alert=True)
-        return
-    
-    contract_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        cursor.execute('UPDATE contracts SET status = %s WHERE id = %s', ('rejected', contract_id))
-        conn.commit()
-        
-        bot.answer_callback_query(call.id, "❌ Договор отклонен", show_alert=True)
-        
-        # Refresh the contract view
-        call.data = f"admin_view_contract_{contract_id}"
-        handle_admin_view_contract(call)
-        
-    except Exception as e:
-        logger.error(f"Error rejecting contract {contract_id}: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при изменении статуса", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("attach_contract_"))
-def handle_attach_contract(call):
-    """Handle attaching contract file"""
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Только администраторы могут прикреплять договоры", show_alert=True)
-        return
-    
-    contract_id = int(call.data.split("_")[2])
-    
-    # Store contract_id in user data for file handling
-    bot.user_data[call.from_user.id] = {'attaching_contract': contract_id}
-    
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data=f"admin_view_contract_{contract_id}"))
-    
-    bot.edit_message_text(
-        f"📎 Прикрепление договора #{contract_id}\n\n"
-        f"Отправьте файл договора в формате .txt\n\n"
-        f"⚠️ Важно: файл должен быть в формате .txt",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
-    
-    # Register handler for file
-    bot.register_next_step_handler(call.message, process_contract_file, contract_id)
-
-
-def process_contract_file(message, contract_id):
-    """Process uploaded contract file"""
-    if not is_admin(message.from_user.id):
-        bot.reply_to(message, "❌ Только администраторы могут прикреплять договоры")
-        return
-    
-    # Используем универсальную функцию валидации
-    is_valid, error_message, file_id = validate_file_upload(
-        message, 
-        allowed_extensions=['.txt'], 
-        max_size_mb=10, 
-        required_type="document"
-    )
-    
-    if not is_valid:
-        bot.reply_to(message, error_message)
-        return
-    
-    try:
-        # Store file_id in database
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-        
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                'UPDATE contracts SET contract_file_id = %s WHERE id = %s',
-                (message.document.file_id, contract_id)
-            )
-            conn.commit()
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton("✅ Завершить договор", callback_data=f"complete_contract_{contract_id}"),
-                types.InlineKeyboardButton("📋 К деталям договора", callback_data=f"admin_view_contract_{contract_id}")
-            )
-            
-            bot.reply_to(
-                message,
-                f"✅ Файл договора успешно прикреплен к договору #{contract_id}",
-                reply_markup=markup
-            )
-            
-        except Exception as e:
-            logger.error(f"Error saving contract file: {e}")
-            bot.reply_to(message, "❌ Ошибка при сохранении файла")
-        finally:
-            if conn:
-                cursor.close()
-                return_pg_connection(conn)
-                
-    except Exception as e:
-        logger.error(f"Error processing contract file: {e}")
-        bot.reply_to(message, "❌ Ошибка при обработке файла")
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("complete_contract_"))
-def handle_complete_contract(call):
-    """Handle completing contract"""
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Только администраторы могут завершать договоры", show_alert=True)
-        return
-    
-    contract_id = int(call.data.split("_")[2])
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Check if contract file is attached
-        cursor.execute('SELECT contract_file_id, user_id FROM contracts WHERE id = %s', (contract_id,))
-        result = cursor.fetchone()
-        
-        if not result:
-            bot.answer_callback_query(call.id, "❌ Договор не найден", show_alert=True)
-            return
-        
-        contract_file_id, user_id = result
-        
-        if not contract_file_id:
-            bot.answer_callback_query(call.id, "❌ Сначала прикрепите файл договора", show_alert=True)
-            return
-        
-        # Update status and completion date
-        cursor.execute(
-            'UPDATE contracts SET status = %s, completed_at = %s WHERE id = %s',
-            ('completed', datetime.now(), contract_id)
-        )
-        conn.commit()
-        
-        # Notify user
-        try:
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("📋 Мои договоры", callback_data="my_contracts"))
-            
-            bot.send_message(
-                user_id,
-                f"✅ Ваш договор готов!\n\n"
-                f"📋 Договор #{contract_id} был завершен администратором.\n"
-                f"📎 Файл договора прикреплен\n\n"
-                f"Просмотрите договор в разделе '📋 Получить договор'",
-                reply_markup=markup
-            )
-        except Exception as e:
-            logger.error(f"Failed to notify user {user_id}: {e}")
-        
-        bot.answer_callback_query(call.id, "✅ Договор завершен", show_alert=True)
-        
-        # Refresh the contract view
-        call.data = f"admin_view_contract_{contract_id}"
-        handle_admin_view_contract(call)
-        
-    except Exception as e:
-        logger.error(f"Error completing contract {contract_id}: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при завершении договора", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_CONTRACTS_ENABLED and call.data.startswith("download_contract_"))
-def handle_download_contract(call):
-    """Handle contract download by user"""
-    contract_id = int(call.data.split("_")[2])
-    user_id = call.from_user.id
-    
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Get contract details and check ownership
-        cursor.execute('''
-            SELECT contract_file_id, contract_number, contract_type
-            FROM contracts 
-            WHERE id = %s AND user_id = %s AND status = 'completed'
-        ''', (contract_id, user_id))
-        
-        contract = cursor.fetchone()
-        if not contract:
-            bot.answer_callback_query(call.id, "❌ Договор не найден или недоступен", show_alert=True)
-            return
-        
-        contract_file_id, contract_number, contract_type = contract
-        
-        if not contract_file_id:
-            bot.answer_callback_query(call.id, "❌ Файл договора не прикреплен", show_alert=True)
-            return
-        
-        # Send the contract file
-        try:
-            bot.send_document(
-                call.message.chat.id,
-                contract_file_id,
-                caption=f"📎 Договор #{contract_id}\n\n"
-                        f"📄 Номер: {contract_number}\n"
-                        f"📋 Тип: {contract_type}\n"
-                        f"✅ Статус: Завершен"
-            )
-            bot.answer_callback_query(call.id, "✅ Договор отправлен", show_alert=False)
-        except Exception as e:
-            logger.error(f"Error sending contract file: {e}")
-            bot.answer_callback_query(call.id, "❌ Ошибка при отправке файла договора", show_alert=True)
-            
-    except Exception as e:
-        logger.error(f"Error downloading contract {contract_id}: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при получении договора", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
+# Report request handlers migrated to handlers/admin_report_flow.py.
 
 
 # Profile callback handlers
-@bot.callback_query_handler(func=lambda call: LEGACY_PROFILE_ENABLED and call.data == "profile_data")
-def handle_profile_data(call):
-    """Handle profile data request"""
-    user_id = call.from_user.id
-    
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-            return
-        
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT name, kanal, fio, email, COALESCE(balance, 0)
-            FROM label 
-            WHERE telegram_id = %s
-        ''', (user_id,))
-        user_info = cursor.fetchone()
-        
-        if user_info:
-            name, kanal, fio, email, balance = user_info
-            
-            profile_text = "📝 Ваши данные:\n\n"
-            profile_text += f"🎤 Имя артиста: {name or 'Не указано'}\n"
-            profile_text += f"📺 Канал: {kanal or 'Не указан'}\n"
-            profile_text += f"👥 ФИО: {fio or 'Не указано'}\n"
-            profile_text += f"📧 Email: {email or 'Не указан'}\n"
-            profile_text += f"💰 Баланс: {balance:,.2f}₽"
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("✏️ Редактировать", callback_data="edit_profile_data"))
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile"))
-            
-            bot.edit_message_text(
-                profile_text,
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-        else:
-            bot.answer_callback_query(call.id, "❌ Профиль не найден", show_alert=True)
-            
-    except Exception as e:
-        logger.error(f"Error handling profile data: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при получении данных", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_FINANCE_ENABLED and call.data == "profile_finance")
-def handle_profile_finance(call):
-    """Handle profile finance request"""
-    user_id = call.from_user.id
-    
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-            return
-        
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT COALESCE(balance, 0), 
-                   COUNT(*) as total_orders,
-                   SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_orders
-            FROM label l
-            LEFT JOIN orders o ON l.telegram_id = o.user_id
-            WHERE l.telegram_id = %s
-            GROUP BY l.telegram_id, l.balance
-        ''', (user_id,))
-        result = cursor.fetchone()
-        
-        if result:
-            balance, total_orders, completed_orders = result
-            
-            finance_text = "💰 Ваши финансы:\n\n"
-            finance_text += f"💳 Баланс: {balance:,.2f}₽\n"
-            finance_text += f"📊 Всего заказов: {total_orders or 0}\n"
-            finance_text += f"✅ Завершенных: {completed_orders or 0}\n"
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("💳 Пополнить", callback_data="topup_from_profile"))
-            markup.add(types.InlineKeyboardButton("🎟 Промокод", callback_data="promo_from_profile"))
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile"))
-            
-            bot.edit_message_text(
-                finance_text,
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-        else:
-            bot.answer_callback_query(call.id, "❌ Финансовая информация не найдена", show_alert=True)
-            
-    except Exception as e:
-        logger.error(f"Error handling profile finance: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при получении финансов", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_RELEASES_ENABLED and call.data == "profile_releases")
-def handle_profile_releases(call):
-    """Handle profile releases request"""
-    user_id = call.from_user.id
-    
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-            return
-        
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT id, release_name, release_date, status 
-            FROM releases 
-            WHERE user_id = %s
-            ORDER BY release_date DESC
-            LIMIT 10
-        ''', (user_id,))
-        releases = cursor.fetchall()
-        
-        if releases:
-            releases_text = "💿 Ваши релизы:\n\n"
-            for i, (release_id, name, date, status) in enumerate(releases, 1):
-                date_str = date.strftime('%d.%m.%Y') if date else 'Дата не указана'
-                releases_text += f"{i}. {name} ({date_str}) - {status}\n"
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("📀 Все релизы", callback_data="all_releases"))
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile"))
-            
-            bot.edit_message_text(
-                releases_text,
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-        else:
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("➕ Создать релиз", callback_data="create_release"))
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile"))
-            
-            bot.edit_message_text(
-                "💿 У вас пока нет релизов\n\nСоздайте свой первый релиз!",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-            
-    except Exception as e:
-        logger.error(f"Error handling profile releases: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при получении релизов", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_BOOKINGS_ENABLED and call.data == "profile_bookings")
-def handle_profile_bookings(call):
-    """Handle profile bookings request"""
-    user_id = call.from_user.id
-    
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-            return
-        
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT id, booking_date, status 
-            FROM bookings 
-            WHERE user_id = %s
-            ORDER BY booking_date DESC
-            LIMIT 10
-        ''', (user_id,))
-        bookings = cursor.fetchall()
-        
-        if bookings:
-            bookings_text = "🎧 Ваши записи:\n\n"
-            for i, (booking_id, date, status) in enumerate(bookings, 1):
-                date_str = date.strftime('%d.%m.%Y') if date else 'Дата не указана'
-                bookings_text += f"{i}. Запись #{booking_id} ({date_str}) - {status}\n"
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("🎧 Все записи", callback_data="all_bookings"))
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile"))
-            
-            bot.edit_message_text(
-                bookings_text,
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-        else:
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("➕ Записаться", callback_data="book_session"))
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile"))
-            
-            bot.edit_message_text(
-                "🎧 У вас пока нет записей\n\nЗапишитесь на сессию!",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-            
-    except Exception as e:
-        logger.error(f"Error handling profile bookings: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при получении записей", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_ORDERS_ENABLED and call.data == "profile_orders")
-def handle_profile_orders(call):
-    """Handle profile orders request"""
-    user_id = call.from_user.id
-    
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-            return
-        
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT id, service_type, amount, status, created_date 
-            FROM orders 
-            WHERE user_id = %s
-            ORDER BY created_date DESC
-            LIMIT 10
-        ''', (user_id,))
-        orders = cursor.fetchall()
-        
-        if orders:
-            orders_text = "🛍 Ваши заказы:\n\n"
-            for i, (order_id, service, amount, status, date) in enumerate(orders, 1):
-                date_str = date.strftime('%d.%m.%Y') if date else 'Дата не указана'
-                orders_text += f"{i}. Заказ #{order_id} ({service}) - {amount}₽ - {status} ({date_str})\n"
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("🛍 Все заказы", callback_data="all_orders"))
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile"))
-            
-            bot.edit_message_text(
-                orders_text,
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-        else:
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("💳 Пополнить баланс", callback_data="topup_from_profile"))
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile"))
-            
-            bot.edit_message_text(
-                "🛍 У вас пока нет заказов\n\nПополните баланс и создайте заказ!",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup
-            )
-            
-    except Exception as e:
-        logger.error(f"Error handling profile orders: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при получении заказов", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REFERRALS_ENABLED and call.data == "profile_referral")
-def handle_profile_referral(call):
-    """Handle profile referral request"""
-    user_id = call.from_user.id
-    username = call.from_user.username
-    
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-            return
-        
-        cursor = conn.cursor()
-        
-        # Проверяем, есть ли у пользователя реферальный код
-        cursor.execute('''
-            SELECT COALESCE(referral_code, '') as referral_code, 
-                   COALESCE(referral_count, 0) as referral_count, 
-                   COALESCE(referral_earnings, 0) as referral_earnings
-            FROM label 
-            WHERE telegram_id = %s
-        ''', (user_id,))
-        result = cursor.fetchone()
-        
-        if result:
-            referral_code, referral_count, referral_earnings = result
-            
-            # Если реферального кода нет, создаем его
-            if not referral_code:
-                referral_code = generate_referral_code(user_id)
-                if not referral_code:
-                    bot.answer_callback_query(call.id, "❌ Ошибка при создании реферального кода", show_alert=True)
-                    return
-            
-            # Создаем реферальную ссылку
-            bot_username = bot.get_me().username
-            referral_link = f"https://t.me/{bot_username}?start={referral_code}"
-            
-            referral_text = "👥 Пригласите друзей и получайте бонусы!\n\n"
-            referral_text += f"🔗 Ваша реферальная ссылка:\n`{referral_link}`\n\n"
-            referral_text += f"📊 Статистика:\n"
-            referral_text += f"👥 Приглашено друзей: {referral_count or 0}\n"
-            referral_text += f"💰 Заработано: {referral_earnings or 0}₽\n\n"
-            referral_text += f"💡 Как это работает:\n"
-            referral_text += f"• Отправьте ссылку другу\n"
-            referral_text += f"• Друг регистрируется по ссылке\n"
-            referral_text += f"• Вы получаете 100₽ на баланс\n"
-            referral_text += f"• Друг получает 50₽ на баланс\n\n"
-            share_text = f"Присоединяйся к TWAS Label! 🎵\n\n{referral_link}"
-            share_url = f"https://t.me/share/url?url={quote(referral_link)}&text={quote(share_text)}"
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("📤 Поделиться ссылкой", url=share_url))
-            
-            bot.edit_message_text(
-                referral_text,
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup,
-                parse_mode='Markdown'
-            )
-        else:
-            bot.answer_callback_query(call.id, "❌ Профиль не найден", show_alert=True)
-            
-    except Exception as e:
-        logger.error(f"Error handling profile referral: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при получении реферальной информации", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REFERRALS_ENABLED and call.data.startswith("copy_referral_"))
-def handle_copy_referral(call):
-    """Handle referral link copy request"""
-    referral_code = call.data.split("_")[2]
-    bot_username = bot.get_me().username
-    referral_link = f"https://t.me/{bot_username}?start={referral_code}"
-    
-    bot.answer_callback_query(
-        call.id, 
-        f"🔗 Реферальная ссылка скопирована!\n\n{referral_link}", 
-        show_alert=True
-    )
-
-
-@bot.callback_query_handler(func=lambda call: LEGACY_REFERRALS_ENABLED and call.data == "referral_stats")
-def handle_referral_stats(call):
-    """Handle referral statistics request"""
-    user_id = call.from_user.id
-    
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-            return
-        
-        cursor = conn.cursor()
-        
-        # Получаем детальную статистику рефералов
-        cursor.execute('''
-            SELECT l.referral_code, 
-                   COALESCE(l.referral_count, 0) as referral_count, 
-                   COALESCE(l.referral_earnings, 0) as referral_earnings,
-                   COALESCE(COUNT(r.id), 0) as total_referrals,
-                   COALESCE(SUM(CASE WHEN r.status = 'active' THEN 1 ELSE 0 END), 0) as active_referrals
-            FROM label l
-            LEFT JOIN referrals r ON l.telegram_id = r.referrer_id
-            WHERE l.telegram_id = %s
-            GROUP BY l.telegram_id, l.referral_code, l.referral_count, l.referral_earnings
-        ''', (user_id,))
-        result = cursor.fetchone()
-        
-        if result:
-            referral_code, referral_count, referral_earnings, total_referrals, active_referrals = result
-            
-            stats_text = "📊 Детальная статистика рефералов:\n\n"
-            stats_text += f"🔗 Код: `{referral_code}`\n"
-            stats_text += f"👥 Всего приглашено: {total_referrals or 0}\n"
-            stats_text += f"✅ Активных: {active_referrals or 0}\n"
-            stats_text += f"💰 Заработано: {referral_earnings or 0}₽\n\n"
-            stats_text += f"🎯 Цели:\n"
-            stats_text += f"• 5 друзей = +500₽ бонус\n"
-            stats_text += f"• 10 друзей = +1000₽ бонус\n"
-            stats_text += f"• 20 друзей = +2000₽ бонус\n\n"
-            stats_text += f"💡 Продолжайте приглашать друзей!"
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("👥 Пригласить друга", callback_data="profile_referral"))
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_profile"))
-            
-            bot.edit_message_text(
-                stats_text,
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup,
-                parse_mode='Markdown'
-            )
-        else:
-            bot.answer_callback_query(call.id, "❌ Статистика не найдена", show_alert=True)
-            
-    except Exception as e:
-        logger.error(f"Error handling referral stats: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка при получении статистики", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
-
 
 # Удален дублирующий обработчик back_to_profile - оставлен только один на строке 12298
 
@@ -23665,7 +6862,7 @@ def add_platform_links_column():
     if not conn:
         logger.error("Cannot add platform_links column - no connection")
         return False
-    
+
     try:
         cursor = conn.cursor()
         cursor.execute("ALTER TABLE releases ADD COLUMN IF NOT EXISTS platform_links JSONB DEFAULT '{}'")
@@ -23687,14 +6884,14 @@ def ensure_label_columns():
     if not conn:
         logger.error("Failed to connect to database for column check")
         return False
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Required columns with their types
         required_columns = {
             'email': 'TEXT',
-            'fio': 'TEXT', 
+            'fio': 'TEXT',
             'phone': 'TEXT',
             'steezy': 'INTEGER DEFAULT 0',
             'bibi': 'INTEGER DEFAULT 0',
@@ -23703,18 +6900,18 @@ def ensure_label_columns():
             'referral_count': 'INTEGER DEFAULT 0',
             'referral_earnings': 'NUMERIC(10, 2) DEFAULT 0'
         }
-        
+
         for column, column_type in required_columns.items():
             try:
                 cursor.execute(f"ALTER TABLE label ADD COLUMN IF NOT EXISTS {column} {column_type}")
                 logger.info(f"✅ Ensured column {column} exists in label table")
             except Exception as e:
                 logger.warning(f"Could not ensure column {column}: {e}")
-        
+
         conn.commit()
         logger.info("✅ All required label columns verified")
         return True
-        
+
     except Exception as e:
         logger.error(f"Error ensuring label columns: {e}")
         return False
@@ -23730,10 +6927,10 @@ def create_referrals_table():
     if not conn:
         logger.error("Cannot create referrals table - no connection")
         return False
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Create referrals table
         logger.info("Creating referrals table...")
         cursor.execute('''
@@ -23749,16 +6946,16 @@ def create_referrals_table():
                 UNIQUE(referred_id)
             )
         ''')
-        
+
         # Create indexes for referrals table
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_referrals_referrer_id ON referrals(referrer_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_referrals_referred_id ON referrals(referred_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_referrals_code ON referrals(referral_code)')
-        
+
         conn.commit()
         logger.info("✅ referrals table created successfully")
         return True
-        
+
     except Exception as e:
         logger.error(f"Error creating referrals table: {e}")
         if conn:
@@ -23773,35 +6970,35 @@ def generate_referral_code(user_id):
     """Generate unique referral code for user"""
     import string
     import random
-    
+
     # Generate random code
     code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-    
+
     conn = get_pg_connection()
     if not conn:
         logger.error("Cannot generate referral code - no connection")
         return None
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Check if code already exists
         cursor.execute('SELECT telegram_id FROM label WHERE referral_code = %s', (code,))
         if cursor.fetchone():
             # If exists, generate new one
             return generate_referral_code(user_id)
-        
+
         # Update user's referral code
         cursor.execute('''
-            UPDATE label 
-            SET referral_code = %s 
+            UPDATE label
+            SET referral_code = %s
             WHERE telegram_id = %s
         ''', (code, user_id))
-        
+
         conn.commit()
         logger.info(f"Generated referral code {code} for user {user_id}")
         return code
-        
+
     except Exception as e:
         logger.error(f"Error generating referral code: {e}")
         return None
@@ -23816,45 +7013,45 @@ def process_referral_registration(user_id, referral_code):
     if not conn:
         logger.error("Cannot process referral - no connection")
         return False
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Ищем пользователя с таким реферальным кодом
         cursor.execute('SELECT telegram_id FROM label WHERE referral_code = %s', (referral_code,))
         referrer_result = cursor.fetchone()
-        
+
         if referrer_result and referrer_result[0] != user_id:
             referrer_id = referrer_result[0]
-            
+
             # Добавляем запись в таблицу referrals
             cursor.execute('''
                 INSERT INTO referrals (referrer_id, referred_id, referral_code, status, bonus_amount)
                 VALUES (%s, %s, %s, 'active', 100)
             ''', (referrer_id, user_id, referral_code))
-            
+
             # Обновляем счетчики рефералов
             cursor.execute('''
-                UPDATE label 
+                UPDATE label
                 SET referral_count = COALESCE(referral_count, 0) + 1,
                     referral_earnings = COALESCE(referral_earnings, 0) + 100
                 WHERE telegram_id = %s
             ''', (referrer_id,))
-            
+
             # Даем бонус новому пользователю
             cursor.execute('''
-                UPDATE label 
+                UPDATE label
                 SET balance = COALESCE(balance, 0) + 100
                 WHERE telegram_id = %s
             ''', (user_id,))
-            
+
             conn.commit()
             logger.info(f"Referral bonus processed: {referrer_id} -> {user_id}")
             return True
         else:
             logger.warning(f"Invalid referral code: {referral_code} for user {user_id}")
             return False
-            
+
     except Exception as e:
         logger.error(f"Error processing referral: {e}")
         if conn:
@@ -23870,20 +7067,6 @@ def process_referral_registration(user_id, referral_code):
 
 
 # =================== DRAFT SAVE HANDLER ===================
-@bot.message_handler(func=lambda message: message.text == "💾 Сохранить черновик")
-def handle_save_draft_button(message):
-    """Обработчик кнопки сохранения черновика на любом этапе раздачи"""
-    user_id = message.from_user.id
-    if user_id in bot.user_data and bot.user_data[user_id]:
-        save_draft_at_any_step(message)
-    else:
-        bot.send_message(
-            message.chat.id,
-            "❌ Нет данных для сохранения. Начните создание релиза заново.",
-            reply_markup=create_main_menu()
-        )
-
-
 def check_bot_instance():
     """Проверка на единственный экземпляр бота"""
     try:
@@ -23905,577 +7088,9 @@ def check_bot_instance():
 
 
 def start_bot_with_retry():
-    """Запуск бота с автоматическим переподключением"""
-    retry_delay = 5
-    consecutive_errors = 0
-    max_consecutive_errors = 5
-    
-    # Настраиваем таймауты для telebot API чтобы избежать зависаний
-    try:
-        import telebot.apihelper
-        # Увеличиваем таймауты для запросов к Telegram API
-        telebot.apihelper.READ_TIMEOUT = 30  # Таймаут чтения 30 секунд
-        telebot.apihelper.CONNECT_TIMEOUT = 10  # Таймаут подключения 10 секунд
-        logger.info("✅ Таймауты API настроены: READ=30s, CONNECT=10s")
-    except Exception as e:
-        logger.warning(f"⚠️ Не удалось настроить таймауты API: {e}")
-    
-    while True:
-        try:
-            logger.info("🤖 Starting Telegram bot...")
-            consecutive_errors = 0  # Сбрасываем счетчик ошибок при успешном запуске
-            retry_delay = 5  # Сбрасываем задержку
-            
-            bot.polling(
-                none_stop=True, 
-                interval=0,  # Без задержки — быстрее отклик
-                timeout=20,
-                long_polling_timeout=25,
-                skip_pending=True
-            )
-        except KeyboardInterrupt:
-            logger.info("🛑 Bot stopped by user")
-            break
-        except telebot.apihelper.ApiTelegramException as api_error:
-            logger.error(f"❌ Telegram API error: {api_error}")
-            connection_logger.error(f"API Error: {api_error}")
-            consecutive_errors += 1
-            
-            # Специальная обработка для разных типов API ошибок
-            error_str = str(api_error).lower()
-            if "timeout" in error_str or "read timed out" in error_str:
-                logger.warning("⏱️ API timeout detected, retrying...")
-                connection_logger.warning("API timeout detected")
-                time.sleep(3)
-            elif "connection reset" in error_str or "connection aborted" in error_str:
-                logger.warning("🔄 Connection reset detected, retrying...")
-                connection_logger.warning("Connection reset detected")
-                time.sleep(2)
-            elif "too many requests" in error_str or "429" in error_str:
-                logger.warning("⏳ Rate limit exceeded, waiting longer...")
-                connection_logger.warning("Rate limit exceeded")
-                time.sleep(30)
-            elif "409" in error_str or "conflict" in error_str:
-                logger.error("🚨 CRITICAL: Multiple bot instances detected!")
-                logger.error("🛑 Another bot instance is already running with the same token")
-                logger.error("💡 Please stop all other bot instances before starting this one")
-                connection_logger.error("Multiple bot instances conflict")
-                time.sleep(10)  # Wait longer for conflict resolution
-            else:
-                time.sleep(retry_delay)
-                
-        except ConnectionError as conn_error:
-            logger.error(f"❌ Connection error: {conn_error}")
-            connection_logger.error(f"Connection error: {conn_error}")
-            consecutive_errors += 1
-            time.sleep(retry_delay)
-            
-        except TimeoutError as timeout_error:
-            logger.error(f"⏱️ Timeout error: {timeout_error}")
-            connection_logger.error(f"Timeout error: {timeout_error}")
-            consecutive_errors += 1
-            time.sleep(3)  # Короткая пауза при таймаутах
-            
-        except Exception as e:
-            error_str = str(e).lower()
-            if "timeout" in error_str or "timed out" in error_str:
-                logger.error(f"⏱️ Timeout in exception: {e}")
-                connection_logger.error(f"Timeout exception: {e}")
-                consecutive_errors += 1
-                time.sleep(3)
-            else:
-                logger.error(f"❌ Unexpected error: {e}")
-                consecutive_errors += 1
-                time.sleep(retry_delay)
-        
-        # Если слишком много ошибок подряд, увеличиваем задержку
-        if consecutive_errors >= max_consecutive_errors:
-            logger.warning(f"⚠️ Too many consecutive errors ({consecutive_errors}), increasing delay...")
-            retry_delay = min(retry_delay * 2, 120)  # Максимум 2 минуты
-            consecutive_errors = 0
-        
-        logger.error(f"🔄 Retrying in {retry_delay} seconds...")
-        time.sleep(retry_delay)
-        
-        # Проверяем соединение с базой данных
-        try:
-            conn = get_pg_connection()
-            if conn:
-                return_pg_connection(conn)
-                logger.info("✅ Database connection OK")
-            else:
-                logger.error("❌ Database connection failed")
-        except Exception as db_error:
-            logger.error(f"❌ Database error: {db_error}")
+    return bot_runner.start_bot_with_retry(bot, get_connection=get_pg_connection, return_connection=return_pg_connection)
 
 
-class ImprovedDistributionForm:
-    """Улучшенная форма дистрибуции с полной навигацией"""
-    def __init__(self, release_type="single"):
-        self.release_type = release_type
-        self.data = {}
-        self.current_step = 0
-        self.message_id = None
-        self.chat_id = None
-        self.user_id = None
-        
-        # Все 18 шагов для Single
-        self.steps = [
-            ("artist_name", "🎤 3) Исполнитель(-и)\n\nУкажите основного исполнителя или группу:", "text"),
-            ("release_name", "💿 4) Название релиза\n\nВведите название сингла:", "text"),
-            ("producer", "🎹 5) prod. by\n\nУкажите продюсера/битмейкера:", "text"),
-            ("genre", "🎶 6) Жанр релиза\n\nУкажите музыкальный жанр:", "text"),
-            ("cover", "🖼 7) Обложка релиза\n\nЗагрузите обложку (PNG/JPG 3000×3000):", "photo"),
-            ("audio", "🎵 8) Файл трека\n\nЗагрузите аудиофайл (WAV, STEREO):", "audio"),
-            ("release_date", "📅 9) Дата релиза\n\nВведите дату (ДД.ММ.ГГГГ):", "text"),
-            ("performer_name", "👤 10) ФИО Исполнителя(-ей)\n\nУкажите полное имя:", "text"),
-            ("music_author", "✍️ 11) ФИО Автора(-ов) музыки\n\nУкажите автора:", "text"),
-            ("beat_contract", "📄 12) ДОГОВОР НА БИТ\n\nЗагрузите договор:", "document"),
-            ("videoshot_url", "🎥 13) Ссылка на видеошот\n\nДля Яндекс.Музыки (если нет - напишите 'нет'):", "text"),
-            ("explicit_content", "🔞 14) Нецензурная лексика\n\nЕсть маты в треке?", "yes_no"),
-            ("lyrics_file", "📝 15) Текст трека\n\nЗагрузите файл txt:", "document"),
-            ("preview_start", "⏱ 16) Начало предпрослушивания\n\nСекунда (например 90 = 1:30):", "text"),
-            ("yandex_soon", "🎤 17) Плашка 'скоро'\n\nНа Яндекс.Музыке?", "yes_no"),
-            ("platform_links", "🔗 18) Ссылки на все площадки\n\nСделать?", "yes_no"),
-            ("tiktok_commercial", "🎵 19) TikTok коммерческое\n\nРазрешить?", "yes_no"),
-            ("tiktok_full", "🎶 20) TikTok полная версия\n\nРазрешить?", "yes_no"),
-        ]
-    
-    def get_current_step(self):
-        if self.current_step < len(self.steps):
-            return self.steps[self.current_step]
-        return None
-    
-    def get_progress(self):
-        return f"📊 Шаг {self.current_step + 1} из {len(self.steps)}"
-    
-    def has_answer(self, step_index=None):
-        if step_index is None:
-            step_index = self.current_step
-        if step_index >= len(self.steps):
-            return False
-        field_name = self.steps[step_index][0]
-        return field_name in self.data and self.data[field_name]
-
-
-def show_improved_distribution_step(chat_id, message_id, form):
-    """Показать шаг с полной навигацией"""
-    step = form.get_current_step()
-    if not step:
-        show_improved_distribution_preview(chat_id, message_id, form)
-        return
-    
-    field_name, question, field_type = step
-    current_value = form.data.get(field_name, "")
-    
-    text = question + "\n\n" + form.get_progress()
-    
-    if current_value:
-        if field_type in ["photo", "audio", "document"]:
-            text += "\n\n✅ Файл загружен"
-        else:
-            value_display = current_value if len(str(current_value)) < 100 else str(current_value)[:100] + "..."
-            text += f"\n\n✅ Ваш ответ: {value_display}"
-    
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    
-    # Для yes_no - кнопки Да/Нет
-    if field_type == "yes_no" and not current_value:
-        markup.add(
-            types.InlineKeyboardButton("✅ Да", callback_data=f"idist_yes_{field_name}"),
-            types.InlineKeyboardButton("❌ Нет", callback_data=f"idist_no_{field_name}")
-        )
-    
-    # Навигация
-    nav_row = []
-    if form.current_step > 0:
-        nav_row.append(types.InlineKeyboardButton("◀️ Назад", callback_data="idist_prev"))
-    if current_value and form.current_step < len(form.steps) - 1:
-        nav_row.append(types.InlineKeyboardButton("▶️ Вперёд", callback_data="idist_next"))
-    if nav_row:
-        markup.add(*nav_row)
-    
-    # Изменить/Отменить
-    action_row = []
-    if current_value:
-        action_row.append(types.InlineKeyboardButton("✏️ Изменить", callback_data="idist_edit"))
-    action_row.append(types.InlineKeyboardButton("❌ Отменить всё", callback_data="idist_cancel_all"))
-    if action_row:
-        markup.add(*action_row)
-    
-    # Последний шаг -> просмотр
-    if form.current_step == len(form.steps) - 1 and current_value:
-        markup.add(types.InlineKeyboardButton("✅ Просмотр и оплата", callback_data="idist_preview"))
-    
-    try:
-        bot.edit_message_text(text, chat_id, message_id, reply_markup=markup)
-    except Exception as e:
-        logger.error(f"Error editing distribution message: {e}")
-
-
-def show_improved_distribution_preview(chat_id, message_id, form):
-    """Предпросмотр с оплатой и черновиком"""
-    text = "📝 ПРЕДВАРИТЕЛЬНЫЙ ПРОСМОТР РЕЛИЗА\n\n"
-    text += f"🎤 Исполнитель: {form.data.get('artist_name', '-')}\n"
-    text += f"💿 Название: {form.data.get('release_name', '-')}\n"
-    text += f"🎹 Продюсер: {form.data.get('producer', '-')}\n"
-    text += f"🎶 Жанр: {form.data.get('genre', '-')}\n"
-    text += f"📅 Дата: {form.data.get('release_date', '-')}\n"
-    text += f"🔞 Маты: {form.data.get('explicit_content', '-')}\n\n"
-    
-    # Проверка артиста в БД
-    is_artist = False
-    try:
-        conn = get_pg_connection()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT artist FROM label WHERE telegram_id = %s', (form.user_id,))
-            row = cursor.fetchone()
-            if row:
-                is_artist = bool(row[0])
-            cursor.close()
-            return_pg_connection(conn)
-    except:
-        pass
-    
-    if is_artist:
-        text += "🎉 БЕСПЛАТНО! У вас статус Artist"
-    else:
-        text += "💵 Стоимость: 1299₽"
-    
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    
-    if is_artist:
-        markup.add(types.InlineKeyboardButton("✅ Отправить бесплатно", callback_data="idist_submit_free"))
-    else:
-        markup.add(types.InlineKeyboardButton("💳 Оплатить и отправить", callback_data="idist_pay"))
-    
-    markup.add(
-        types.InlineKeyboardButton("💾 Сохранить как черновик", callback_data="idist_save_draft"),
-        types.InlineKeyboardButton("✏️ Изменить данные", callback_data="idist_edit_back"),
-        types.InlineKeyboardButton("❌ Отменить", callback_data="idist_cancel_all")
-    )
-    
-    try:
-        bot.edit_message_text(text, chat_id, message_id, reply_markup=markup)
-    except Exception as e:
-        logger.error(f"Error showing preview: {e}")
-
-
-# Обработчики
-@bot.callback_query_handler(func=lambda call: call.data == "idist_start")
-def improved_distribution_start(call):
-    user_id = call.from_user.id
-    if not hasattr(bot, 'improved_distribution_forms'):
-        bot.improved_distribution_forms = {}
-    
-    form = ImprovedDistributionForm()
-    form.chat_id = call.message.chat.id
-    form.message_id = call.message.message_id
-    form.user_id = user_id
-    bot.improved_distribution_forms[user_id] = form
-    
-    show_improved_distribution_step(form.chat_id, form.message_id, form)
-    bot.register_next_step_handler(call.message, process_improved_distribution_input)
-
-
-def process_improved_distribution_input(message):
-    user_id = message.from_user.id
-    if user_id not in bot.improved_distribution_forms:
-        return
-    
-    form = bot.improved_distribution_forms[user_id]
-    step = form.get_current_step()
-    if not step:
-        return
-    
-    field_name, _, field_type = step
-    
-    # Сохраняем данные
-    if field_type == "photo":
-        if message.photo:
-            form.data[field_name] = message.photo[-1].file_id
-    elif field_type == "audio":
-        if message.audio or message.document:
-            file_id = message.audio.file_id if message.audio else message.document.file_id
-            form.data[field_name] = file_id
-    elif field_type == "document":
-        if message.document:
-            form.data[field_name] = message.document.file_id
-    else:
-        form.data[field_name] = message.text
-    
-    # Авто-переход к следующему
-    if form.current_step < len(form.steps) - 1:
-        form.current_step += 1
-    
-    show_improved_distribution_step(form.chat_id, form.message_id, form)
-    bot.register_next_step_handler(message, process_improved_distribution_input)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "idist_prev")
-def improved_dist_prev(call):
-    user_id = call.from_user.id
-    if user_id not in bot.improved_distribution_forms:
-        return
-    form = bot.improved_distribution_forms[user_id]
-    if form.current_step > 0:
-        form.current_step -= 1
-    show_improved_distribution_step(form.chat_id, form.message_id, form)
-    bot.answer_callback_query(call.id)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "idist_next")
-def improved_dist_next(call):
-    user_id = call.from_user.id
-    if user_id not in bot.improved_distribution_forms:
-        return
-    form = bot.improved_distribution_forms[user_id]
-    if form.current_step < len(form.steps) - 1 and form.has_answer():
-        form.current_step += 1
-    show_improved_distribution_step(form.chat_id, form.message_id, form)
-    bot.answer_callback_query(call.id)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "idist_edit")
-def improved_dist_edit(call):
-    user_id = call.from_user.id
-    if user_id not in bot.improved_distribution_forms:
-        return
-    form = bot.improved_distribution_forms[user_id]
-    step = form.get_current_step()
-    if step:
-        field_name = step[0]
-        form.data.pop(field_name, None)
-    show_improved_distribution_step(form.chat_id, form.message_id, form)
-    bot.answer_callback_query(call.id, "Введите новое значение")
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("idist_yes_") or call.data.startswith("idist_no_"))
-def improved_dist_yes_no(call):
-    user_id = call.from_user.id
-    if user_id not in bot.improved_distribution_forms:
-        return
-    
-    form = bot.improved_distribution_forms[user_id]
-    parts = call.data.split("_")
-    answer = "Да" if parts[1] == "yes" else "Нет"
-    field_name = "_".join(parts[2:])
-    
-    form.data[field_name] = answer
-    
-    if form.current_step < len(form.steps) - 1:
-        form.current_step += 1
-    
-    show_improved_distribution_step(form.chat_id, form.message_id, form)
-    bot.answer_callback_query(call.id)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "idist_cancel_all")
-def improved_dist_cancel_all(call):
-    user_id = call.from_user.id
-    if user_id not in bot.improved_distribution_forms:
-        return
-    
-    form = bot.improved_distribution_forms[user_id]
-    
-    # Спрашиваем о сохранении в черновик
-    if form.data:
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton("💾 Да, сохранить", callback_data="idist_save_and_cancel"),
-            types.InlineKeyboardButton("❌ Нет, удалить", callback_data="idist_delete_and_cancel")
-        )
-        try:
-            bot.edit_message_text(
-                "❌ Отмена создания релиза\n\nСохранить как черновик?",
-                form.chat_id,
-                form.message_id,
-                reply_markup=markup
-            )
-        except:
-            pass
-    else:
-        bot.improved_distribution_forms.pop(user_id, None)
-        bot.answer_callback_query(call.id, "❌ Отменено")
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "idist_save_draft")
-def improved_dist_save_draft(call):
-    user_id = call.from_user.id
-    if user_id not in bot.improved_distribution_forms:
-        return
-    
-    form = bot.improved_distribution_forms[user_id]
-    
-    try:
-        conn = get_pg_connection()
-        if conn:
-            cursor = conn.cursor()
-            import json
-            cursor.execute(
-                'INSERT INTO drafts (user_id, draft_type, data, current_step, created_at, updated_at) VALUES (%s, %s, %s, %s, NOW(), NOW())',
-                (user_id, 'distribution', json.dumps(form.data, ensure_ascii=False), form.current_step)
-            )
-            conn.commit()
-            cursor.close()
-            return_pg_connection(conn)
-            
-            bot.answer_callback_query(call.id, "✅ Черновик сохранён!")
-            bot.improved_distribution_forms.pop(user_id, None)
-            
-            try:
-                bot.edit_message_text(
-                    "💾 Черновик сохранён!\n\nВы можете продолжить заполнение позже из раздела 'Черновики' в профиле.",
-                    form.chat_id,
-                    form.message_id
-                )
-            except:
-                pass
-    except Exception as e:
-        logger.error(f"Error saving draft: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка сохранения")
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "idist_preview")
-def improved_dist_preview(call):
-    user_id = call.from_user.id
-    if user_id not in bot.improved_distribution_forms:
-        return
-    form = bot.improved_distribution_forms[user_id]
-    show_improved_distribution_preview(form.chat_id, form.message_id, form)
-    bot.answer_callback_query(call.id)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "idist_edit_back")
-def improved_dist_edit_back(call):
-    user_id = call.from_user.id
-    if user_id not in bot.improved_distribution_forms:
-        return
-    form = bot.improved_distribution_forms[user_id]
-    form.current_step = len(form.steps) - 1
-    show_improved_distribution_step(form.chat_id, form.message_id, form)
-    bot.answer_callback_query(call.id)
-
-
-# Обработчик для просмотра черновиков
-@bot.callback_query_handler(func=lambda call: LEGACY_DRAFTS_ENABLED and call.data == "profile_drafts")
-def show_profile_drafts(call):
-    user_id = call.from_user.id
-    
-    try:
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка БД")
-            return
-        
-        cursor = conn.cursor()
-        cursor.execute(
-            'SELECT id, draft_type, data, current_step, created_at FROM drafts WHERE user_id = %s ORDER BY updated_at DESC LIMIT 10',
-            (user_id,)
-        )
-        drafts = cursor.fetchall()
-        cursor.close()
-        return_pg_connection(conn)
-
-        if not drafts:
-            text = "📋 Черновики\n\nУ вас пока нет сохранённых черновиков."
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="profile"))
-        else:
-            text = f"📋 Ваши черновики ({len(drafts)})\n\n"
-            markup = types.InlineKeyboardMarkup(row_width=1)
-            for draft_id, draft_type, data_json, current_step, created_at in drafts:
-                label = _draft_display_label(draft_type, data_json, created_at)
-                markup.add(types.InlineKeyboardButton(label, callback_data=f"draft_load_{draft_id}"))
-            markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="profile"))
-
-        try:
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-        except:
-            pass
-        
-        bot.answer_callback_query(call.id)
-        
-    except Exception as e:
-        logger.error(f"Error showing drafts: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка")
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("draft_load_"))
-def handle_draft_load(call):
-    """Загрузка черновика по нажатию на кнопку в списке черновиков."""
-    user_id = call.from_user.id
-    try:
-        draft_id = call.data.replace("draft_load_", "", 1).strip()
-        if not draft_id or not draft_id.isdigit():
-            bot.answer_callback_query(call.id, "❌ Неверный черновик", show_alert=True)
-            return
-        draft_id = int(draft_id)
-
-        conn = get_pg_connection()
-        if not conn:
-            bot.answer_callback_query(call.id, "❌ Ошибка БД", show_alert=True)
-            return
-        cursor = conn.cursor()
-        cursor.execute(
-            'SELECT id, user_id, draft_type, data, current_step FROM drafts WHERE id = %s AND user_id = %s',
-            (draft_id, user_id)
-        )
-        row = cursor.fetchone()
-        cursor.close()
-        return_pg_connection(conn)
-
-        if not row:
-            bot.answer_callback_query(call.id, "❌ Черновик не найден", show_alert=True)
-            return
-
-        _, _, draft_type, data_json, current_step = row
-        if not data_json:
-            bot.answer_callback_query(call.id, "❌ Данные черновика пусты", show_alert=True)
-            return
-
-        try:
-            user_data = json.loads(data_json) if isinstance(data_json, str) else data_json
-        except Exception:
-            bot.answer_callback_query(call.id, "❌ Ошибка чтения черновика", show_alert=True)
-            return
-
-        if draft_type == "distribution_legacy":
-            if not hasattr(bot, 'user_data'):
-                bot.user_data = {}
-            user_data['draft_id'] = draft_id
-            user_data['from_draft'] = True
-            bot.user_data[user_id] = user_data
-            bot.answer_callback_query(call.id, "✅ Черновик загружен")
-            # call.message.from_user — это бот; для отправки и next_step нужны chat_id и user_id пользователя
-            chat_id = call.message.chat.id
-            fake_message = type('Msg', (), {
-                'chat': type('C', (), {'id': chat_id})(),
-                'from_user': type('U', (), {'id': user_id})(),
-            })()
-            show_release_preview(fake_message, user_data, from_draft=True)
-        elif draft_type == "distribution":
-            if not hasattr(bot, 'improved_distribution_forms'):
-                bot.improved_distribution_forms = {}
-            form = ImprovedDistributionForm()
-            form.chat_id = call.message.chat.id
-            form.message_id = call.message.message_id
-            form.user_id = user_id
-            form.data = user_data
-            form.current_step = min(current_step, len(form.steps) - 1) if form.steps else 0
-            bot.improved_distribution_forms[user_id] = form
-            bot.answer_callback_query(call.id, "✅ Черновик загружен")
-            show_improved_distribution_step(form.chat_id, form.message_id, form)
-            bot.register_next_step_handler(call.message, process_improved_distribution_input)
-        else:
-            bot.answer_callback_query(call.id, "❌ Тип черновика не поддерживается", show_alert=True)
-    except Exception as e:
-        logger.error(f"Error loading draft: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка загрузки черновика", show_alert=True)
-
-
-# ==================== КОНЕЦ УЛУЧШЕННОЙ ДИСТРИБУЦИИ ====================
 
 if __name__ == "__main__":
     # Initialize database
@@ -24486,7 +7101,7 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {e}")
         exit(1)
-    
+
     # Ensure all required columns exist
     logger.info("🔧 Ensuring database columns...")
     try:
@@ -24494,7 +7109,7 @@ if __name__ == "__main__":
         logger.info("✅ Database columns ensured")
     except Exception as e:
         logger.error(f"❌ Failed to ensure database columns: {e}")
-    
+
     # Add platform_links column
     logger.info("🔧 Adding platform links column...")
     try:
@@ -24502,7 +7117,7 @@ if __name__ == "__main__":
         logger.info("✅ Platform links column added")
     except Exception as e:
         logger.error(f"❌ Failed to add platform links column: {e}")
-    
+
     # Create referrals table
     logger.info("🔧 Creating referrals table...")
     try:
@@ -24510,22 +7125,22 @@ if __name__ == "__main__":
         logger.info("✅ Referrals table created")
     except Exception as e:
         logger.error(f"❌ Failed to create referrals table: {e}")
-    
+
     # Test bot token and check for conflicts
     logger.info("🔧 Testing bot token and checking for conflicts...")
     try:
         bot_info = bot.get_me()
         logger.info(f"✅ Bot connected: @{bot_info.username}")
-        
+
         # Дополнительная проверка на конфликт экземпляров
         if not check_bot_instance():
             logger.error("❌ Bot instance conflict detected. Exiting...")
             exit(1)
-            
+
     except Exception as e:
         logger.error(f"❌ Bot token test failed: {e}")
         exit(1)
-    
+
     # Start bot with retry mechanism
     logger.info("🚀 Starting bot with enhanced error handling...")
     # Test channel access before starting bot
@@ -24542,66 +7157,11 @@ if __name__ == "__main__":
         logger.error("4. Give the bot admin rights")
         exit(1)
 
-@bot.callback_query_handler(
-    func=lambda call: LEGACY_RELEASE_EDIT_MENU_ENABLED
-    and call.data.startswith("edit_release_")
-    and len(call.data.split("_")) == 3
-    and call.data.split("_")[2].isdigit()
-)
-def handle_edit_release(call):
-    """Handle edit release request"""
-    release_id = call.data.split("_")[2]
-    
-    # Check if user owns this release
-    conn = get_pg_connection()
-    if not conn:
-        bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
-        return
-    
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT user_id, status FROM releases WHERE id = %s",
-            (release_id,)
-        )
-        release = cursor.fetchone()
-        
-        if not release:
-            bot.answer_callback_query(call.id, "❌ Релиз не найден", show_alert=True)
-            return
-        
-        user_id, status = release
-        
-        # Check if user owns this release
-        if user_id != call.from_user.id:
-            bot.answer_callback_query(call.id, "❌ У вас нет прав для редактирования этого релиза", show_alert=True)
-            return
-        
-        # Check if release can be edited
-        if status not in ["В обработке", "Готов к отгрузке"]:
-            bot.answer_callback_query(call.id, "❌ Этот релиз нельзя редактировать", show_alert=True)
-            return
-        
-        # Start edit process
-        bot.edit_message_text(
-            "✏️ Выберите, что хотите изменить:",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=create_edit_release_keyboard(release_id)
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in handle_edit_release: {e}")
-        bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)}", show_alert=True)
-    finally:
-        if conn:
-            cursor.close()
-            return_pg_connection(conn)
 
 def create_edit_release_keyboard(release_id):
     """Create keyboard for editing release"""
     markup = types.InlineKeyboardMarkup()
-    
+
     markup.add(
         types.InlineKeyboardButton(
             "🎵 Название релиза",
@@ -24612,7 +7172,7 @@ def create_edit_release_keyboard(release_id):
             callback_data=f"edit_artist_name_{release_id}"
         )
     )
-    
+
     markup.add(
         types.InlineKeyboardButton(
             "🎹 Продюсер",
@@ -24623,7 +7183,7 @@ def create_edit_release_keyboard(release_id):
             callback_data=f"edit_genre_{release_id}"
         )
     )
-    
+
     markup.add(
         types.InlineKeyboardButton(
             "📅 Дата релиза",
@@ -24634,28 +7194,27 @@ def create_edit_release_keyboard(release_id):
             callback_data=f"edit_performer_{release_id}"
         )
     )
-    
+
     markup.add(
         types.InlineKeyboardButton(
             "✍️ Автор музыки",
             callback_data=f"edit_music_author_{release_id}"
         )
     )
-    
+
     markup.add(
         types.InlineKeyboardButton(
             "◀️ Назад к релизу",
             callback_data=f"show_my_release_{release_id}"
         )
     )
-    
+
     return markup
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("edit_release_name_"))
 def handle_edit_release_name(call):
     """Handle edit release name request"""
     release_id = call.data.split("_")[3]
-    
+
     bot.edit_message_text(
         "✏️ Введите новое название релиза:",
         call.message.chat.id,
@@ -24666,33 +7225,33 @@ def handle_edit_release_name(call):
 def process_edit_release_name(message, release_id):
     """Process new release name"""
     new_name = message.text.strip()
-    
+
     if not new_name:
         bot.reply_to(message, "❌ Название релиза не может быть пустым")
         return
-    
+
     conn = get_pg_connection()
     if not conn:
         bot.reply_to(message, "❌ Ошибка подключения к базе данных")
         return
-    
+
     try:
         cursor = conn.cursor()
         cursor.execute(
             "UPDATE releases SET release_name = %s WHERE id = %s AND user_id = %s",
             (new_name, release_id, message.from_user.id)
         )
-        
+
         if cursor.rowcount == 0:
             bot.reply_to(message, "❌ Релиз не найден или у вас нет прав для его редактирования")
             return
-        
+
         conn.commit()
         bot.reply_to(message, f"✅ Название релиза изменено на: {new_name}")
-        
+
         # Show updated release details
         show_my_release_details_after_edit(message, release_id)
-        
+
     except Exception as e:
         logger.error(f"Error updating release name: {e}")
         bot.reply_to(message, f"❌ Ошибка при обновлении: {str(e)}")
@@ -24709,7 +7268,7 @@ def show_my_release_details_after_edit(message, release_id):
             self.from_user = message.from_user
             self.message = message
             self.data = f"show_my_release_{release_id}"
-    
+
     fake_call = FakeCall(message)
     show_my_release_details(fake_call, release_id, admin_mode=False)
 

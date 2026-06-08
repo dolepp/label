@@ -1,1 +1,11 @@
 .omx/
+__pycache__/
+*.py[cod]
+*.log
+*.pid
+*.runtime.log
+*.runtime.pid
+.env
+.venv/
+venv/
+storage/

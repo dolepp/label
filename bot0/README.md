@@ -226,13 +226,13 @@ legacy-монолите.
 
 Модульные детали релизов владеют read-only callback `album_detail_*`,
 `my_release_detail_*`, `album_detail_*_admin` и `my_release_detail_*_admin`.
-Кнопки вложений, редактирования, изменения статусов, UPC и ссылок остаются в
-legacy callbacks. Контракт релиза в legacy-детальной карточке теперь
-использует явный callback `view_release_contract_*`, чтобы не конфликтовать с
-пользовательскими договорами. Lookup `file_id` для `view_cover_*`,
-`view_audio_*` и `view_release_contract_*` вынесен в
-`db/repositories/release_files.py`; сама отправка файлов пока остается в
-legacy handler.
+В админском режиме карточка показывает владельца, дату создания, полный набор
+основных полей и наличие файлов. Записи статуса, UPC и ссылок остаются в
+legacy callbacks. Контракт релиза использует явный callback
+`view_release_contract_*`, чтобы не конфликтовать с пользовательскими
+договорами. Lookup `file_id` для `view_cover_*`, `view_audio_*` и
+`view_release_contract_*` вынесен в `db/repositories/release_files.py`; сама
+отправка файлов пока остается в legacy handler.
 
 `handlers/release_edit.py` вынесен и включён через `.env`:
 `ENABLE_MODULAR_RELEASE_EDIT_MENU=1`.
@@ -267,7 +267,7 @@ legacy handler.
 `ENABLE_MODULAR_INFO=1`.
 
 Модульный информационный слой владеет кнопками `🎵 Наши услуги`,
-`🌐 Открыть приложение`, `📊 Статистика`, `ℹ️ О нас` и callback
+`🌐 Открыть приложение` и callback
 `services_back` / `back_to_main`, а также командами `/main`, `/app` и
 `/webapp`. Общий legacy dispatcher главного меню больше не перехватывает эти
 кнопки при включённом флаге.
@@ -336,8 +336,9 @@ PostgreSQL-таблицу `auth_codes`.
 
 Модульное пополнение владеет UI выбора суммы и способа оплаты:
 `💳 Пополнить баланс`, `topup_*`, `topup_custom`, `topup_back`,
-`topup_from_profile`, `topup_pay_*`. Создание платежей и callbacks провайдеров
-`yookassa_pay_*`, `crypto_pay_*`, `stars_pay_*`, `ton_pay_*` остаются в legacy.
+`topup_from_profile`, `topup_pay_*`, `yookassa_pay_*`, `crypto_pay_*`.
+Создание YooKassa/Crypto Bot платежей пока делегируется legacy-функциям, а
+callbacks остальных провайдеров `stars_pay_*`, `ton_pay_*` остаются в legacy.
 
 `handlers/admin_stats.py` вынесен и включён через `.env`:
 `ENABLE_MODULAR_ADMIN_STATS=1`.

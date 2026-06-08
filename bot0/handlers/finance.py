@@ -6,10 +6,31 @@ from decimal import Decimal
 
 from telebot import types
 
-from db.repositories.finance import get_user_finance_summary
+from core.config import ADMIN_IDS, PERMANENT_ADMINS
+from db.repositories.finance import add_balance_transaction, find_user_id_by_username, get_user_finance_summary
+from db.repositories.users import list_admin_ids
 
 
 logger = logging.getLogger(__name__)
+
+
+def _is_admin(user_id: int) -> bool:
+    if user_id in PERMANENT_ADMINS or user_id in ADMIN_IDS:
+        return True
+    try:
+        return user_id in list_admin_ids()
+    except Exception as exc:
+        logger.error("Could not check admin status for user %s: %s", user_id, exc)
+        return False
+
+
+def _transaction_notification(amount, description: str) -> str:
+    return (
+        "💰 Новое начисление\n\n"
+        f"Сумма: {float(amount):+,.2f}₽\n"
+        f"Описание: {description}\n\n"
+        "Проверить баланс можно в разделе 'Мои финансы'"
+    )
 
 
 def _money(value) -> str:
@@ -52,3 +73,51 @@ def register_finance_handlers(bot) -> None:
             call.message.message_id,
             reply_markup=_finance_markup(),
         )
+
+
+    def process_finance_command(message):
+        try:
+            username, amount_raw, *description_parts = (message.text or "").split()
+            if not username.startswith("@"):
+                raise ValueError("Username должен начинаться с @")
+            amount = Decimal(amount_raw.replace(",", "."))
+            description = " ".join(description_parts).strip()
+            if not description:
+                raise ValueError("Описание не может быть пустым")
+
+            target_user_id = find_user_id_by_username(username)
+            if not target_user_id:
+                bot.reply_to(message, f"❌ Пользователь {username} не найден")
+                return
+
+            tx = add_balance_transaction(target_user_id, amount, description)
+            try:
+                bot.send_message(target_user_id, _transaction_notification(amount, description))
+            except Exception as exc:
+                logger.error("Failed to send transaction notification to user %s: %s", tx.get("username"), exc)
+
+            bot.reply_to(
+                message,
+                "✅ Начисление выполнено\n\n"
+                f"Пользователь: {username}\n"
+                f"Сумма: {float(amount):+,.2f}₽\n"
+                f"Описание: {description}",
+            )
+        except ValueError as exc:
+            bot.reply_to(message, f"❌ Ошибка: {exc}\n\nИспользуйте формат:\n@username сумма описание")
+        except Exception as exc:
+            logger.error("Error processing finance command: %s", exc)
+            bot.reply_to(message, f"❌ Произошла непредвиденная ошибка: {exc}")
+
+    @bot.message_handler(commands=["finance"])
+    def handle_finance_command(message):
+        if not _is_admin(message.from_user.id):
+            bot.reply_to(message, "❌ У вас нет доступа к этой команде")
+            return
+        bot.reply_to(
+            message,
+            "Введите данные в формате:\n"
+            "@username сумма описание\n\n"
+            "Например: @user 1000 Начисление за стриминг",
+        )
+        bot.register_next_step_handler(message, process_finance_command)

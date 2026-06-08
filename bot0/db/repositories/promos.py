@@ -109,6 +109,97 @@ def get_admin_promo_stats() -> dict[str, Any]:
             cur.close()
 
 
+def list_unused_promos() -> list[dict[str, Any]]:
+    with connection() as conn:
+        if conn is None:
+            return []
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                SELECT code, COALESCE(amount, 0), COALESCE(discount, 0)
+                FROM promo_codes
+                WHERE COALESCE(is_used, FALSE) = FALSE
+                ORDER BY code
+                """
+            )
+            return [
+                {"code": code, "amount": amount, "discount": discount}
+                for code, amount, discount in cur.fetchall()
+            ]
+        finally:
+            cur.close()
+
+
+def delete_unused_promo(code: str) -> bool:
+    with connection() as conn:
+        if conn is None:
+            return False
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "DELETE FROM promo_codes WHERE code = %s AND COALESCE(is_used, FALSE) = FALSE",
+                (code,),
+            )
+            deleted = cur.rowcount > 0
+            conn.commit()
+            return deleted
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+
+
+def create_promo(
+    *,
+    code: str,
+    created_by: int,
+    amount: Decimal | float | int = 0,
+    discount: Decimal | float | int = 0,
+    max_uses: int | None = None,
+    expires_at: datetime | None = None,
+) -> dict[str, Any]:
+    normalized_code = (code or "").strip().upper()
+    if not normalized_code:
+        raise ValueError("code is required")
+
+    amount_value = _to_decimal(amount)
+    discount_value = _to_decimal(discount)
+    with connection() as conn:
+        if conn is None:
+            raise RuntimeError("database connection failed")
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                INSERT INTO promo_codes (
+                    code, amount, discount, created_by,
+                    max_uses, current_uses, expires_at,
+                    is_active, is_used
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, FALSE)
+                RETURNING id, code, amount, discount, max_uses, expires_at
+                """,
+                (normalized_code, amount_value, discount_value, created_by, max_uses, 0, expires_at),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return {
+                "id": row[0],
+                "code": row[1],
+                "amount": row[2],
+                "discount": row[3],
+                "max_uses": row[4],
+                "expires_at": row[5],
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+
+
 def activate_promo(user_id: int, raw_code: str) -> dict[str, Any]:
     code = (raw_code or "").strip().upper()
     if not code:

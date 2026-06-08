@@ -24,7 +24,11 @@ def _auth_text(code: str) -> str:
 
 def _web_app_markup(user_id: int):
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🌐 Открыть приложение", web_app=types.WebAppInfo(url=f"{WEB_APP_URL}?tgid={user_id}")))
+    url = f"{WEB_APP_URL}?tgid={user_id}"
+    if url.startswith("https://"):
+        markup.add(types.InlineKeyboardButton("🌐 Открыть приложение", web_app=types.WebAppInfo(url=url)))
+    else:
+        markup.add(types.InlineKeyboardButton("🌐 Открыть сайт", url=url))
     return markup
 
 

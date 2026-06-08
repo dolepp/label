@@ -42,22 +42,99 @@ def start_bot() -> None:
     configure_telegram_timeouts()
     try:
         from handlers import register_optional_handlers
+        from handlers.admin_report_flow import process_xlsx_report_file as modular_process_xlsx_report_file
+        from keyboards.reply import create_main_menu
+        from db.repositories.referrals import handle_referral_registration
+        from services import bot_runner, payment_callbacks, referral_notifications, runtime_helpers, service_artist_release, user_storage
 
-        register_optional_handlers(label.bot)
+        referral_notifications.configure(label.bot)
+        user_storage.configure(label.bot)
+        payment_callbacks.configure(
+            bot=label.bot,
+            get_pg_connection=runtime_helpers.get_pg_connection,
+            return_pg_connection=runtime_helpers.return_pg_connection,
+            get_user_balance_safe=runtime_helpers.get_user_balance_safe,
+            change_user_balance=runtime_helpers.change_user_balance,
+            ensure_user_storage=user_storage.ensure_user_storage,
+            notify_admins_design=getattr(label, "notify_admins_design", None),
+            get_display_username=getattr(label, "get_display_username", None),
+            generate_request_id=getattr(label, "generate_request_id", None),
+            DESIGN_BRIEF_REQUESTS=getattr(label, "DESIGN_BRIEF_REQUESTS", []),
+            SERVICE_LABELS=getattr(label, "SERVICE_LABELS", {}),
+        )
+        service_artist_release.configure(
+            bot=label.bot,
+            is_admin=runtime_helpers.is_admin,
+            process_artist_user_id=getattr(label, "process_artist_user_id", None),
+        )
+
+        register_optional_handlers(
+            label.bot,
+            topup_payment_context={
+                "get_pg_connection": runtime_helpers.get_pg_connection,
+                "return_pg_connection": runtime_helpers.return_pg_connection,
+                "logger": logger,
+                "yookassa_available": getattr(label, "YOOKASSA_AVAILABLE", False),
+                "yookassa_configuration": getattr(label, "Configuration", None),
+                "yookassa_payment": getattr(label, "Payment", None),
+                "crypto_bot_token": getattr(label, "CRYPTO_BOT_TOKEN", ""),
+            },
+            legacy_distribution_context={
+                "get_pg_connection": runtime_helpers.get_pg_connection,
+                "return_pg_connection": runtime_helpers.return_pg_connection,
+                "create_main_menu": create_main_menu,
+                "is_profile_complete": runtime_helpers.is_profile_complete,
+                "is_admin": runtime_helpers.is_admin,
+                "BOT_TOKEN": getattr(label, "BOT_TOKEN", ""),
+            },
+            onboarding_context={
+                "get_pg_connection": runtime_helpers.get_pg_connection,
+                "return_pg_connection": runtime_helpers.return_pg_connection,
+                "handle_referral_registration": handle_referral_registration,
+                "notify_referrer_about_visit": referral_notifications.notify_referrer_about_visit,
+                "CHANNEL_USERNAME": getattr(label, "CHANNEL_USERNAME", "@twaslabel"),
+            },
+            service_payment_context={
+                "get_pg_connection": runtime_helpers.get_pg_connection,
+                "return_pg_connection": runtime_helpers.return_pg_connection,
+                "get_user_balance_safe": runtime_helpers.get_user_balance_safe,
+                "change_user_balance": runtime_helpers.change_user_balance,
+                "ensure_user_storage": user_storage.ensure_user_storage,
+                "handle_design_payment": payment_callbacks.handle_design_payment,
+                "handle_successful_payment": payment_callbacks.handle_successful_payment,
+                "Payment": getattr(label, "Payment", None),
+                "DESIGN_BRIEF_TEMPLATES": getattr(label, "DESIGN_BRIEF_TEMPLATES", {}),
+            },
+            service_selection_context={
+                "handle_service_release_for_artist": service_artist_release.handle_service_release_for_artist,
+            },
+            design_brief_context={
+                "DESIGN_BRIEF_TEMPLATES": getattr(label, "DESIGN_BRIEF_TEMPLATES", {}),
+                "ensure_user_storage": user_storage.ensure_user_storage,
+                "is_cancel_message": runtime_helpers.is_cancel_message,
+            },
+            design_admin_context={
+                "DESIGN_ORDER_STATUSES": getattr(label, "DESIGN_ORDER_STATUSES", []),
+                "DESIGN_BRIEF_TEMPLATES": getattr(label, "DESIGN_BRIEF_TEMPLATES", {}),
+                "DESIGN_BRIEF_REQUESTS": getattr(label, "DESIGN_BRIEF_REQUESTS", []),
+            },
+            diagnostics_context={
+                "process_xlsx_report_file": modular_process_xlsx_report_file,
+            },
+            admin_report_flow_context={
+                "is_admin": runtime_helpers.is_admin,
+                "has_access_level": runtime_helpers.has_access_level,
+                "get_all_admins": runtime_helpers.get_all_admins,
+            },
+        )
     except Exception as exc:
         logger.error("Could not register optional modular handlers: %s", exc)
         raise
 
-    if hasattr(label, "start_bot_with_retry"):
-        label.start_bot_with_retry()
-        return
-
-    label.bot.polling(
-        none_stop=True,
-        interval=0,
-        timeout=20,
-        long_polling_timeout=25,
-        skip_pending=True,
+    bot_runner.start_bot_with_retry(
+        label.bot,
+        get_connection=runtime_helpers.get_pg_connection,
+        return_connection=runtime_helpers.return_pg_connection,
     )
 
 

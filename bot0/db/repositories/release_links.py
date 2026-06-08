@@ -48,3 +48,58 @@ def get_release_back_callback(release_id: int) -> str:
         finally:
             cur.close()
 
+
+
+def _json_links(value: dict) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def set_release_platform_links(release_id: int, links: dict) -> None:
+    with connection() as conn:
+        if conn is None:
+            raise RuntimeError("database connection failed")
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "UPDATE releases SET platform_links = %s WHERE id = %s",
+                (_json_links(links), release_id),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+
+
+def add_release_platform_link(release_id: int, raw_text: str, now_label: str) -> tuple[str, str]:
+    text = (raw_text or "").strip()
+    if not text:
+        raise ValueError("Информация не может быть пустой")
+    if "|" in text:
+        platform, value = text.split("|", 1)
+        platform_name = platform.strip() or f"Информация {now_label}"
+        platform_info = value.strip()
+    else:
+        platform_name = f"Информация {now_label}"
+        platform_info = text
+    if not platform_info:
+        raise ValueError("Содержание не может быть пустым")
+    links = get_release_platform_links(release_id)
+    links[platform_name] = platform_info
+    set_release_platform_links(release_id, links)
+    return platform_name, platform_info
+
+
+def edit_release_platform_link(release_id: int, platform_name: str, raw_text: str) -> str:
+    text = (raw_text or "").strip()
+    if not text:
+        raise ValueError("Информация не может быть пустой")
+    links = get_release_platform_links(release_id)
+    links[platform_name] = text
+    set_release_platform_links(release_id, links)
+    return text
+
+
+def clear_release_platform_links(release_id: int) -> None:
+    set_release_platform_links(release_id, {})

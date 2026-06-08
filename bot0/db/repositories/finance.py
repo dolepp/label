@@ -43,3 +43,49 @@ def get_user_finance_summary(user_id: int) -> dict[str, Any] | None:
             }
         finally:
             cur.close()
+
+
+def find_user_id_by_username(username: str) -> int | None:
+    normalized = (username or "").strip().lstrip("@")
+    if not normalized:
+        return None
+    with connection() as conn:
+        if conn is None:
+            raise ConnectionError("PostgreSQL connection unavailable")
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT telegram_id FROM label WHERE tg = %s", (normalized,))
+            row = cur.fetchone()
+            return row[0] if row else None
+        finally:
+            cur.close()
+
+
+def add_balance_transaction(user_id: int, amount, description: str) -> dict:
+    with connection() as conn:
+        if conn is None:
+            raise ConnectionError("PostgreSQL connection unavailable")
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "UPDATE label SET balance = COALESCE(balance, 0) + %s WHERE telegram_id = %s RETURNING tg",
+                (amount, user_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                conn.rollback()
+                raise ValueError("Пользователь не найден")
+            cur.execute(
+                """
+                INSERT INTO transactions (user_id, amount, description, created_date)
+                VALUES (%s, %s, %s, NOW())
+                """,
+                (user_id, amount, description),
+            )
+            conn.commit()
+            return {"user_id": user_id, "username": row[0], "amount": amount, "description": description}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()

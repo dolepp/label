@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from types import SimpleNamespace
 
-from db.repositories.drafts import format_draft_datetime
+from db.repositories.drafts import format_draft_datetime, normalize_distribution_draft_data
 from db.repositories.bookings import format_booking_date
 from db.repositories.auth import generate_numeric_code
 from db.repositories.orders import format_amount, format_order_datetime
@@ -16,6 +16,7 @@ from handlers.admin_menu import _admin_panel_markup
 from handlers.admin_promos import _promo_stats_text
 from handlers.admin_releases import _admin_releases_text
 from handlers.admin_reports import _admin_reports_text, _format_report_button
+from handlers import admin_send_reports
 from handlers.admin_services import _admin_services_markup
 from handlers.admin_stats import _admin_stats_text
 from handlers.admin_user_info import _admin_user_info_text
@@ -57,6 +58,31 @@ class FormattingTests(unittest.TestCase):
         self.assertEqual(format_draft_datetime(value), "09.01.2026")
         self.assertEqual(format_release_date(value), "09.01.2026")
         self.assertEqual(format_booking_date(value), "09.01.2026")
+
+
+    def test_distribution_draft_normalization_is_bidirectional(self):
+        site_payload = {
+            "releaseType": "EP",
+            "artistName": "Artist",
+            "releaseName": "Release",
+            "releaseDate": "2026-06-01",
+            "performerName": "Performer",
+            "musicAuthor": "Author",
+            "explicitContent": True,
+            "tracks": [{"trackName": "One", "distributionMeta": {"lyricsAuthors": "Writer"}}],
+        }
+        normalized = normalize_distribution_draft_data(site_payload)
+        self.assertEqual(normalized["release_type"], "EP")
+        self.assertEqual(normalized["artist_name"], "Artist")
+        self.assertEqual(normalized["release_name"], "Release")
+        self.assertEqual(normalized["tracks"][0]["track_name"], "One")
+        self.assertEqual(normalized["tracks"][0]["lyricsAuthors"], "Writer")
+
+        bot_payload = {"release_type": "Single", "artist_name": "Bot Artist", "release_name": "Bot Release"}
+        normalized_bot = normalize_distribution_draft_data(bot_payload)
+        self.assertEqual(normalized_bot["releaseType"], "Single")
+        self.assertEqual(normalized_bot["artistName"], "Bot Artist")
+        self.assertEqual(normalized_bot["releaseName"], "Bot Release")
 
     def test_auth_code_helpers(self):
         code = generate_numeric_code()
@@ -225,6 +251,29 @@ class FormattingTests(unittest.TestCase):
         self.assertIn("Ожидающие обработки: 1", _admin_reports_text(reports))
         self.assertIn("Artist - Single", _format_report_button(reports[0]))
 
+    def test_admin_send_report_xlsx_contains_expected_sheets(self):
+        if not admin_send_reports.XLSX_AVAILABLE:
+            self.skipTest("openpyxl is not installed")
+
+        workbook = admin_send_reports.create_detailed_xlsx_report(
+            {
+                "name": "User",
+                "telegram_id": 1,
+                "tg": "user",
+                "email": "user@example.com",
+                "created_at": "2026-01-01",
+                "status": "active",
+                "role": "artist",
+            },
+            releases_data=[{"id": 10, "name": "Release", "type": "Single", "status": "active"}],
+            promo_codes_data=[{"id": 1, "code": "PROMO", "amount": 100, "is_active": True}],
+            orders_data=[{"id": 1, "service_type": "cover", "status": "done", "amount": 500}],
+        )
+
+        self.assertEqual(workbook.sheetnames, ["Пользователь", "Релизы", "Промокоды", "Заказы", "Сводка"])
+        self.assertEqual(workbook["Пользователь"]["B3"].value, "User")
+        self.assertEqual(workbook["Релизы"]["B4"].value, "Release")
+
     def test_admin_contracts_text_and_detail(self):
         contracts = [
             {
@@ -353,12 +402,23 @@ class FormattingTests(unittest.TestCase):
                 "preview_start": 30,
                 "status": "В обработке",
                 "upc_code": None,
+                "created_at": datetime(2026, 1, 9, 18, 18),
+                "cover_file_id": "cover-id",
+                "audio_file_id": "audio-id",
+                "contract_file_id": "contract-id",
+                "lyrics_file_id": "lyrics-id",
+                "videoshot_url": "https://example.com/video",
+                "user_name": "Owner",
+                "username": "owner",
             }
         )
         self.assertIn("Альбом: Album", album_text)
         self.assertIn("UPC код: 123", album_text)
         self.assertIn("Детали релиза: Single", release_text)
         self.assertIn("Секунды TikTok: 30 сек", release_text)
+        self.assertIn("Владелец: Owner (@owner)", release_text)
+        self.assertIn("Создан: 09.01.2026 18:18", release_text)
+        self.assertIn("Обложка: есть", release_text)
 
     def test_release_link_text(self):
         self.assertIn("Информация не добавлена", _platform_links_text({}))

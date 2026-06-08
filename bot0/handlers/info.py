@@ -103,7 +103,10 @@ def _send_main_menu(bot, chat_id: int) -> None:
 def _send_web_app_link(bot, chat_id: int, user_id: int) -> None:
     web_app_url = f"{WEB_APP_URL}?tgid={user_id}"
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🌐 Открыть приложение", web_app=types.WebAppInfo(url=web_app_url)))
+    if web_app_url.startswith("https://"):
+        markup.add(types.InlineKeyboardButton("🌐 Открыть приложение", web_app=types.WebAppInfo(url=web_app_url)))
+    else:
+        markup.add(types.InlineKeyboardButton("🌐 Открыть сайт", url=web_app_url))
     bot.send_message(
         chat_id,
         "Запускаю приложение TWAS. Если окно не открылось, обновите Telegram до последней версии.",
@@ -168,12 +171,11 @@ def register_info_handlers(bot) -> None:
         )
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("📢 Подписаться на канал", url=f"https://t.me/{CHANNEL_USERNAME.lstrip('@')}"))
-        markup.add(
-            types.InlineKeyboardButton(
-                "🌐 Открыть приложение",
-                web_app=types.WebAppInfo(url=f"{WEB_APP_URL}?tgid={message.from_user.id}"),
-            )
-        )
+        web_app_url = f"{WEB_APP_URL}?tgid={message.from_user.id}"
+        if web_app_url.startswith("https://"):
+            markup.add(types.InlineKeyboardButton("🌐 Открыть приложение", web_app=types.WebAppInfo(url=web_app_url)))
+        else:
+            markup.add(types.InlineKeyboardButton("🌐 Открыть сайт", url=web_app_url))
         bot.reply_to(message, about_text, reply_markup=markup)
 
     @bot.callback_query_handler(func=lambda call: call.data == "services_back")

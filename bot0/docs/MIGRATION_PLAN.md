@@ -35,7 +35,7 @@
 - `handlers/releases.py` is extracted and enabled by `.env` with `ENABLE_MODULAR_RELEASES=1`.
 - Legacy user release list handlers in `label.py` are guarded by `LEGACY_RELEASES_ENABLED`. Release detail cards, attachments, editing, status changes and admin release tools still remain in legacy code.
 - `handlers/release_details.py` is extracted and enabled by `.env` with `ENABLE_MODULAR_RELEASE_DETAILS=1`.
-- Legacy `album_detail_*` and `my_release_detail_*` routing is guarded by `LEGACY_RELEASE_DETAILS_ENABLED`. The modular detail layer is read-only; attachments, editing, status, UPC and link actions remain in legacy code.
+- Legacy `album_detail_*` and `my_release_detail_*` routing is guarded by `LEGACY_RELEASE_DETAILS_ENABLED`. The modular detail layer is read-only; admin release cards show owner, created date, core fields and file availability. Editing, status, UPC and link writes remain in legacy code.
 - Release contract file callbacks now use `view_release_contract_*`; user contract detail callbacks now use `view_user_contract_*`. The old ambiguous `view_contract_*` callback remains as a single compatibility dispatcher for already sent messages.
 - `db/repositories/release_files.py` owns release file id lookups for `view_cover_*`, `view_audio_*`, and `view_release_contract_*`; media delivery still remains in the legacy handler.
 - `handlers/release_edit.py` is extracted and enabled by `.env` with `ENABLE_MODULAR_RELEASE_EDIT_MENU=1`.
@@ -64,7 +64,7 @@
 - `handlers/diagnostics.py` is extracted and enabled by `.env` with `ENABLE_MODULAR_DIAGNOSTICS=1`.
 - Legacy `/healthcheck`, `/diag`, and `/diagnostics` are guarded by `LEGACY_DIAGNOSTICS_ENABLED`. Runtime checks live in `services/diagnostics.py`.
 - `handlers/topups.py` is extracted and enabled by `.env` with `ENABLE_MODULAR_TOPUPS=1`.
-- Legacy top-up menu and `topup_pay_*` amount-confirmation handlers are guarded by `LEGACY_TOPUPS_ENABLED`. Payment provider creation callbacks still remain in legacy code.
+- Legacy top-up menu, `topup_pay_*` amount-confirmation, `yookassa_pay_*`, and `crypto_pay_*` routing are guarded by `LEGACY_TOPUPS_ENABLED`. YooKassa/Crypto Bot creation still delegates to legacy code; other provider callbacks remain legacy.
 - `handlers/admin_stats.py` is extracted and enabled by `.env` with `ENABLE_MODULAR_ADMIN_STATS=1`.
 - Legacy `admin_stats` routing is guarded by `LEGACY_ADMIN_STATS_ENABLED`. Missing `studio_bookings` is treated as zero.
 - `handlers/admin_menu.py` is extracted and enabled by `.env` with `ENABLE_MODULAR_ADMIN_MENU=1`.
@@ -171,7 +171,7 @@ bot0/
 11. Profile finance summary. Done behind `ENABLE_MODULAR_FINANCE=1`; top-up/payment callbacks remain legacy.
 12. Referral profile screens. Done behind `ENABLE_MODULAR_REFERRALS=1`; `/start REF_CODE` registration remains legacy.
 13. User release list. Done behind `ENABLE_MODULAR_RELEASES=1`; editing/admin actions remain legacy.
-14. Release detail cards. Done behind `ENABLE_MODULAR_RELEASE_DETAILS=1`; attachments/editing/status/UPC/link actions remain legacy.
+14. Release detail cards. Done behind `ENABLE_MODULAR_RELEASE_DETAILS=1`; admin cards show full read-only info, while editing/status/UPC/link writes remain legacy.
 15. Release edit menu. Done behind `ENABLE_MODULAR_RELEASE_EDIT_MENU=1`; field writes remain legacy.
 16. Release platform link view. Done behind `ENABLE_MODULAR_RELEASE_LINKS=1`; add/edit/delete remain legacy.
 17. Release status selection menus. Done behind `ENABLE_MODULAR_RELEASE_STATUS_MENU=1`; writes/notifications remain legacy.
@@ -184,7 +184,7 @@ bot0/
 24. Admin report request list. Done behind `ENABLE_MODULAR_ADMIN_REPORTS=1`; status/file actions remain legacy.
 25. Web authorization codes. Done behind `ENABLE_MODULAR_WEB_AUTH=1`.
 26. Admin diagnostics command. Done behind `ENABLE_MODULAR_DIAGNOSTICS=1`.
-27. Top-up menu UI and `topup_pay_*` amount confirmation. Done behind `ENABLE_MODULAR_TOPUPS=1`; provider payment creation remains legacy.
+27. Top-up menu UI, `topup_pay_*` amount confirmation, `yookassa_pay_*`, and `crypto_pay_*` routing. Done behind `ENABLE_MODULAR_TOPUPS=1`; YooKassa/Crypto Bot creation delegates to legacy code and other provider callbacks remain legacy.
 28. Admin statistics dashboard. Done behind `ENABLE_MODULAR_ADMIN_STATS=1`.
 29. Admin menu entry/back navigation. Done behind `ENABLE_MODULAR_ADMIN_MENU=1`.
 30. Admin service settings menus. Done behind `ENABLE_MODULAR_ADMIN_SERVICES=1`; contract upload remains legacy.
