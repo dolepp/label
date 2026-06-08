@@ -398,7 +398,7 @@ SERVICE_LABELS = {
 
 
 def generate_request_id():
-    return uuid.uuid4().hex[:8]
+    return payment_callbacks.generate_request_id()
 
 
 def format_human_datetime(value: str) -> str:
@@ -4672,13 +4672,7 @@ def check_pending_reviews():
 
 
 def get_display_username(user):
-    if not user:
-        return "Без имени"
-    if isinstance(user, types.User):
-        if user.username:
-            return f"@{user.username}"
-        return f"{user.first_name or user.id}"
-    return str(user)
+    return payment_callbacks.get_display_username(user)
 
 
 def get_support_template(template_id):
@@ -4747,13 +4741,7 @@ def notify_admins_support(request):
 
 
 def notify_admins_design(order):
-    text = format_design_request_text(order)
-    markup = build_design_status_markup(order['id'], order['status'])
-    for admin_id in PERMANENT_ADMINS:
-        try:
-            bot.send_message(admin_id, text, reply_markup=markup)
-        except Exception as e:
-            logger.error(f"Failed to send design order to admin {admin_id}: {e}")
+    return payment_callbacks.notify_admins_design(order)
 
 
 def get_user_releases_for_support(user_id):
@@ -6397,151 +6385,11 @@ def handle_service_release_for_artist(call):
 
 
 def process_artist_user_id(message):
-    """Process user ID for creating release on behalf"""
-    if not is_admin(message.from_user.id):
-        bot.reply_to(message, "❌ Недостаточно прав")
-        return
-
-    try:
-        target_user_id = int(message.text.strip())
-
-        # Проверяем, существует ли пользователь в БД
-        conn = get_pg_connection()
-        if not conn:
-            bot.reply_to(message, "❌ Ошибка подключения к базе данных")
-            return
-
-        cursor = conn.cursor()
-        cursor.execute('SELECT tg FROM label WHERE telegram_id = %s', (target_user_id,))
-        user_result = cursor.fetchone()
-        conn.close()
-
-        if not user_result:
-            bot.reply_to(message, f"❌ Пользователь с ID {target_user_id} не найден в базе данных")
-            return
-
-        username = user_result[0] or f"ID_{target_user_id}"
-
-        # Сохраняем target_user_id для админа
-        bot.admin_release_target = getattr(bot, 'admin_release_target', {})
-        bot.admin_release_target[message.from_user.id] = target_user_id
-
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton("✅ Начать создание релиза", callback_data="service_distribution"),
-            types.InlineKeyboardButton("◀️ Назад к услугам", callback_data="services_back")
-        )
-
-        bot.reply_to(
-            message,
-            f"✅ Выбран пользователь: {username} (ID: {target_user_id})\n\n"
-            "Теперь вы будете проходить обычный процесс дистрибуции, "
-            "но релиз будет создан от имени этого пользователя.",
-            reply_markup=markup
-        )
-
-        # Модифицируем процесс дистрибуции для работы от имени другого пользователя
-        modify_distribution_for_artist_release(message.from_user.id, target_user_id)
-
-    except ValueError:
-        bot.reply_to(message, "❌ Неверный формат ID. Введите числовой Telegram ID:")
-        bot.register_next_step_handler(message, process_artist_user_id)
-    except Exception as e:
-        logger.error(f"Error processing artist user ID: {e}")
-        bot.reply_to(message, "❌ Произошла ошибка при обработке")
+    return service_artist_release.process_artist_user_id(message)
 
 
 def modify_distribution_for_artist_release(admin_id: int, target_user_id: int):
-    """Modify distribution process to create release for another user"""
-    # Перехватываем функцию save_release_data_for_user для этого админа
-    if not hasattr(bot, 'original_save_release_data_for_user'):
-        bot.original_save_release_data_for_user = save_release_data_for_user
-
-    def custom_save_release_data_for_user(user_id: int, chat_id: int) -> None:
-        """Custom save function that creates release for target user"""
-        if user_id == admin_id and hasattr(bot, 'admin_release_target') and bot.admin_release_target.get(admin_id):
-            actual_user_id = bot.admin_release_target[admin_id]
-            logger.info(f"Admin {admin_id} creating release for user {actual_user_id}")
-
-            user_data = bot.user_data.get(admin_id, {})
-            release_type = user_data.get('release_type', '')
-
-            conn = get_pg_connection()
-            if not conn:
-                bot.send_message(chat_id, "❌ Ошибка подключения к БД")
-                return
-
-            try:
-                cursor = conn.cursor()
-
-                if release_type == "Single":
-                    # Создаем одиночный релиз для target_user_id
-                    cursor.execute('''
-                        INSERT INTO releases (
-                            user_id, release_type, artist_name, release_name, producer,
-                            genre, cover_file_id, audio_file_id, release_date, performer_name,
-                            music_author, contract_file_id, videoshot_url, explicit_content,
-                            lyrics_file_id, preview_start, yandex_soon, create_links,
-                            tiktok_commercial, tiktok_full_version, status
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        RETURNING id
-                    ''', (
-                        actual_user_id,
-                        "Single",
-                        user_data.get('artist_name'),
-                        user_data.get('release_name'),
-                        user_data.get('producer'),
-                        user_data.get('genre') or 'N/A',
-                        user_data.get('cover_file_id'),
-                        user_data.get('audio_file_id'),
-                        user_data.get('release_date'),
-                        user_data.get('performer_name'),
-                        user_data.get('music_author'),
-                        user_data.get('contract_file_id'),
-                        user_data.get('videoshot_url'),
-                        user_data.get('explicit_content', False),
-                        user_data.get('lyrics_file_id'),
-                        user_data.get('preview_start'),
-                        user_data.get('yandex_soon', False),
-                        user_data.get('create_links', False),
-                        user_data.get('tiktok_commercial', False),
-                        user_data.get('tiktok_full_version', False),
-                        'pending'
-                    ))
-                    release_id = cursor.fetchone()[0]
-
-                    conn.commit()
-
-                    # Уведомляем админа
-                    bot.send_message(chat_id, f"✅ Релиз #{release_id} создан за пользователя {actual_user_id}")
-
-                    # Уведомляем пользователя
-                    try:
-                        bot.send_message(actual_user_id, "📀 Для вас создан релиз администратором. Проверьте раздел 'Мои релизы'.")
-                    except Exception:
-                        pass
-
-                    # Очищаем target_user_id после создания релиза
-                    if hasattr(bot, 'admin_release_target') and admin_id in bot.admin_release_target:
-                        del bot.admin_release_target[admin_id]
-
-                else:
-                    # Для других типов релизов вызываем оригинальную функцию
-                    bot.original_save_release_data_for_user(actual_user_id, chat_id)
-
-            except Exception as e:
-                logger.error(f"Error creating release for artist: {e}")
-                bot.send_message(chat_id, f"❌ Ошибка создания релиза: {str(e)}")
-            finally:
-                if conn:
-                    cursor.close()
-                    return_pg_connection(conn)
-        else:
-            # Обычное поведение для других пользователей
-            bot.original_save_release_data_for_user(user_id, chat_id)
-
-    # Временно заменяем функцию
-    globals()['save_release_data_for_user'] = custom_save_release_data_for_user
+    return service_artist_release.modify_distribution_for_artist_release(admin_id, target_user_id)
 
 
 

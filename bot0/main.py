@@ -56,16 +56,15 @@ def start_bot() -> None:
             get_user_balance_safe=runtime_helpers.get_user_balance_safe,
             change_user_balance=runtime_helpers.change_user_balance,
             ensure_user_storage=user_storage.ensure_user_storage,
-            notify_admins_design=getattr(label, "notify_admins_design", None),
-            get_display_username=getattr(label, "get_display_username", None),
-            generate_request_id=getattr(label, "generate_request_id", None),
             DESIGN_BRIEF_REQUESTS=getattr(label, "DESIGN_BRIEF_REQUESTS", []),
             SERVICE_LABELS=getattr(label, "SERVICE_LABELS", {}),
         )
         service_artist_release.configure(
             bot=label.bot,
             is_admin=runtime_helpers.is_admin,
-            process_artist_user_id=getattr(label, "process_artist_user_id", None),
+            get_pg_connection=runtime_helpers.get_pg_connection,
+            return_pg_connection=runtime_helpers.return_pg_connection,
+            save_release_data_for_user=getattr(label, "save_release_data_for_user", None),
         )
 
         register_optional_handlers(

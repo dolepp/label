@@ -316,6 +316,11 @@ class HandlerRegistrationTests(unittest.TestCase):
             "handle_successful_payment",
             "handle_design_payment",
             "handle_service_release_for_artist",
+            "process_artist_user_id",
+            "modify_distribution_for_artist_release",
+            "generate_request_id",
+            "get_display_username",
+            "notify_admins_design",
         ):
             with self.subTest(name=name):
                 self.assertIn(name, functions)
@@ -330,6 +335,7 @@ class HandlerRegistrationTests(unittest.TestCase):
         self.assertIn("payment_callbacks.handle_design_payment", main_text)
         self.assertIn("payment_callbacks.handle_successful_payment", main_text)
         self.assertIn("service_artist_release.handle_service_release_for_artist", main_text)
+        self.assertIn("service_artist_release.configure", main_text)
         self.assertIn("user_storage.ensure_user_storage", main_text)
 
 
@@ -353,6 +359,11 @@ class HandlerRegistrationTests(unittest.TestCase):
             "label.handle_design_payment",
             "label.handle_successful_payment",
             "label.handle_service_release_for_artist",
+            "label.process_artist_user_id",
+            "label.modify_distribution_for_artist_release",
+            "label.generate_request_id",
+            "label.get_display_username",
+            "label.notify_admins_design",
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, main_text)

@@ -6,6 +6,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Callable
 
+from core.config import PERMANENT_ADMINS
+from handlers.design_admin import build_design_status_markup, format_design_request_text
 from handlers.legacy_distribution_steps import save_release_data_for_user
 from services import notifications
 
@@ -17,9 +19,6 @@ return_pg_connection: Callable[..., Any] | None = None
 get_user_balance_safe: Callable[[int], float] | None = None
 change_user_balance: Callable[[int, float], bool] | None = None
 ensure_user_storage: Callable[[int], dict] | None = None
-notify_admins_design: Callable[[dict], None] | None = None
-get_display_username: Callable[[Any], str] | None = None
-generate_request_id: Callable[[], str] | None = None
 DESIGN_BRIEF_REQUESTS: list[dict[str, Any]] = []
 SERVICE_LABELS: dict[str, str] = {}
 
@@ -34,6 +33,32 @@ def _require(name: str) -> Any:
         raise RuntimeError(f"payment callback dependency is not configured: {name}")
     return value
 
+
+
+def generate_request_id() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+def get_display_username(user) -> str:
+    if not user:
+        return "Без имени"
+    username = getattr(user, "username", None)
+    if username:
+        return f"@{username}"
+    first_name = getattr(user, "first_name", None)
+    user_id = getattr(user, "id", None)
+    return str(first_name or user_id or user)
+
+
+def notify_admins_design(order: dict) -> None:
+    active_bot = _require("bot")
+    text = format_design_request_text(order)
+    markup = build_design_status_markup(order["id"], order["status"])
+    for admin_id in PERMANENT_ADMINS:
+        try:
+            active_bot.send_message(admin_id, text, reply_markup=markup)
+        except Exception as exc:
+            logger.error("Failed to send design order to admin %s: %s", admin_id, exc)
 
 def notify_admins(message, levels):
     notifications.notify_order_admins(
@@ -202,7 +227,7 @@ def handle_design_payment(call, payment, service):
     active_bot = _require("bot")
     try:
         user_id = int(payment.metadata.get("user_id", call.from_user.id)) if hasattr(payment, "metadata") else call.from_user.id
-        user_display = _require("get_display_username")(call.from_user)
+        user_display = get_display_username(call.from_user)
         active_bot.edit_message_text(
             "🎉 Оплата прошла успешно! Мы начнем работать над вашим дизайном.",
             call.message.chat.id,
@@ -213,7 +238,7 @@ def handle_design_payment(call, payment, service):
         briefs = storage.get("design_briefs", {})
         brief_text = briefs.pop(service, None)
         order_entry = {
-            "id": _require("generate_request_id")(),
+            "id": generate_request_id(),
             "service": service,
             "details": brief_text or "Бриф не был заполнен",
             "status": "принят",
@@ -223,7 +248,7 @@ def handle_design_payment(call, payment, service):
             "created_at": datetime.now().isoformat(),
         }
         DESIGN_BRIEF_REQUESTS.append(order_entry)
-        _require("notify_admins_design")(order_entry)
+        notify_admins_design(order_entry)
 
         service_label = SERVICE_LABELS.get(service, service)
         notify_admins(
