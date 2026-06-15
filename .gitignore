@@ -6,8 +6,11 @@ __pycache__/
 *.runtime.log
 *.runtime.pid
 .env
+.env.before-*
 .venv/
 venv/
 storage/
+db_backup/*.dump
+db_backup/*archive*.tar.gz
 TODO_PLAN.md
 healthcheck.log
