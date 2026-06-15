@@ -1,0 +1,17 @@
+[Unit]
+Description=TWAS Label Telegram Bot
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=dolepp
+WorkingDirectory=/home/dolepp/label/bot0
+EnvironmentFile=/home/dolepp/label/.env
+ExecStart=/home/dolepp/label/bot0/venv/bin/python main.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/home/dolepp/label/bot0/bot.log
+StandardError=append:/home/dolepp/label/bot0/bot_error.log
+
+[Install]
+WantedBy=multi-user.target

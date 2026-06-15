@@ -5,10 +5,14 @@ import os
 import re
 import shutil
 import subprocess
+import threading
+import hashlib
+import hmac as _hmac
+import time as _time
 import psycopg2
 from psycopg2 import Error
 from psycopg2.extras import Json
-from psycopg2.pool import SimpleConnectionPool
+from psycopg2.pool import ThreadedConnectionPool
 from flask import Flask, Response, jsonify, request, send_file, send_from_directory
 from flask_cors import CORS
 import logging
@@ -17,12 +21,49 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 import requests
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+    load_dotenv()
+except ImportError:
+    pass
+
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+except ImportError:
+    Limiter = None
+    get_remote_address = None
+
 # ?????????????????? ??????????????????????
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app, origins=["*"], supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
+CORS(app, origins=[
+    "https://twaslabel.ru",
+    "https://www.twaslabel.ru",
+    "http://163.5.180.182:5000",
+    "http://localhost:5000",
+], supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
+
+if Limiter is not None:
+    limiter = Limiter(
+        get_remote_address,
+        app=app,
+        default_limits=["200 per minute"],
+        storage_uri="memory://",
+    )
+else:
+    logger.warning("Flask-Limiter is not installed; API rate limits are disabled")
+
+    class _NoopLimiter:
+        def limit(self, *_args, **_kwargs):
+            def decorator(func):
+                return func
+            return decorator
+
+    limiter = _NoopLimiter()
 
 
 def is_cacheable_media_request():
@@ -62,6 +103,7 @@ TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 BOT_USERNAME = os.getenv("BOT_USERNAME", "twaslabel_bot").lstrip("@")
 STORAGE_ROOT = Path(os.getenv("MEDIA_STORAGE_ROOT", Path(__file__).resolve().parents[1] / "storage"))
 PG_POOL = None
+_pool_lock = threading.Lock()
 DISTRIBUTION_PRICES = {
     "Single": Decimal("1299.00"),
     "Maxi Single": Decimal("1799.00"),
@@ -104,20 +146,22 @@ class PooledConnection:
                 pass
 
 def get_pg_connection():
-    """Получение соединения с PostgreSQL с использованием пула подключений."""
+    """Получение соединения с PostgreSQL. Потокобезопасная инициализация пула."""
     global PG_POOL
     try:
         if PG_POOL is None:
-            PG_POOL = SimpleConnectionPool(
-                minconn=1,
-                maxconn=int(os.getenv("PG_MAX_CONN", "10")),
-                dbname=DB_CONFIG["dbname"],
-                user=DB_CONFIG["user"],
-                password=DB_CONFIG["password"],
-                host=DB_CONFIG["host"],
-                port=DB_CONFIG["port"],
-                client_encoding='utf8'
-            )
+            with _pool_lock:
+                if PG_POOL is None:
+                    PG_POOL = ThreadedConnectionPool(
+                        minconn=2,
+                        maxconn=int(os.getenv("PG_MAX_CONN", "10")),
+                        dbname=DB_CONFIG["dbname"],
+                        user=DB_CONFIG["user"],
+                        password=DB_CONFIG["password"],
+                        host=DB_CONFIG["host"],
+                        port=DB_CONFIG["port"],
+                        client_encoding='utf8'
+                    )
 
         return PooledConnection(PG_POOL, PG_POOL.getconn())
     except Error as e:
@@ -3248,6 +3292,18 @@ def update_user_levels(user_id):
                 cursor.close()
             conn.close()
 
+def verify_telegram_auth(data: dict, bot_token: str) -> bool:
+    """Проверка подписи данных от Telegram Login Widget."""
+    check_hash = data.pop('hash', None)
+    if not check_hash or not bot_token:
+        return False
+    data_check_arr = sorted([f"{k}={v}" for k, v in data.items()])
+    data_check_string = "\n".join(data_check_arr)
+    secret_key = hashlib.sha256(bot_token.encode()).digest()
+    computed_hash = _hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+    return _hmac.compare_digest(computed_hash, check_hash)
+
+
 @app.route('/api/telegram_auth', methods=['GET'])
 def telegram_auth_api():
     """Альтернативный маршрут для telegram_auth через /api/"""
@@ -3261,31 +3317,39 @@ def api_me():
 
 
 @app.route('/telegram_auth', methods=['GET'])
+@limiter.limit("30 per minute")
 def telegram_auth():
-    """???????????????????????????? ???? Telegram ID"""
+    """Аутентификация по Telegram — с проверкой подписи если есть hash."""
     try:
-        telegram_id = request.args.get('tgid')
+        auth_data = {k: v for k, v in request.args.items()}
+        telegram_id = auth_data.get('id') or auth_data.get('tgid')
+
         if not telegram_id:
-            return jsonify({'success': False, 'error': 'Telegram ID ???? ????????????'}), 400
+            return jsonify({'success': False, 'error': 'Telegram ID не указан'}), 400
+
+        if 'hash' in auth_data:
+            if not verify_telegram_auth(dict(auth_data), TELEGRAM_BOT_TOKEN):
+                logger.warning("Invalid Telegram auth hash for id=%s", telegram_id)
+                return jsonify({'success': False, 'error': 'Неверная подпись'}), 403
+
+            auth_date = int(auth_data.get('auth_date', 0) or 0)
+            if _time.time() - auth_date > 3600:
+                return jsonify({'success': False, 'error': 'Данные авторизации устарели'}), 403
 
         conn = get_pg_connection()
         if not conn:
-            return jsonify({'success': False, 'error': '???????????? ?????????????????????? ?? ???????? ????????????'}), 500
+            return jsonify({'success': False, 'error': 'Ошибка подключения к БД'}), 500
 
         cursor = conn.cursor()
-
         user_data = load_user_by_telegram_id(cursor, telegram_id)
         if not user_data:
-            return jsonify({'success': False, 'error': '???????????????????????? ???? ????????????'}), 404
+            return jsonify({'success': False, 'error': 'Пользователь не найден'}), 404
 
-        return jsonify({
-            'success': True,
-            'user': user_data
-        })
+        return jsonify({'success': True, 'user': user_data})
 
     except Exception as e:
-        logger.error(f"???????????? ?????? ???????????????????????????? Telegram: {e}")
-        return jsonify({'success': False, 'error': '???????????? ??????????????'}), 500
+        logger.error(f"Ошибка при аутентификации Telegram: {e}")
+        return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
     finally:
         if 'conn' in locals() and conn:
             if 'cursor' in locals():
@@ -3300,6 +3364,7 @@ def get_user_releases_legacy_alias():
 
 
 @app.route('/api/user_releases', methods=['GET'])
+@limiter.limit("60 per minute")
 def get_user_releases():
     """???????????????? ???????????? ????????????????????????"""
     try:
@@ -5124,6 +5189,30 @@ def create_support_request():
             conn.close()
 
 
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check для мониторинга."""
+    checks = {
+        "status": "ok",
+        "db": False,
+        "timestamp": datetime.now().isoformat(),
+    }
+    try:
+        conn = get_pg_connection()
+        if conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            checks["db"] = True
+            cursor.close()
+            conn.close()
+    except Exception as exc:
+        logger.error("Health check failed: %s", exc)
+        checks["status"] = "degraded"
+
+    status_code = 200 if checks["db"] else 503
+    return jsonify(checks), status_code
+
+
 # ?????????????????????? ???????????? ?????? ???????????????? JSON ???????????? HTML
 @app.errorhandler(404)
 def not_found(error):
@@ -5151,8 +5240,8 @@ if __name__ == '__main__':
         context.load_cert_chain(cert_file, key_file)
 
         print("???? ???????????? API ?????????????? ?? HTTPS...")
-        app.run(host='0.0.0.0', port=5000, debug=True, ssl_context=context)
+        app.run(host='0.0.0.0', port=5000, debug=False, ssl_context=context)
     else:
         print("??????  SSL ?????????????????????? ???? ??????????????. ???????????? ?? HTTP ????????????...")
         print("   ?????? HTTPS ??????????????????: python generate_ssl.py")
-        app.run(host='0.0.0.0', port=5000, debug=True)
+        app.run(host='0.0.0.0', port=5000, debug=False)

@@ -78,7 +78,7 @@ from psycopg2 import pool
 from psycopg2.pool import ThreadedConnectionPool
 
 # Initialize bot
-BOT_TOKEN = os.getenv('BOT_TOKEN', '6285811276:AAHoVTSOok-_Bwxe1GWSSSsN7LiP5CynYas')
+BOT_TOKEN = os.environ['BOT_TOKEN']
 bot = telebot.TeleBot(BOT_TOKEN)
 referral_notifications.configure(bot)
 user_storage.configure(bot)
@@ -150,33 +150,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configure YooKassa
-Configuration.account_id = "1215507"
-Configuration.secret_key = "live_8MVRYBieniDXJqm2K0KSNCOMFpUXZ0gjMebRfdl__B4"
+Configuration.account_id = os.environ["YOOKASSA_ACCOUNT_ID"]
+Configuration.secret_key = os.environ["YOOKASSA_SECRET_KEY"]
 
-logger.info(f"YooKassa configured with account_id: {Configuration.account_id}")
-
-# Проверка конфигурации YooKassa при запуске
-try:
-    if YOOKASSA_AVAILABLE:
-        # Тестируем подключение к YooKassa
-        test_payment = Payment.create({
-            "amount": {"value": "1.00", "currency": "RUB"},
-            "confirmation": {"type": "redirect", "return_url": "https://t.me/twaslabel_bot"},
-            "capture": True,
-            "description": "Test payment",
-            "metadata": {"test": "true"}
-        })
-        logger.info("✅ YooKassa configuration test successful with new credentials")
-        # Отменяем тестовый платеж
-        try:
-            Payment.cancel(test_payment.id)
-        except:
-            pass  # Игнорируем ошибки отмены тестового платежа
-    else:
-        logger.warning("⚠️ YooKassa module not available")
-except Exception as e:
-    logger.error(f"❌ YooKassa configuration test failed: {e}")
-    logger.error("Check your YooKassa credentials and network connection")
+if YOOKASSA_AVAILABLE:
+    logger.info(f"✅ YooKassa сконфигурирована (account: {Configuration.account_id})")
+else:
+    logger.warning("⚠️ YooKassa модуль не установлен — платежи отключены")
 
 def test_channel_access():
     """Тестирование доступа бота к каналу"""
@@ -225,7 +205,7 @@ def check_yookassa_status():
         return False, f"YooKassa API check failed: {str(e)}"
 
 # Crypto Bot Configuration
-CRYPTO_BOT_TOKEN = "449150:AAhpOhS1Mwm8mUfiVuOazq6Y7YHc6wkACxj"
+CRYPTO_BOT_TOKEN = os.environ.get("CRYPTO_BOT_TOKEN", "")
 
 # Constants
 CHANNEL_USERNAME = "@twaslabel"
@@ -707,7 +687,7 @@ RELEASE_STATUSES = [
 DB_CONFIG = {
     "dbname": os.getenv("DB_NAME", "postgres"),
     "user": os.getenv("DB_USER", "postgres"),
-    "password": os.getenv("DB_PASSWORD", "60606611125"),
+    "password": os.environ["DB_PASSWORD"],
     "host": os.getenv("DB_HOST", "localhost"),
     "port": os.getenv("DB_PORT", "5432")
 }
@@ -1156,7 +1136,7 @@ RELEASE_STATUSES = [
 DB_CONFIG = {
     "dbname": os.getenv("DB_NAME", "postgres"),
     "user": os.getenv("DB_USER", "postgres"),
-    "password": os.getenv("DB_PASSWORD", "60606611125"),
+    "password": os.environ["DB_PASSWORD"],
     "host": os.getenv("DB_HOST", "localhost"),
     "port": os.getenv("DB_PORT", "5432")
 }
