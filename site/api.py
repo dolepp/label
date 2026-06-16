@@ -13,7 +13,7 @@ import psycopg2
 from psycopg2 import Error
 from psycopg2.extras import Json
 from psycopg2.pool import ThreadedConnectionPool
-from flask import Flask, Response, jsonify, request, send_file, send_from_directory
+from flask import Flask, Response, jsonify, make_response, request, send_file, send_from_directory
 from flask_cors import CORS
 import logging
 from datetime import datetime
@@ -43,7 +43,6 @@ app = Flask(__name__)
 CORS(app, origins=[
     "https://twaslabel.ru",
     "https://www.twaslabel.ru",
-    "http://163.5.180.182:5000",
     "http://localhost:5000",
 ], supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
 
@@ -82,10 +81,12 @@ def add_cache_policy(response):
         response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
         response.headers.pop('Pragma', None)
         response.headers.pop('Expires', None)
-    elif request.path.startswith('/api/') or request.path.startswith('/telegram_auth'):
+    elif request.path in ('/', '/cabinet', '/cabinet/', '/release/new', '/release/new/') or request.path.startswith('/api/') or request.path.startswith('/telegram_auth'):
         response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
+        response.headers.pop('ETag', None)
+        response.headers['Last-Modified'] = 'Tue, 01 Jan 1980 00:00:00 GMT'
     return response
 
 # ???????????????????????? ???????? ???????????? (???? ???? ??????????????????, ?????? ?? ????????)
@@ -4220,7 +4221,12 @@ def create_distribution():
 @app.route('/', methods=['GET'])
 def index():
     """Serve the web cabinet as the public home page."""
-    return send_from_directory(os.path.dirname(__file__), 'cabinet.html')
+    response = make_response(send_from_directory(os.path.dirname(__file__), 'cabinet.html'))
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    response.headers.pop('ETag', None)
+    return response
 
 
 @app.route('/api', methods=['GET'])
@@ -4260,7 +4266,12 @@ def api_index():
 @app.route('/release/new/', methods=['GET'])
 def cabinet():
     """Serve the web cabinet and dedicated release creation page."""
-    return send_from_directory(os.path.dirname(__file__), 'cabinet.html')
+    response = make_response(send_from_directory(os.path.dirname(__file__), 'cabinet.html'))
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    response.headers.pop('ETag', None)
+    return response
 
 
 @app.route('/assets/<path:filename>', methods=['GET'])

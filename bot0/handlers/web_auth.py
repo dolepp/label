@@ -33,8 +33,7 @@ def _web_app_markup(user_id: int):
 
 
 def register_web_auth_handlers(bot) -> None:
-    @bot.message_handler(commands=["код", "webauth"])
-    def handle_web_auth_code(message):
+    def send_web_auth_code(message):
         user_id = message.from_user.id
         try:
             auth_code = create_auth_code(user_id)
@@ -53,3 +52,11 @@ def register_web_auth_handlers(bot) -> None:
             parse_mode="Markdown",
             reply_markup=_web_app_markup(user_id),
         )
+
+    @bot.message_handler(commands=["код", "webauth"])
+    def handle_web_auth_code(message):
+        send_web_auth_code(message)
+
+    @bot.message_handler(func=lambda message: (getattr(message, "text", "") or "").strip().lower() in {"/код", "код"})
+    def handle_web_auth_code_text(message):
+        send_web_auth_code(message)
