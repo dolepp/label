@@ -44,7 +44,7 @@ CORS(app, origins=[
     "https://twaslabel.ru",
     "https://www.twaslabel.ru",
     "http://localhost:5000",
-], supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
+], supports_credentials=True, allow_headers=["Content-Type", "Authorization"], always_send=False)
 
 if Limiter is not None:
     limiter = Limiter(
