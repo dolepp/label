@@ -5,6 +5,5 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-User=dolepp
 WorkingDirectory=/home/dolepp/label
 ExecStart=/home/dolepp/label/deploy/deploy-site.sh
