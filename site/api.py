@@ -2218,7 +2218,7 @@ def save_draft_api():
         payload = request.get_json() or {}
         user_id = payload.get('user_id')
         if not user_id:
-            return jsonify({'success': False, 'error': 'user_id is required'}), 400
+            return jsonify({'success': False, 'error': 'Не удалось определить пользователя'}), 400
 
         draft_id = payload.get('draft_id')
         draft_type = payload.get('draft_type') or 'release'
@@ -2227,7 +2227,7 @@ def save_draft_api():
 
         conn = get_pg_connection()
         if not conn:
-            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+            return jsonify({'success': False, 'error': 'База данных временно недоступна'}), 500
         cursor = conn.cursor()
         ensure_drafts_table(cursor)
 
@@ -2244,7 +2244,7 @@ def save_draft_api():
             row = cursor.fetchone()
             if not row:
                 conn.rollback()
-                return jsonify({'success': False, 'error': 'Draft not found'}), 404
+                return jsonify({'success': False, 'error': 'Черновик не найден'}), 404
             saved_id = row[0]
         else:
             cursor.execute(
@@ -2261,7 +2261,7 @@ def save_draft_api():
         return jsonify({'success': True, 'draft_id': saved_id})
     except Exception as e:
         logger.error("Error saving draft: %s", e)
-        return jsonify({'success': False, 'error': 'Could not save draft'}), 500
+        return jsonify({'success': False, 'error': 'Не удалось сохранить черновик'}), 500
     finally:
         if conn:
             if 'cursor' in locals():
@@ -2275,11 +2275,11 @@ def get_draft_api(draft_id):
     try:
         user_id = request.args.get('user_id', type=int)
         if not user_id:
-            return jsonify({'success': False, 'error': 'user_id is required'}), 400
+            return jsonify({'success': False, 'error': 'Не удалось определить пользователя'}), 400
 
         conn = get_pg_connection()
         if not conn:
-            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+            return jsonify({'success': False, 'error': 'База данных временно недоступна'}), 500
         cursor = conn.cursor()
         ensure_drafts_table(cursor)
         cursor.execute(
@@ -2292,7 +2292,7 @@ def get_draft_api(draft_id):
         )
         row = cursor.fetchone()
         if not row:
-            return jsonify({'success': False, 'error': 'Draft not found'}), 404
+            return jsonify({'success': False, 'error': 'Черновик не найден'}), 404
 
         return jsonify({
             'success': True,
@@ -2307,7 +2307,7 @@ def get_draft_api(draft_id):
         })
     except Exception as e:
         logger.error("Error loading draft: %s", e)
-        return jsonify({'success': False, 'error': 'Could not load draft'}), 500
+        return jsonify({'success': False, 'error': 'Не удалось открыть черновик'}), 500
     finally:
         if conn:
             if 'cursor' in locals():
@@ -2321,11 +2321,11 @@ def delete_draft_api(draft_id):
     try:
         user_id = request.args.get('user_id', type=int)
         if not user_id:
-            return jsonify({'success': False, 'error': 'user_id is required'}), 400
+            return jsonify({'success': False, 'error': 'Не удалось определить пользователя'}), 400
 
         conn = get_pg_connection()
         if not conn:
-            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+            return jsonify({'success': False, 'error': 'База данных временно недоступна'}), 500
         cursor = conn.cursor()
         ensure_drafts_table(cursor)
         cursor.execute("DELETE FROM drafts WHERE id = %s AND user_id = %s", (draft_id, user_id))
@@ -2333,7 +2333,7 @@ def delete_draft_api(draft_id):
         return jsonify({'success': True, 'deleted': cursor.rowcount})
     except Exception as e:
         logger.error("Error deleting draft: %s", e)
-        return jsonify({'success': False, 'error': 'Could not delete draft'}), 500
+        return jsonify({'success': False, 'error': 'Не удалось удалить черновик'}), 500
     finally:
         if conn:
             if 'cursor' in locals():
@@ -2392,7 +2392,7 @@ def profile_dashboard_api():
                 FROM drafts
                 WHERE user_id = %s
                 ORDER BY updated_at DESC NULLS LAST
-                LIMIT 10
+                LIMIT 50
             """, (user_id,))
             drafts = [
                 {
@@ -2582,11 +2582,11 @@ def check_auth_status():
     try:
         token = request.args.get('token')
         if not token:
-            return jsonify({'success': False, 'error': '?????????? ???? ????????????'}), 400
+            return jsonify({'success': False, 'error': 'Не указан код авторизации'}), 400
 
         conn = get_pg_connection()
         if not conn:
-            return jsonify({'success': False, 'error': '???????????? ?????????????????????? ?? ???????? ????????????'}), 500
+            return jsonify({'success': False, 'error': 'Не удалось подключиться к базе данных'}), 500
 
         cursor = conn.cursor()
 
@@ -2618,11 +2618,11 @@ def check_auth_status():
                 return jsonify({'success': False, 'waiting': True})
         else:
             # ?????? ???? ???????????? ?????? ??????????
-            return jsonify({'success': False, 'error': '???????????????? ?????? ???????????????? ??????????'})
+            return jsonify({'success': False, 'error': 'Код не найден или истёк'})
 
     except Exception as e:
         logger.error(f"???????????? ?????? ???????????????? ?????????????? ??????????????????????: {e}")
-        return jsonify({'success': False, 'error': '???????????????????? ???????????? ??????????????'}), 500
+        return jsonify({'success': False, 'error': 'Ошибка проверки авторизации'}), 500
     finally:
         if 'cursor' in locals():
             cursor.close()
@@ -2635,15 +2635,15 @@ def verify_auth_code():
     try:
         data = request.get_json()
         if not data or 'code' not in data:
-            return jsonify({'success': False, 'error': '?????? ???? ????????????'}), 400
+            return jsonify({'success': False, 'error': 'Введите код из Telegram'}), 400
 
         code = data['code'].strip()
         if not code:
-            return jsonify({'success': False, 'error': '?????? ???? ?????????? ???????? ????????????'}), 400
+            return jsonify({'success': False, 'error': 'Код не может быть пустым'}), 400
 
         conn = get_pg_connection()
         if not conn:
-            return jsonify({'success': False, 'error': '???????????? ?????????????????????? ?? ???????? ????????????'}), 500
+            return jsonify({'success': False, 'error': 'Не удалось подключиться к базе данных'}), 500
 
         cursor = conn.cursor()
 
@@ -2662,17 +2662,17 @@ def verify_auth_code():
 
         if not result:
             logger.warning(f"No user found for code: {code}")
-            return jsonify({'success': False, 'error': '???????????????? ??????'})
+            return jsonify({'success': False, 'error': 'Неверный код'})
 
         user_id, expires_at, used = result
 
         # ??????????????????, ???? ?????????????????????? ???? ??????
         if used:
-            return jsonify({'success': False, 'error': '?????? ?????? ??????????????????????'})
+            return jsonify({'success': False, 'error': 'Код уже использован'})
 
         # ??????????????????, ???? ?????????? ???? ??????
         if datetime.now() > expires_at:
-            return jsonify({'success': False, 'error': '?????? ??????????'})
+            return jsonify({'success': False, 'error': 'Код истёк'})
 
         # ???????????????? ?????? ?????? ????????????????????????????
         cursor.execute('''
@@ -2693,7 +2693,7 @@ def verify_auth_code():
 
     except Exception as e:
         logger.error(f"Error verifying auth code: {e}")
-        return jsonify({'success': False, 'error': '???????????? ??????????????'}), 500
+        return jsonify({'success': False, 'error': 'Ошибка проверки кода'}), 500
     finally:
         if 'conn' in locals() and conn:
             if 'cursor' in locals():

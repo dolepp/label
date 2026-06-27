@@ -1287,7 +1287,7 @@
 
     const apiBase = window.location.origin;
     const $ = (id) => document.getElementById(id);
-    const state = { user: null, releases: [], drafts: [], filteredReleases: [], recentReleases: [], selectedRelease: null, profileDashboard: null, promoHistory: [], activeDiscounts: [], distributionPayment: null, activeTab: "home", editingDraftId: null, albumTracks: [], releaseStep: 0, releasePage: 1, releasePageSize: 12 };
+    const state = { user: null, releases: [], drafts: [], filteredReleases: [], recentReleases: [], selectedRelease: null, profileDashboard: null, promoHistory: [], activeDiscounts: [], distributionPayment: null, activeTab: "home", editingDraftId: null, albumTracks: [], releaseStep: 0, releasePage: 1, releasePageSize: 12, releaseDirty: false, releaseSavedSignature: "" };
 
     function setStatus(message, kind = "muted") {
       const status = $("status");
@@ -1583,6 +1583,11 @@
       return data.releaseName || data.albumName || data.release_name || data.album_name || `Черновик #${draft.id}`;
     }
 
+    function draftStep(draft) {
+      const step = Number(draft.current_step || 1);
+      return Math.max(1, Math.min(RELEASE_STEPS.length, step));
+    }
+
     function combinedReleaseItems() {
       const releaseItems = (state.releases || []).map((release) => ({
         itemType: "release",
@@ -1710,6 +1715,8 @@
       const data = draft.data || {};
       const title = draftTitle(draft);
       const type = data.releaseType || draft.draft_type || "черновик";
+      const step = draftStep(draft);
+      const progress = Math.round((step / RELEASE_STEPS.length) * 100);
       return `
         <article class="release release-with-cover" data-draft-id="${draft.id}" role="button" tabindex="0">
           <div class="release-cover-thumb"><div class="cover-placeholder"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 10h6M9 14h6M9 18h4"/></svg></div></div>
@@ -1727,7 +1734,8 @@
             </div>
             <div class="details">
               <div class="detail"><span>Обновлён</span><b>${dateText(draft.updated_at || draft.created_at)}</b></div>
-              <div class="detail"><span>Шаг</span><b>${escapeHtml(draft.current_step ?? 0)}</b></div>
+              <div class="detail"><span>Прогресс</span><b>${counterHtml(progress)}%</b></div>
+              <div class="detail"><span>Шаг</span><b>${counterHtml(step)} из ${counterHtml(RELEASE_STEPS.length)}</b></div>
               <div class="detail"><span>Дата релиза</span><b>${dateText(data.releaseDate)}</b></div>
               <div class="detail"><span>Действие</span><b>Открыть</b></div>
             </div>
@@ -1762,6 +1770,7 @@
       }
       box.className = "release-list";
       box.innerHTML = pagedReleaseItems().map((item) => item.itemType === "draft" ? draftCard(item.data) : releaseCard(item.data)).join("");
+      animateCounters(box);
       renderReleasePagination();
     }
 
@@ -1974,7 +1983,7 @@
       $("releasePrevStepBtn").disabled = state.releaseStep === 0;
       $("releaseNextStepBtn").classList.toggle("hidden", state.releaseStep >= RELEASE_STEPS.length - 1);
       $("submitReleaseBtn").classList.toggle("hidden", state.releaseStep < RELEASE_STEPS.length - 1);
-      $("releaseStepStatus").textContent = `Шаг ${state.releaseStep + 1} из ${RELEASE_STEPS.length}`;
+      $("releaseStepStatus").textContent = releaseStepText();
       updateReleaseLimitNote();
       renderDistributionPayment();
       if (state.releaseStep === RELEASE_STEPS.length - 1 && state.user) {
@@ -2016,6 +2025,7 @@
       toggleAlbumFields();
       renderReleaseWizard();
       setReleaseBuilderStatus("");
+      rememberReleaseSaved();
     }
 
     function releaseFormData() {
@@ -2136,6 +2146,39 @@
           }
         }))
       };
+    }
+
+    function releaseSignature() {
+      try {
+        return JSON.stringify(releaseFormData());
+      } catch {
+        return "";
+      }
+    }
+
+    function releaseStepText() {
+      const dirtyText = state.releaseDirty ? " · есть несохранённые изменения" : "";
+      return `Шаг ${state.releaseStep + 1} из ${RELEASE_STEPS.length}${dirtyText}`;
+    }
+
+    function updateReleaseDirtyIndicator() {
+      $("releaseStepStatus").textContent = releaseStepText();
+    }
+
+    function rememberReleaseSaved() {
+      state.releaseSavedSignature = releaseSignature();
+      state.releaseDirty = false;
+      updateReleaseDirtyIndicator();
+    }
+
+    function markReleaseDirty(force = false) {
+      const signature = releaseSignature();
+      state.releaseDirty = Boolean(state.releaseDirty || force || (signature && signature !== state.releaseSavedSignature));
+      updateReleaseDirtyIndicator();
+    }
+
+    function confirmReleaseDiscard() {
+      return !state.releaseDirty || confirm("В релизе есть несохранённые изменения. Продолжить без сохранения?");
     }
 
     function setInputValue(id, value) {
@@ -2307,7 +2350,7 @@
           user_id: userId,
           draft_id: state.editingDraftId,
           draft_type: data.releaseType === "Single" ? "single" : "album",
-          current_step: Object.values(data).filter(Boolean).length,
+          current_step: state.releaseStep + 1,
           data
         })
       });
@@ -2316,6 +2359,7 @@
       filterUserReleases();
       renderProfile();
       renderUserReleases();
+      rememberReleaseSaved();
       setReleaseBuilderStatus(`Черновик #${draft.draft_id} сохранён.`, "ok");
     }
 
@@ -2325,12 +2369,19 @@
       const payload = await fetchJson(`${apiBase}/api/drafts/${draftId}?user_id=${encodeURIComponent(userId)}`);
       state.editingDraftId = payload.draft.id;
       fillReleaseForm(payload.draft.data || {});
+      state.releaseStep = Math.max(0, Math.min(RELEASE_STEPS.length - 1, Number(payload.draft.current_step || 1) - 1));
       openReleaseBuilder("draft");
+      rememberReleaseSaved();
       setReleaseBuilderStatus(`Открыт черновик #${payload.draft.id}.`, "ok");
     }
 
-    function openDraftWindow(draftId) {
-      window.open(`/release/new?draft=${encodeURIComponent(draftId)}`, `draft_${draftId}`, "popup,width=1180,height=920,noopener");
+    function openReleaseTab(path) {
+      if (!confirmReleaseDiscard()) return;
+      window.open(path, "_blank", "noopener");
+    }
+
+    function openDraftTab(draftId) {
+      openReleaseTab(`/release/new?draft=${encodeURIComponent(draftId)}`);
     }
 
     async function deleteDraft(draftId) {
@@ -2394,6 +2445,7 @@
         await fetchJson(`${apiBase}/api/drafts/${state.editingDraftId}?user_id=${encodeURIComponent(userId)}`, { method: "DELETE" });
       }
       resetReleaseForm();
+      rememberReleaseSaved();
       $("releaseBuilder").classList.add("hidden");
       await Promise.all([loadUserReleases(), loadProfileDashboard(), loadRecentReleases()]);
       renderProfile();
@@ -2566,8 +2618,11 @@
         <div class="mini-row">#${counterHtml(order.id)} · ${escapeHtml(order.service_type || "услуга")} · <b>${moneyCounter(order.amount)}</b><br><span class="muted">${escapeHtml(order.status || "pending")} · ${dateText(order.created_date)}</span></div>
       `);
       renderMiniRows("profileDrafts", dashboard.drafts, "Черновиков пока нет.", (draft) => `
-        <button class="mini-row secondary" data-load-draft="${draft.id}">#${counterHtml(draft.id)} · ${escapeHtml(draft.draft_type || "черновик")}<br><span class="muted">Шаг ${counterHtml(draft.current_step ?? 0)} · ${dateText(draft.updated_at || draft.created_at)}</span></button>
+        <button class="mini-row secondary" data-load-draft="${draft.id}">#${counterHtml(draft.id)} · ${escapeHtml(draftTitle(draft))}<br><span class="muted">Шаг ${counterHtml(draftStep(draft))} из ${counterHtml(RELEASE_STEPS.length)} · ${dateText(draft.updated_at || draft.created_at)}</span></button>
       `);
+      if (dashboard.drafts?.length) {
+        $("profileDrafts").insertAdjacentHTML("beforeend", `<button class="mini-row ghost" type="button" data-show-drafts>Все черновики в разделе релизов</button>`);
+      }
       renderMiniRows("profileReports", dashboard.reports, "Отчётов пока нет.", (report) => `
         <div class="mini-row">#${counterHtml(report.id)} · ${escapeHtml(report.request_type || "отчёт")}<br><span class="muted">${escapeHtml(report.status || "pending")} · ${dateText(report.created_at)}</span></div>
       `);
@@ -2740,12 +2795,13 @@
     $("releaseNextPageBtn").addEventListener("click", () => { state.releasePage += 1; renderUserReleases(); });
     $("releasePageSizeSelect").addEventListener("change", () => { state.releasePageSize = Number($("releasePageSizeSelect").value) || 12; state.releasePage = 1; renderUserReleases(); });
     $("newReleaseBtn").addEventListener("click", () => {
-      window.open("/release/new", "new_release", "popup,width=1180,height=920,noopener");
+      openReleaseTab("/release/new");
     });
     $("distributionServiceBtn").addEventListener("click", () => {
-      window.open("/release/new?source=services", "new_release", "popup,width=1180,height=920,noopener");
+      openReleaseTab("/release/new?source=services");
     });
     $("closeReleaseBuilderBtn").addEventListener("click", () => {
+      if (!confirmReleaseDiscard()) return;
       if (document.body.classList.contains("release-page")) window.close();
       else $("releaseBuilder").classList.add("hidden");
     });
@@ -2769,6 +2825,7 @@
       state.albumTracks.push({ track_name: "", producer: "", genre: "" });
       renderAlbumTracks();
       updateReleaseLimitNote();
+      markReleaseDirty();
     });
     $("albumTracksList").addEventListener("input", (event) => {
       const editor = event.target.closest("[data-track-index]");
@@ -2777,6 +2834,7 @@
       state.albumTracks[index][event.target.dataset.trackField] = event.target.tagName === "SELECT"
         ? event.target.value === "true"
         : event.target.value;
+      markReleaseDirty();
     });
     $("albumTracksList").addEventListener("click", (event) => {
       const button = event.target.closest("[data-remove-track]");
@@ -2789,15 +2847,26 @@
       state.albumTracks.splice(Number(button.dataset.removeTrack), 1);
       renderAlbumTracks();
       updateReleaseLimitNote();
+      markReleaseDirty();
     });
+    $("releaseForm").addEventListener("input", () => markReleaseDirty());
+    $("releaseForm").addEventListener("change", (event) => markReleaseDirty(event.target?.type === "file"));
     $("releaseForm").addEventListener("submit", (event) => {
       event.preventDefault();
       submitReleaseForm().catch((error) => setReleaseBuilderStatus(`Ошибка отправки: ${error.message}`, "error"));
     });
     $("profileDrafts").addEventListener("click", (event) => {
+      const showDrafts = event.target.closest("[data-show-drafts]");
+      if (showDrafts) {
+        $("releaseStageFilter").value = "draft";
+        setTab("releases");
+        filterUserReleases();
+        renderUserReleases();
+        return;
+      }
       const button = event.target.closest("[data-load-draft]");
       if (!button) return;
-      openDraftWindow(button.dataset.loadDraft);
+      openDraftTab(button.dataset.loadDraft);
     });
     $("releases").addEventListener("click", (event) => {
       const deleteButton = event.target.closest("[data-delete-draft]");
@@ -2808,10 +2877,10 @@
       const draftButton = event.target.closest("[data-load-draft]");
       if (draftButton) {
         event.stopPropagation();
-        return openDraftWindow(draftButton.dataset.loadDraft);
+        return openDraftTab(draftButton.dataset.loadDraft);
       }
       const draftCard = event.target.closest("[data-draft-id]");
-      if (draftCard) return openDraftWindow(draftCard.dataset.draftId);
+      if (draftCard) return openDraftTab(draftCard.dataset.draftId);
       const card = event.target.closest("[data-release-id]");
       if (!card) return;
       openReleaseDetail(card.dataset.releaseId);
@@ -2821,7 +2890,7 @@
       const draftCard = event.target.closest("[data-draft-id]");
       if (draftCard) {
         event.preventDefault();
-        return openDraftWindow(draftCard.dataset.draftId);
+        return openDraftTab(draftCard.dataset.draftId);
       }
       const card = event.target.closest("[data-release-id]");
       if (!card) return;
@@ -2834,6 +2903,11 @@
       const error = player.nextElementSibling;
       if (error?.classList.contains("audio-error")) error.classList.remove("hidden");
     }, true);
+    window.addEventListener("beforeunload", (event) => {
+      if (!state.releaseDirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    });
     document.addEventListener("pointermove", (event) => {
       const card = event.target.closest(".card, .release, .service-card");
       if (!card) return;
