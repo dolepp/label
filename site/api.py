@@ -77,6 +77,9 @@ def is_cacheable_media_request():
 @app.after_request
 def add_cache_policy(response):
     """Keep personal JSON uncacheable, but let static cover media use CDN/browser cache."""
+    response.headers['Content-Security-Policy'] = 'upgrade-insecure-requests; block-all-mixed-content'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     if is_cacheable_media_request():
         response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
         response.headers.pop('Pragma', None)
