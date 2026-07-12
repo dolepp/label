@@ -817,24 +817,20 @@
             <div class="single-release-only"><label>Подзаголовок трека</label><input id="distributionMetaTrackSubtitleInput" placeholder="Remix / Acoustic Version"></div>
             <div class="single-release-only"><label>ISRC</label><input id="distributionMetaTrackIsrcInput" placeholder="Оставьте пустым — присвоится автоматически"></div>
             <div class="single-release-only"><label>Код партнёра трека</label><input id="distributionMetaTrackPartnerCodeInput" placeholder="Внутренний ID трека"></div>
-            <div class="single-release-only"><label>Соисполнители feat.</label><input id="distributionMetaTrackCoPerformersInput" placeholder="Не через запятую; лучше через ;"></div>
-            <div class="single-release-only"><label>Авторы слов</label><input id="distributionMetaLyricsAuthorsInput" placeholder="ФИО авторов слов"></div>
-            <div class="single-release-only"><label>Доля авторских прав, %</label><input id="distributionMetaAuthorShareInput" inputmode="numeric" placeholder="100"></div>
+            <div class="single-release-only"><label>Артисты feat.</label><input id="distributionMetaTrackCoPerformersInput" placeholder="Не через запятую; лучше через ;"></div>
             <div class="single-release-only"><label>Язык трека</label><input id="distributionMetaTrackLanguageInput" placeholder="Русский / English / Без слов"></div>
             <div class="single-release-only"><label>Версия трека</label><input id="distributionMetaTrackVersionInput" placeholder="Explicit, Live, Cover, Remix, Instrumental"></div>
             <div class="single-release-only"><label>Instant Gratification</label><select id="distributionMetaInstantInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
             <div class="single-release-only"><label>Focus track</label><select id="distributionMetaFocusTrackInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
-            <div class="single-release-only full"><label>Текст трека как на площадках</label><textarea id="distributionMetaLyricsTextInput" placeholder="Введите текст точно так, как произносит исполнитель"></textarea></div>
+            <div class="single-release-only full"><label>Текст трека как на площадках</label><textarea id="distributionMetaLyricsTextInput" placeholder="Введите текст точно так, как он звучит в треке"></textarea></div>
             <div class="single-release-only"><label>Синхронизированный текст .ttml</label><input id="distributionMetaSyncedLyricsNoteInput" placeholder="Ссылка/комментарий"></div>
             <div class="single-release-only"><label>Рингтон iTunes</label><input id="distributionMetaRingtoneNoteInput" placeholder="Ссылка/комментарий к WAV/FLAC 5–29.99 сек"></div>
             <div class="single-release-only full"><label>Комментарий модератору</label><textarea id="distributionMetaModeratorCommentInput" placeholder="Профили артистов, особенности написания, видео в Apple Music и т.д."></textarea></div>
-            <div><label>Исполнитель(-и)</label><input id="releaseArtistInput" placeholder="Singer feat. Rapper"></div>
+            <div><label>Артист(-ы)</label><input id="releaseArtistInput" placeholder="Singer feat. Rapper"></div>
             <div><label>Название релиза</label><input id="releaseNameInput" placeholder="Название трека или альбома"></div>
             <div><label>prod. by</label><input id="releaseProducerInput" placeholder="ProducerName"></div>
             <div><label>Жанр</label><input id="releaseGenreInput" placeholder="Hip-Hop, Pop, Electronic"></div>
             <div><label>Дата релиза</label><input id="releaseDateInput" type="date"></div>
-            <div><label>ФИО исполнителя(-ей)</label><input id="releasePerformerInput" placeholder="ФИО как в документах"></div>
-            <div><label>ФИО автора(-ов) музыки</label><input id="releaseAuthorInput" placeholder="Автор музыки"></div>
             <div><label>Обложка PNG/JPG 3000x3000</label><input id="releaseCoverInput" type="file" accept="image/png,image/jpeg,image/webp"></div>
             <div class="single-release-only"><label>Файл трека WAV/MP3/FLAC</label><input id="releaseAudioInput" type="file" accept="audio/*,.wav,.mp3,.flac"></div>
             <div class="single-release-only"><label>Договор на бит</label><input id="releaseContractInput" type="file" accept=".pdf,.doc,.docx,image/png,image/jpeg"></div>
@@ -901,8 +897,8 @@
         <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18h1.5a2 2 0 0 0 1.4-3.4l-.4-.4a2 2 0 0 1 1.4-3.4H17a4 4 0 0 0 0-8.8A8.9 8.9 0 0 0 12 3Z"/><circle cx="7.5" cy="11" r=".8"/><circle cx="10" cy="7.5" r=".8"/><circle cx="14" cy="7.5" r=".8"/></svg></div><h3>Обложка</h3><p class="muted">Дизайн обложки для сингла или альбома.</p><div class="price">от 500 ₽</div><button>Заказать</button></div>
         <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 5l2 4M14 5l2 4M4 9h16"/></svg></div><h3>Motion</h3><p class="muted">Анимированная обложка для промо.</p><div class="price">от 800 ₽</div><button>Заказать</button></div>
         <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><rect x="4" y="7" width="11" height="10" rx="2"/><path d="m15 10 5-3v10l-5-3z"/></svg></div><h3>Видеошот</h3><p class="muted">Короткий вертикальный клип.</p><div class="price">от 1000 ₽</div><button>Заказать</button></div>
-        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/></svg></div><h3>Отчёты</h3><p class="muted">Запрос статистики и отчётности по релизам.</p><div class="price">в разработке</div><button class="secondary">Скоро</button></div>
-        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg></div><h3>Договоры</h3><p class="muted">Работа с договорами и документами.</p><div class="price">в разработке</div><button class="secondary">Скоро</button></div>
+        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/></svg></div><h3>Отчёты</h3><p class="muted">Запрос статистики и отчётности по релизам.</p><div class="price">по запросу</div><button id="reportServiceBtn" class="secondary">Запросить отчёт</button></div>
+        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg></div><h3>Договоры</h3><p class="muted">Работа с договорами и документами.</p><div class="price">по запросу</div><button id="contractServiceBtn" class="secondary">Запросить договор</button></div>
       </div>
     </section>
 
@@ -1001,7 +997,7 @@
             <div class="profile-field"><label>ФИО</label><div class="profile-copy-row"><input id="profileFio" placeholder="Не указано"><button class="secondary profile-copy-btn" type="button" data-copy-profile="profileFio">Копировать</button></div></div>
             <div class="profile-field"><label>Email</label><div class="profile-copy-row"><input id="profileEmail" placeholder="Не указан"><button class="secondary profile-copy-btn" type="button" data-copy-profile="profileEmail">Копировать</button></div></div>
             <div class="profile-field"><label>Телефон</label><div class="profile-copy-row"><input id="profilePhone" placeholder="Не указан"><button class="secondary profile-copy-btn" type="button" data-copy-profile="profilePhone">Копировать</button></div></div>
-            <div class="profile-field"><label>Привязанные карты</label><input placeholder="Раздел в разработке" disabled></div>
+            <div class="profile-field"><label>Оплата картой</label><input placeholder="Данные карты вводятся только на стороне YooKassa" disabled></div>
             <div class="actions full">
               <button class="secondary" id="editProfileBtn" type="button">Изменить данные</button>
               <button class="secondary hidden" id="cancelProfileEditBtn" type="button">Отмена</button>
@@ -1041,6 +1037,7 @@
             <div class="card"><h3>Последние заказы</h3><div id="profileOrders" class="mini-list muted">—</div></div>
             <div class="card"><h3>Черновики</h3><div id="profileDrafts" class="mini-list muted">—</div></div>
             <div class="card"><h3>Отчёты</h3><div id="profileReports" class="mini-list muted">—</div></div>
+            <div class="card"><h3>Договоры</h3><div id="profileContracts" class="mini-list muted">—</div></div>
             <div class="card"><h3>Реферал</h3><div id="profileReferral" class="mini-list muted">Ссылку приглашения подключим после проверки реферальной таблицы.</div></div>
           </div>
         </div>
@@ -1060,6 +1057,7 @@
     </div>
   </div>
 
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script type="module">
     import React, { Children, cloneElement, useEffect, useMemo, useRef, useState } from "https://esm.sh/react@18.3.1";
     import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
@@ -1287,7 +1285,7 @@
 
     const apiBase = window.location.origin;
     const $ = (id) => document.getElementById(id);
-    const state = { user: null, releases: [], drafts: [], filteredReleases: [], recentReleases: [], selectedRelease: null, profileDashboard: null, promoHistory: [], activeDiscounts: [], distributionPayment: null, activeTab: "home", editingDraftId: null, albumTracks: [], releaseStep: 0, releasePage: 1, releasePageSize: 12, releaseDirty: false, releaseSavedSignature: "" };
+    const state = { user: null, releases: [], drafts: [], filteredReleases: [], recentReleases: [], selectedRelease: null, profileDashboard: null, contracts: [], promoHistory: [], activeDiscounts: [], distributionPayment: null, activeTab: "home", editingDraftId: null, albumTracks: [], releaseStep: 0, releasePage: 1, releasePageSize: 12, releaseDirty: false, releaseSavedSignature: "" };
 
     function setStatus(message, kind = "muted") {
       const status = $("status");
@@ -1398,6 +1396,9 @@
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
       })[char]);
     }
+    function validExternalUrl(value) {
+      return /^https?:\/\//i.test(String(value || "").trim());
+    }
     async function fetchJson(url, options = {}) {
       const requestOptions = { credentials: "include", cache: "no-store", ...options };
       let requestUrl = url;
@@ -1456,8 +1457,13 @@
       setTab("releases");
     }
 
-    async function loginByTelegramId(telegramId) {
-      const profile = await fetchJson(`${apiBase}/api/me?tgid=${encodeURIComponent(telegramId)}`);
+    async function loginByTelegramInitData(initData) {
+      if (!initData) throw new Error("Нет данных Telegram WebApp для входа.");
+      const profile = await fetchJson(`${apiBase}/api/me`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ init_data: initData })
+      });
       await applyUser(profile.user);
       localStorage.setItem("cabinet_user", JSON.stringify(profile.user));
       setStatus("Вход выполнен.", "ok");
@@ -1465,7 +1471,7 @@
 
     async function applyUser(user) {
       state.user = user;
-      await Promise.all([loadUserReleases(), loadProfileDashboard(), loadPromoHistory()]);
+      await Promise.all([loadUserReleases(), loadProfileDashboard(), loadPromoHistory(), loadMyContracts()]);
       renderProfile();
       renderUserReleases();
       renderPromoSection();
@@ -1507,6 +1513,51 @@
       const data = await fetchJson(`${apiBase}/api/promo/history?user_id=${encodeURIComponent(userId)}`);
       state.promoHistory = data.history || [];
       state.activeDiscounts = data.active_discounts || [];
+    }
+
+    async function loadMyContracts() {
+      if (!state.user) return;
+      const userId = state.user.telegram_id || state.user.id;
+      const data = await fetchJson(`${apiBase}/api/contracts/my?user_id=${encodeURIComponent(userId)}`);
+      state.contracts = data.contracts || [];
+    }
+
+    async function createContractRequest() {
+      if (!state.user) return setTab("profile");
+      const userId = state.user.telegram_id || state.user.id;
+      setStatus("Создаю заявку на договор...");
+      const data = await fetchJson(`${apiBase}/api/contracts/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          contract_type: "standard",
+          notes: "Заявка на договор из личного кабинета"
+        })
+      });
+      await loadMyContracts();
+      renderProfileDashboard();
+      setStatus(`Заявка на договор ${data.contract.contract_number} создана. Мы подготовим документ и обновим статус.`, "ok");
+      $("profileContracts").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    async function createReportRequest() {
+      if (!state.user) return setTab("profile");
+      const userId = state.user.telegram_id || state.user.id;
+      setStatus("Создаю запрос отчёта...");
+      const data = await fetchJson(`${apiBase}/api/reports/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          request_type: "user_report",
+          notes: "Запрос отчёта из личного кабинета"
+        })
+      });
+      await loadProfileDashboard();
+      renderProfileDashboard();
+      setStatus(`Запрос отчёта #${data.request.id} создан. Мы подготовим файл и отправим его в кабинет.`, "ok");
+      $("profileReports").scrollIntoView({ behavior: "smooth", block: "center" });
     }
 
     function setPromoStatus(message, kind = "muted") {
@@ -1672,6 +1723,8 @@
 
     function releaseCard(release, clickable = true) {
       const status = statusInfo(release.status);
+      const releaseLink = validExternalUrl(release.release_link) ? release.release_link : "";
+      const upcText = release.upc_code && release.upc_code !== "пока что нет" ? release.upc_code : "";
       const cover = release.cover_url
         ? `<img src="${escapeHtml(release.cover_url)}" alt="Обложка ${escapeHtml(release.release_name || "")}" loading="lazy">`
         : '<div class="cover-placeholder"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M15.5 8.5h.01"/></svg></div>';
@@ -1692,9 +1745,9 @@
             </div>
             <div class="details">
               <div class="detail"><span>Дата</span><b>${dateText(release.release_date)}</b></div>
-              <div class="detail"><span>Автор</span><b>${escapeHtml(release.music_author || "—")}</b></div>
-              <div class="detail"><span>Исполнитель</span><b>${escapeHtml(release.performer_name || release.artist_name || "—")}</b></div>
+              ${upcText ? `<div class="detail"><span>UPC</span><b>${escapeHtml(upcText)}</b></div>` : ""}
             </div>
+            ${releaseLink ? `<p class="spaced"><a class="button-link secondary" href="${escapeHtml(releaseLink)}" target="_blank" rel="noopener">Открыть релиз</a></p>` : ""}
           </div>
         </article>
       `;
@@ -2080,8 +2133,8 @@
       const artistName = $("releaseArtistInput").value.trim();
       const releaseName = $("releaseNameInput").value.trim();
       const releaseDate = $("releaseDateInput").value;
-      const performerName = $("releasePerformerInput").value.trim();
-      const musicAuthor = $("releaseAuthorInput").value.trim();
+      const performerName = artistName;
+      const musicAuthor = artistName;
       const videoshotUrl = $("releaseVideoInput").value.trim();
       const previewStart = $("releasePreviewInput").value;
       const explicitContent = boolFromSelect("releaseExplicitInput");
@@ -2131,7 +2184,7 @@
             partnerCode: track.partnerCode || "",
             performers: track.performers || $("releaseArtistInput").value.trim(),
             coPerformers: track.coPerformers || "",
-            musicAuthors: track.musicAuthors || $("releaseAuthorInput").value.trim(),
+            musicAuthors: track.musicAuthors || artistName,
             lyricsAuthors: track.lyricsAuthors || "",
             authorShare: track.authorShare || "",
             previewStart: track.previewStart || "",
@@ -2226,8 +2279,6 @@
       $("releaseProducerInput").value = normalized.producer || "";
       $("releaseGenreInput").value = normalized.genre || "";
       $("releaseDateInput").value = normalized.releaseDate || "";
-      $("releasePerformerInput").value = normalized.performerName || "";
-      $("releaseAuthorInput").value = normalized.musicAuthor || "";
       $("releaseVideoInput").value = normalized.videoshotUrl || "";
       $("releasePreviewInput").value = normalized.previewStart || "";
       $("releaseExplicitInput").value = String(Boolean(normalized.explicitContent));
@@ -2288,7 +2339,7 @@
 
     function validateReleaseData(data) {
       const trackCount = data.releaseType === "Single" ? 1 : data.tracks.length;
-      if (!data.artistName) return "Укажите исполнителя.";
+      if (!data.artistName) return "Укажите артиста.";
       if (!data.releaseName) return "Укажите название релиза.";
       if (!data.genre) return "Укажите жанр.";
       if (!data.releaseDate) return "Укажите дату релиза.";
@@ -2308,11 +2359,8 @@
           <div><label>Жанр</label><input data-track-field="genre" value="${escapeAttr(track.genre || "")}" placeholder="Жанр"></div>
           <div><label>ISRC</label><input data-track-field="isrc" value="${escapeAttr(track.isrc || "")}" placeholder="Автоматически, если пусто"></div>
           <div><label>Код партнёра</label><input data-track-field="partnerCode" value="${escapeAttr(track.partnerCode || "")}" placeholder="Внутренний ID"></div>
-          <div><label>Исполнители</label><input data-track-field="performers" value="${escapeAttr(track.performers || "")}" placeholder="Как на площадках"></div>
-          <div><label>Соисполнители feat.</label><input data-track-field="coPerformers" value="${escapeAttr(track.coPerformers || "")}" placeholder="Через ;"></div>
-          <div><label>Авторы музыки</label><input data-track-field="musicAuthors" value="${escapeAttr(track.musicAuthors || "")}" placeholder="ФИО"></div>
-          <div><label>Авторы слов</label><input data-track-field="lyricsAuthors" value="${escapeAttr(track.lyricsAuthors || "")}" placeholder="ФИО"></div>
-          <div><label>Доля авторских прав, %</label><input data-track-field="authorShare" value="${escapeAttr(track.authorShare || "")}" placeholder="100"></div>
+          <div><label>Артисты трека</label><input data-track-field="performers" value="${escapeAttr(track.performers || "")}" placeholder="Как на площадках"></div>
+          <div><label>Артисты feat.</label><input data-track-field="coPerformers" value="${escapeAttr(track.coPerformers || "")}" placeholder="Через ;"></div>
           <div><label>Начало предпрослушивания</label><input data-track-field="previewStart" value="${escapeAttr(track.previewStart || "")}" placeholder="90"></div>
           <div><label>Instant Gratification</label><select data-track-field="instantGratification"><option value="">Нет</option><option value="true" ${track.instantGratification ? "selected" : ""}>Да</option></select></div>
           <div><label>Focus track</label><select data-track-field="focusTrack"><option value="">Нет</option><option value="true" ${track.focusTrack ? "selected" : ""}>Да</option></select></div>
@@ -2509,6 +2557,8 @@
         ? Object.entries(release.platform_links).filter(([, value]) => value)
         : [];
       const parentAlbum = data.parent_album;
+      const releaseLink = validExternalUrl(release.release_link) ? release.release_link : "";
+      const upcText = release.upc_code && release.upc_code !== "пока что нет" ? release.upc_code : "";
 
       $("releaseDetailView").innerHTML = `
         <div class="detail-view">
@@ -2526,20 +2576,20 @@
               <p class="muted">${escapeHtml(release.artist_name || "Артист не указан")}</p>
               ${parentAlbum ? `<p class="spaced"><span class="pill">Альбом: ${escapeHtml(parentAlbum.release_name || "Без названия")}</span></p>` : ""}
               <div class="details">
-                <div class="detail"><span>Дата релиза</span><b>${dateText(release.release_date)}</b></div>
-                <div class="detail"><span>Тип</span><b>${escapeHtml(release.release_type || "—")}</b></div>
-                <div class="detail"><span>Жанр</span><b>${escapeHtml(release.genre || "—")}</b></div>
-              </div>
+              <div class="detail"><span>Дата релиза</span><b>${dateText(release.release_date)}</b></div>
+              <div class="detail"><span>Тип</span><b>${escapeHtml(release.release_type || "—")}</b></div>
+              <div class="detail"><span>Жанр</span><b>${escapeHtml(release.genre || "—")}</b></div>
+              ${upcText ? `<div class="detail"><span>UPC</span><b>${escapeHtml(upcText)}</b></div>` : ""}
             </div>
+            ${releaseLink ? `<p class="spaced"><a class="button-link secondary" href="${escapeHtml(releaseLink)}" target="_blank" rel="noopener">Открыть релиз</a></p>` : ""}
           </div>
+        </div>
 
           ${data.kind === "album" ? "" : renderAudioBlock(release, "Прослушать релиз")}
 
           <div class="card">
             <h3>Вся информация</h3>
             <div class="details">
-              <div class="detail"><span>Исполнитель</span><b>${escapeHtml(release.performer_name || "—")}</b></div>
-              <div class="detail"><span>Автор музыки</span><b>${escapeHtml(release.music_author || "—")}</b></div>
               <div class="detail"><span>Продюсер</span><b>${escapeHtml(release.producer || "—")}</b></div>
               <div class="detail"><span>Explicit</span><b>${boolText(release.explicit_content)}</b></div>
               <div class="detail"><span>Начало превью</span><b>${counterOrDash(release.preview_start)}</b></div>
@@ -2547,7 +2597,6 @@
               <div class="detail"><span>Создать ссылки</span><b>${boolText(release.create_links)}</b></div>
               <div class="detail"><span>TikTok</span><b>${boolText(release.tiktok_commercial || release.tiktok_full_version)}</b></div>
             </div>
-            ${release.release_link ? `<p class="spaced"><a class="button-link secondary" href="${escapeHtml(release.release_link)}" target="_blank" rel="noopener">Открыть ссылку релиза</a></p>` : ""}
             ${platformLinks.length ? `<div class="spaced meta">${platformLinks.map(([key, value]) => `<a class="pill" href="${escapeHtml(value)}" target="_blank" rel="noopener">${escapeHtml(key)}</a>`).join("")}</div>` : ""}
           </div>
 
@@ -2558,7 +2607,7 @@
                 ${tracks.map((track) => `
                   <div class="track-item">
                     <div><b>${counterOrDash(track.track_number)}. ${escapeHtml(track.release_name || "Без названия")}</b></div>
-                    <div class="muted">${escapeHtml(track.performer_name || track.artist_name || "—")} · ${escapeHtml(track.music_author || "—")}</div>
+                    <div class="muted">${escapeHtml(track.artist_name || "—")}</div>
                     ${track.audio_url ? `<div class="pretty-player"><div class="player-disc"></div><div><audio data-audio-player controls preload="none" src="${escapeHtml(track.audio_url)}"></audio><p class="audio-error hidden">Не удалось открыть аудио в веб-плеере.</p></div></div>` : `<span class="muted">Аудио не прикреплено</span>`}
                   </div>
                 `).join("")}
@@ -2586,7 +2635,7 @@
     function renderProfileDashboard() {
       const dashboard = state.profileDashboard;
       if (!dashboard) {
-        ["financeSummary", "profileCounts", "profileOrders", "profileDrafts", "profileReports"].forEach((id) => {
+        ["financeSummary", "profileCounts", "profileOrders", "profileDrafts", "profileReports", "profileContracts"].forEach((id) => {
           const box = $(id);
           if (box) {
             box.className = "mini-list muted";
@@ -2625,6 +2674,9 @@
       }
       renderMiniRows("profileReports", dashboard.reports, "Отчётов пока нет.", (report) => `
         <div class="mini-row">#${counterHtml(report.id)} · ${escapeHtml(report.request_type || "отчёт")}<br><span class="muted">${escapeHtml(report.status || "pending")} · ${dateText(report.created_at)}</span></div>
+      `);
+      renderMiniRows("profileContracts", state.contracts, "Договоров пока нет.", (contract) => `
+        <div class="mini-row">#${counterHtml(contract.id)} · ${escapeHtml(contract.contract_number || "договор")}<br><span class="muted">${escapeHtml(contract.status || "pending")} · ${dateText(contract.created_at)}</span></div>
       `);
       animateCounters($("profileCard"));
     }
@@ -2773,7 +2825,7 @@
     });
     $("logoutBtn").addEventListener("click", () => {
       localStorage.removeItem("cabinet_user");
-      state.user = null; state.releases = []; state.filteredReleases = []; state.profileDashboard = null; state.promoHistory = []; state.activeDiscounts = []; state.distributionPayment = null;
+      state.user = null; state.releases = []; state.filteredReleases = []; state.profileDashboard = null; state.contracts = []; state.promoHistory = []; state.activeDiscounts = []; state.distributionPayment = null;
       closeReleaseDetail();
       renderProfile(); renderUserReleases(); setStatus("Вы вышли.");
       renderPromoSection();
@@ -2781,7 +2833,7 @@
     });
     $("refreshBtn").addEventListener("click", async () => {
       if (!state.user) return setTab("profile");
-      await Promise.all([loadUserReleases(), loadProfileDashboard()]);
+      await Promise.all([loadUserReleases(), loadProfileDashboard(), loadMyContracts()]);
       filterUserReleases();
       renderProfile();
       renderUserReleases();
@@ -2800,6 +2852,8 @@
     $("distributionServiceBtn").addEventListener("click", () => {
       openReleaseTab("/release/new?source=services");
     });
+    $("reportServiceBtn").addEventListener("click", () => createReportRequest().catch((error) => setStatus(`Ошибка запроса отчёта: ${error.message}`, "error")));
+    $("contractServiceBtn").addEventListener("click", () => createContractRequest().catch((error) => setStatus(`Ошибка заявки на договор: ${error.message}`, "error")));
     $("closeReleaseBuilderBtn").addEventListener("click", () => {
       if (!confirmReleaseDiscard()) return;
       if (document.body.classList.contains("release-page")) window.close();
@@ -2881,6 +2935,7 @@
       }
       const draftCard = event.target.closest("[data-draft-id]");
       if (draftCard) return openDraftTab(draftCard.dataset.draftId);
+      if (event.target.closest("a, button, input, select, textarea")) return;
       const card = event.target.closest("[data-release-id]");
       if (!card) return;
       openReleaseDetail(card.dataset.releaseId);
@@ -2970,7 +3025,7 @@
       filterUserReleases();
       renderUserReleases();
     });
-    $("profileReportsBtn").addEventListener("click", () => setStatus("Отчёты показаны в блоке профиля. Создание запросов отчёта подключим после UX.", "warn"));
+    $("profileReportsBtn").addEventListener("click", () => createReportRequest().catch((error) => setStatus(`Ошибка запроса отчёта: ${error.message}`, "error")));
     $("profileOrdersBtn").addEventListener("click", () => $("profileOrders").scrollIntoView({ behavior: "smooth", block: "center" }));
     $("profileTopupBtn").addEventListener("click", () => {
       toggleTopupCard(true);
@@ -3022,9 +3077,14 @@
     configureBotLink();
     loadRecentReleases();
     const params = new URLSearchParams(window.location.search);
-    const initialTelegramId = params.get("tgid");
+    const telegramWebApp = window.Telegram?.WebApp;
+    const telegramInitData = telegramWebApp?.initData || "";
     const dedicatedReleasePage = window.location.pathname.replace(/\/$/, "") === "/release/new";
     if (dedicatedReleasePage) document.body.classList.add("release-page");
+    if (telegramWebApp) {
+      telegramWebApp.ready();
+      telegramWebApp.expand();
+    }
     async function openDedicatedReleasePage() {
       if (!dedicatedReleasePage) return;
       const draftId = params.get("draft");
@@ -3044,8 +3104,8 @@
       restorePendingPayment();
       setTopupStatus("Вернулись после оплаты. Нажмите “Проверить оплату”.");
     }
-    if (initialTelegramId) {
-      loginByTelegramId(initialTelegramId)
+    if (telegramInitData) {
+      loginByTelegramInitData(telegramInitData)
         .then(openDedicatedReleasePage)
         .catch((error) => setStatus(`Ошибка входа: ${error.message}`, "error"));
     } else if (savedUser) {

@@ -307,10 +307,26 @@
       $('releaseStatusFilter').innerHTML = '<option value="all">Все статусы</option>' + state.statuses.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
       $('releaseStatusFilter').value = decodeURIComponent(st);
       $('releasesTable').innerHTML = data.releases.map((r) => `
-        <tr><td>#${r.id}</td><td><b>${escapeHtml(r.release_name)}</b><br><span class="muted">${escapeHtml(r.artist_name)} · ${escapeHtml(r.release_type)}</span></td><td>${escapeHtml(r.owner_name || r.user_id)}<br><span class="muted">${escapeHtml(r.user_id)}</span></td><td>${dateText(r.release_date)}</td><td>${statusSelect(r)}</td><td>${r.has_audio ? 'аудио' : '—'} ${r.has_cover ? 'обложка' : ''}</td><td><button class="secondary" data-release-open="${r.id}">Открыть</button></td></tr>
+        <tr><td>#${r.id}</td><td><b>${escapeHtml(r.release_name)}</b><br><span class="muted">${escapeHtml(r.artist_name)} · ${escapeHtml(r.release_type)}${r.upc_code ? ` · UPC ${escapeHtml(r.upc_code)}` : ''}</span></td><td>${escapeHtml(r.owner_name || r.user_id)}<br><span class="muted">${escapeHtml(r.user_id)}</span></td><td>${dateText(r.release_date)}</td><td>${statusSelect(r)}</td><td>${r.has_audio ? 'аудио' : '—'} ${r.has_cover ? 'обложка' : ''}</td><td><button class="secondary" data-release-open="${r.id}">Открыть</button></td></tr>
       `).join('') || '<tr><td colspan="7" class="muted">Релизов нет</td></tr>';
     }
     async function updateReleaseStatus(releaseId, status) { await sendJson(`/api/admin/releases/${releaseId}/status`, 'PUT', { status }); await loadOverview(); }
+    async function saveReleaseMetadata(form) {
+      const status = form.querySelector('[data-metadata-status]');
+      status.textContent = 'Сохраняю...';
+      const payload = {
+        upc_code: form.querySelector('[name="upc_code"]').value.trim(),
+        release_link: form.querySelector('[name="release_link"]').value.trim(),
+      };
+      try {
+        await sendJson(`/api/admin/releases/${form.dataset.metadataRelease}/metadata`, 'PUT', payload);
+        status.textContent = 'Сохранено.';
+        await openAdminRelease(form.dataset.metadataRelease);
+        await loadReleases();
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    }
 
 
     function renderAdminAudio(item, label = 'Аудио') {
@@ -344,8 +360,6 @@
               <div class="detail"><span>Жанр</span><b>${escapeHtml(r.genre || '—')}</b></div>
               <div class="detail"><span>UPC</span><b>${escapeHtml(r.upc_code || 'пока что нет')}</b></div>
               <div class="detail"><span>Создан</span><b>${dateText(r.created_at)}</b></div>
-              <div class="detail"><span>Исполнитель</span><b>${escapeHtml(r.performer_name || '—')}</b></div>
-              <div class="detail"><span>Автор музыки</span><b>${escapeHtml(r.music_author || '—')}</b></div>
               <div class="detail"><span>Продюсер</span><b>${escapeHtml(r.producer || '—')}</b></div>
               <div class="detail"><span>Explicit</span><b>${boolText(r.explicit_content)}</b></div>
               <div class="detail"><span>Превью</span><b>${escapeHtml(r.preview_start ?? '—')}</b></div>
@@ -361,8 +375,17 @@
           ${validExternalUrl(r.release_link) ? `<p><a class="button secondary" href="${escapeHtml(r.release_link)}" target="_blank" rel="noopener">Ссылка релиза</a></p>` : ''}
           ${links.length ? `<div class="actions">${links.map(([k,v]) => `<a class="button secondary" href="${escapeHtml(v)}" target="_blank" rel="noopener">${escapeHtml(k)}</a>`).join('')}</div>` : ''}
         </div>
+        <form class="card" data-metadata-release="${r.id}">
+          <h3>UPC и ссылка релиза</h3>
+          <div class="compact-form">
+            <div><label>UPC</label><input name="upc_code" value="${escapeHtml(r.upc_code || '')}" placeholder="UPC код"></div>
+            <div><label>Ссылка на релиз</label><input name="release_link" value="${escapeHtml(r.release_link || '')}" placeholder="https://..."></div>
+            <button class="secondary" type="submit">Сохранить</button>
+          </div>
+          <p class="status muted" data-metadata-status></p>
+        </form>
         ${mediaUploadControls(r.id)}
-        ${data.tracks?.length ? `<div class="card"><h3>Треки альбома</h3><div class="list">${data.tracks.map(t => `<div class="mini-row"><b>${escapeHtml(t.track_number || '')}. ${escapeHtml(t.release_name || 'Без названия')}</b><br><span class="muted">${escapeHtml(t.performer_name || t.artist_name || '—')} · ${escapeHtml(t.music_author || '—')}</span>${renderAdminAudio(t, 'Аудио трека')}<div class="actions">${fileButton(t.contract_url, 'Договор')}${fileButton(t.lyrics_url, 'Текст')}</div></div>`).join('')}</div></div>` : ''}
+        ${data.tracks?.length ? `<div class="card"><h3>Треки альбома</h3><div class="list">${data.tracks.map(t => `<div class="mini-row"><b>${escapeHtml(t.track_number || '')}. ${escapeHtml(t.release_name || 'Без названия')}</b><br><span class="muted">${escapeHtml(t.artist_name || '—')}</span>${renderAdminAudio(t, 'Аудио трека')}<div class="actions">${fileButton(t.contract_url, 'Договор')}${fileButton(t.lyrics_url, 'Текст')}</div></div>`).join('')}</div></div>` : ''}
         ${data.parent_album ? `<div class="card"><h3>Родительский альбом</h3><button class="secondary" data-release-open="${data.parent_album.id}">Открыть #${data.parent_album.id} ${escapeHtml(data.parent_album.release_name)}</button></div>` : ''}
         <div class="card"><h3>Дополнительные метаданные</h3><pre class="meta-json">${escapeHtml(JSON.stringify(r.extra_metadata || {}, null, 2))}</pre></div>
       `;
@@ -454,6 +477,11 @@
 
 
     document.addEventListener('submit', async (event) => {
+      const metadataForm = event.target.closest('[data-metadata-release]');
+      if (metadataForm) {
+        event.preventDefault();
+        return saveReleaseMetadata(metadataForm);
+      }
       const form = event.target.closest('[data-media-upload]');
       if (!form) return;
       event.preventDefault();

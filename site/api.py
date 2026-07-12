@@ -19,6 +19,7 @@ import logging
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
+from urllib.parse import parse_qsl, urlparse
 import requests
 
 try:
@@ -362,6 +363,23 @@ def ensure_media_columns(cursor):
 
 def ensure_release_extra_columns(cursor):
     cursor.execute("ALTER TABLE releases ADD COLUMN IF NOT EXISTS extra_metadata JSONB DEFAULT '{}'::jsonb")
+    cursor.execute("ALTER TABLE releases ADD COLUMN IF NOT EXISTS upc_code TEXT")
+    cursor.execute("ALTER TABLE releases ADD COLUMN IF NOT EXISTS release_link TEXT")
+    cursor.execute("ALTER TABLE releases ADD COLUMN IF NOT EXISTS platform_links JSONB")
+
+
+def normalize_release_link(value):
+    value = (value or '').strip()
+    if not value:
+        return None, None
+    if '://' in value and not re.match(r'^https?://', value, re.IGNORECASE):
+        return None, 'Invalid release link'
+    if not re.match(r'^https?://', value, re.IGNORECASE):
+        value = f'https://{value}'
+    parsed = urlparse(value)
+    if parsed.scheme not in ('http', 'https') or not parsed.netloc or len(value) > 500:
+        return None, 'Invalid release link'
+    return value, None
 
 
 def ensure_promo_tables(cursor):
@@ -1698,6 +1716,53 @@ def admin_update_release_status(release_id):
         conn.rollback()
         logger.error("Error updating release status: %s", e)
         return jsonify({'success': False, 'error': 'Could not update status'}), 500
+    finally:
+        close_cursor(conn, cursor)
+
+
+@app.route('/api/admin/releases/<int:release_id>/metadata', methods=['PUT'])
+def admin_update_release_metadata(release_id):
+    conn, cursor, error = admin_request_context()
+    if error:
+        return error
+    try:
+        data = request.get_json() or {}
+        release_link, link_error = normalize_release_link(data.get('release_link'))
+        if link_error:
+            return jsonify({'success': False, 'error': link_error}), 400
+        upc_code = (data.get('upc_code') or '').strip() or None
+        if upc_code and len(upc_code) > 64:
+            return jsonify({'success': False, 'error': 'UPC is too long'}), 400
+
+        ensure_release_extra_columns(cursor)
+        cursor.execute(
+            """
+            UPDATE releases
+            SET upc_code = %s, release_link = %s
+            WHERE id = %s
+            RETURNING id, user_id, release_name, upc_code, release_link
+            """,
+            (upc_code, release_link, release_id),
+        )
+        row = cursor.fetchone()
+        if not row:
+            conn.rollback()
+            return jsonify({'success': False, 'error': 'Release not found'}), 404
+        conn.commit()
+        return jsonify({
+            'success': True,
+            'release': {
+                'id': row[0],
+                'user_id': row[1],
+                'release_name': row[2],
+                'upc_code': row[3],
+                'release_link': row[4],
+            }
+        })
+    except Exception as e:
+        conn.rollback()
+        logger.error("Error updating release metadata: %s", e)
+        return jsonify({'success': False, 'error': 'Could not update release metadata'}), 500
     finally:
         close_cursor(conn, cursor)
 
@@ -3410,9 +3475,11 @@ def get_user_releases():
             })
 
         ensure_media_columns(cursor)
+        ensure_release_extra_columns(cursor)
         conn.commit()
         release_columns = get_table_columns(cursor, 'releases')
         upc_select = optional_column('upc_code', release_columns, "'пока что нет'")
+        release_link_select = optional_column('release_link', release_columns, 'NULL')
         cover_file_select = optional_column('cover_file_id', release_columns, 'NULL')
         cover_local_select = optional_column('cover_local_path', release_columns, 'NULL')
 
@@ -3423,12 +3490,13 @@ def get_user_releases():
                    release_date, status, created_at, performer_name, music_author,
                    explicit_content, preview_start, yandex_soon, create_links,
                    tiktok_commercial, tiktok_full_version, lyrics_file_id, is_album,
-                   {upc_select}, {cover_file_select}, {cover_local_select}
+                   {upc_select}, {release_link_select}, {cover_file_select}, {cover_local_select}
             FROM releases
             WHERE user_id = %s AND (is_track IS NULL OR is_track = FALSE)
             ORDER BY created_at DESC
         """.format(
             upc_select=upc_select,
+            release_link_select=release_link_select,
             cover_file_select=cover_file_select,
             cover_local_select=cover_local_select,
         ), (user_id,))
@@ -3441,7 +3509,7 @@ def get_user_releases():
              release_date, status, created_at, performer_name, music_author,
              explicit_content, preview_start, yandex_soon, create_links,
              tiktok_commercial, tiktok_full_version, lyrics_file_id, is_album,
-             upc_code, cover_file_id, cover_local_path) = release
+             upc_code, release_link, cover_file_id, cover_local_path) = release
             cover_url = f"/api/releases/{release_id}/media/cover-thumb?user_id={user_id}" if cover_local_path else (
                 f"/api/files/telegram/{cover_file_id}" if cover_file_id else None
             )
@@ -3466,6 +3534,7 @@ def get_user_releases():
                 'lyrics_file_id': lyrics_file_id,
                 'is_album': is_album,
                 'upc_code': upc_code,
+                'release_link': release_link,
                 'cover_url': cover_url,
             })
 
@@ -3937,16 +4006,17 @@ def get_recent_releases():
         if not cursor.fetchone()[0]:
             return jsonify({'success': True, 'releases': [], 'count': 0})
 
+        ensure_release_extra_columns(cursor)
+        conn.commit()
         release_columns = get_table_columns(cursor, 'releases')
         upc_select = optional_column('upc_code', release_columns, "'пока что нет'")
+        release_link_select = optional_column('release_link', release_columns, 'NULL')
         cover_file_select = optional_column('cover_file_id', release_columns, 'NULL')
         cover_local_select = optional_column('cover_local_path', release_columns, 'NULL')
-        music_author_select = optional_column('music_author', release_columns, 'NULL')
-
         cursor.execute("""
             SELECT id, user_id, release_type, artist_name, release_name, genre,
-                   release_date, status, created_at, performer_name, {upc_select},
-                   {cover_file_select}, {cover_local_select}, {music_author_select}
+                   release_date, status, created_at, {upc_select},
+                   {release_link_select}, {cover_file_select}, {cover_local_select}
             FROM releases
             WHERE (is_track IS NULL OR is_track = FALSE)
               AND LOWER(TRIM(COALESCE(status, ''))) = 'отгружен на площадки'
@@ -3954,16 +4024,16 @@ def get_recent_releases():
             LIMIT %s
         """.format(
             upc_select=upc_select,
+            release_link_select=release_link_select,
             cover_file_select=cover_file_select,
             cover_local_select=cover_local_select,
-            music_author_select=music_author_select,
         ), (limit,))
 
         releases = []
         for row in cursor.fetchall():
             (release_id, owner_id, release_type, artist_name, release_name, genre,
-             release_date, status, created_at, performer_name, upc_code,
-             cover_file_id, cover_local_path, music_author) = row
+             release_date, status, created_at, upc_code, release_link,
+             cover_file_id, cover_local_path) = row
             cover_url = f"/api/releases/{release_id}/media/cover-thumb?user_id={owner_id}" if cover_local_path else (
                 f"/api/files/telegram/{cover_file_id}" if cover_file_id else None
             )
@@ -3976,9 +4046,8 @@ def get_recent_releases():
                 'release_date': release_date.isoformat() if release_date else None,
                 'status': status,
                 'created_at': created_at.isoformat() if created_at else None,
-                'performer_name': performer_name,
-                'music_author': music_author,
                 'upc_code': upc_code,
+                'release_link': release_link,
                 'cover_url': cover_url,
             })
 
