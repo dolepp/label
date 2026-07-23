@@ -75,3 +75,7 @@ class SiteSecurityTests(unittest.TestCase):
         self.assertNotIn("'artist_name':", public_feed)
         self.assertNotIn("'performer_name':", public_feed)
         self.assertNotIn("'music_author':", public_feed)
+
+    def test_auth_code_endpoints_are_rate_limited(self):
+        self.assertTrue(getattr(api.check_auth_status, "__wrapped__", None))
+        self.assertTrue(getattr(api.verify_auth_code, "__wrapped__", None))
