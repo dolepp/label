@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /home/dolepp/label
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+SITE_DIR="${PROJECT_DIR}/site"
+BOT_DIR="${PROJECT_DIR}/bot0"
+PYTHON_BIN="${PYTHON_BIN:-${BOT_DIR}/venv/bin/python}"
+GUNICORN_BIN="${GUNICORN_BIN:-${BOT_DIR}/venv/bin/gunicorn}"
 
-if [ -f /home/dolepp/label/bot0/.env ]; then
+cd "$PROJECT_DIR"
+
+if [ -f "$PROJECT_DIR/.env" ]; then
   set -a
-  . /home/dolepp/label/bot0/.env
+  . "$PROJECT_DIR/.env"
   set +a
 fi
 
@@ -16,7 +22,15 @@ export POSTGRES_HOST="${DB_HOST:-${POSTGRES_HOST:-localhost}}"
 export POSTGRES_PORT="${DB_PORT:-${POSTGRES_PORT:-5432}}"
 export BOT_USERNAME="${BOT_USERNAME:-twaslabel_bot}"
 export TELEGRAM_STORAGE_CHAT_ID="${TELEGRAM_STORAGE_CHAT_ID:--1003933025157}"
-export MEDIA_STORAGE_ROOT="${MEDIA_STORAGE_ROOT:-/home/dolepp/label/storage}"
-export BOT_TOKEN="${BOT_TOKEN:-$(/home/dolepp/label/bot0/venv/bin/python -c "import sys; sys.path.insert(0, '/home/dolepp/label/bot0'); from core.config import BOT_TOKEN; print(BOT_TOKEN)")}"
+export MEDIA_STORAGE_ROOT="${MEDIA_STORAGE_ROOT:-${PROJECT_DIR}/storage}"
+export BOT_TOKEN="${BOT_TOKEN:-$("$PYTHON_BIN" -c "import sys; sys.path.insert(0, '${BOT_DIR}'); from core.config import BOT_TOKEN; print(BOT_TOKEN)")}"
 
-exec /home/dolepp/label/bot0/venv/bin/python -c "import sys; sys.path.insert(0, '/home/dolepp/label/site'); import api; api.app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)"
+exec "$GUNICORN_BIN" \
+  --chdir "$SITE_DIR" \
+  --bind "${WEB_BIND:-127.0.0.1:5000}" \
+  --workers "${WEB_WORKERS:-2}" \
+  --threads "${WEB_THREADS:-4}" \
+  --timeout "${WEB_TIMEOUT:-300}" \
+  --access-logfile - \
+  --error-logfile - \
+  api:app

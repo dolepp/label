@@ -191,10 +191,9 @@
   <script>
     const apiBase = window.location.origin;
     const $ = (id) => document.getElementById(id);
-    const savedUser = localStorage.getItem('cabinet_user');
-    const user = savedUser ? JSON.parse(savedUser) : null;
-    const adminId = user?.telegram_id || user?.id;
-    const isAdmin = !!(user?.isAdmin || user?.isOwner);
+    let user = null;
+    let adminId = null;
+    let isAdmin = false;
     const state = { statuses: ['pending','На рассмотрении','Принят','Отправлен на площадки','Отгружен на площадки','Релиз','Отозван с площадок','rejected'] };
 
     function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char])); }
@@ -223,9 +222,8 @@
         return error.message || 'Файл не открылся';
       }
     }
-    function authUrl(path) { const sep = path.includes('?') ? '&' : '?'; return `${apiBase}${path}${sep}admin_user_id=${encodeURIComponent(adminId)}`; }
-    async function fetchJson(path, options = {}) { const response = await fetch(path.startsWith('http') ? path : authUrl(path), { credentials:'include', ...options }); const data = await response.json().catch(() => ({})); if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`); return data; }
-    async function sendJson(path, method, payload = {}) { return fetchJson(path, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify({ admin_user_id: adminId, ...payload }) }); }
+    async function fetchJson(path, options = {}) { const response = await fetch(path.startsWith('http') ? path : `${apiBase}${path}`, { credentials:'include', cache:'no-store', ...options }); const data = await response.json().catch(() => ({})); if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`); return data; }
+    async function sendJson(path, method, payload = {}) { return fetchJson(path, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) }); }
 
     function setTab(tab) {
       document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
@@ -521,6 +519,16 @@
     });
 
     async function init() {
+      try {
+        const session = await fetchJson('/api/auth/session');
+        user = session.user;
+        adminId = user?.telegram_id || user?.id;
+        isAdmin = !!(user?.isAdmin || user?.isOwner);
+      } catch (error) {
+        $('adminUser').textContent = 'Гость';
+        $('denied').classList.remove('hidden');
+        return;
+      }
       if (!isAdmin) { $('adminUser').textContent = user ? (user.artistName || user.name || user.telegram_id) : 'Гость'; $('denied').classList.remove('hidden'); return; }
       $('adminUser').textContent = user.artistName || user.name || `ID ${adminId}`;
       $('adminContent').classList.remove('hidden');

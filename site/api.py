@@ -3,6 +3,7 @@
 
 import os
 import re
+import json
 import shutil
 import subprocess
 import threading
@@ -13,10 +14,10 @@ import psycopg2
 from psycopg2 import Error
 from psycopg2.extras import Json
 from psycopg2.pool import ThreadedConnectionPool
-from flask import Flask, Response, jsonify, make_response, request, send_file, send_from_directory
+from flask import Flask, Response, g, jsonify, make_response, request, send_file, send_from_directory, session
 from flask_cors import CORS
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import parse_qsl, urlparse
@@ -41,6 +42,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 CORS(app, origins=[
     "https://twaslabel.ru",
     "https://www.twaslabel.ru",
@@ -78,7 +80,20 @@ def is_cacheable_media_request():
 @app.after_request
 def add_cache_policy(response):
     """Keep personal JSON uncacheable, but let static cover media use CDN/browser cache."""
-    response.headers['Content-Security-Policy'] = 'upgrade-insecure-requests; block-all-mixed-content'
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self' https: data: blob:; "
+        "script-src 'self' 'unsafe-inline' https://esm.sh https://telegram.org; "
+        "style-src 'self' 'unsafe-inline' https:; "
+        "img-src 'self' https: data: blob:; "
+        "media-src 'self' https: data: blob:; "
+        "connect-src 'self' https:; "
+        "font-src 'self' https: data:; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self' https:; "
+        "upgrade-insecure-requests; "
+        "block-all-mixed-content"
+    )
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     if is_cacheable_media_request():
@@ -107,6 +122,45 @@ TELEGRAM_STORAGE_CHAT_ID = os.getenv("TELEGRAM_STORAGE_CHAT_ID", os.getenv("ADMI
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 BOT_USERNAME = os.getenv("BOT_USERNAME", "twaslabel_bot").lstrip("@")
 STORAGE_ROOT = Path(os.getenv("MEDIA_STORAGE_ROOT", Path(__file__).resolve().parents[1] / "storage"))
+ALLOW_UNVERIFIED_TGID = os.getenv("ALLOW_UNVERIFIED_TGID", "0").strip().lower() in {"1", "true", "yes"}
+SESSION_SECRET = os.getenv("SESSION_SECRET") or hashlib.sha256(
+    f"{TELEGRAM_BOT_TOKEN}:{DB_CONFIG['password']}:label-session".encode()
+).hexdigest()
+app.config.update(
+    SECRET_KEY=SESSION_SECRET,
+    SESSION_COOKIE_NAME="label_session",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "0").strip().lower() in {"1", "true", "yes"},
+    SESSION_COOKIE_SAMESITE="Lax",
+    PERMANENT_SESSION_LIFETIME=timedelta(days=7),
+)
+ALLOWED_UPLOADS = {
+    "photo": {
+        "extensions": {".jpg", ".jpeg", ".png", ".webp"},
+        "mimetypes": {"image/jpeg", "image/png", "image/webp"},
+    },
+    "audio": {
+        "extensions": {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac"},
+        "mimetypes": {"audio/mpeg", "audio/wav", "audio/x-wav", "audio/flac", "audio/ogg", "audio/mp4", "audio/aac"},
+    },
+    "document": {
+        "extensions": {".pdf", ".doc", ".docx", ".txt", ".rtf"},
+        "mimetypes": {
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "text/plain",
+            "application/rtf",
+            "text/rtf",
+        },
+    },
+}
+MEDIA_KIND_FILE_TYPES = {
+    "cover": "photo",
+    "audio": "audio",
+    "contract": "document",
+    "lyrics": "document",
+}
 PG_POOL = None
 _pool_lock = threading.Lock()
 DISTRIBUTION_PRICES = {
@@ -289,6 +343,85 @@ def load_user_by_telegram_id(cursor, telegram_id):
         'createdDate': result.get('created_date').isoformat() if result.get('created_date') else None,
         'registered': True,
     }
+
+
+def current_user_id():
+    try:
+        return int(session.get('user_id'))
+    except (TypeError, ValueError):
+        return None
+
+
+def establish_user_session(user):
+    user_id = user.get('telegram_id')
+    if not user_id:
+        raise ValueError("User has no Telegram ID")
+    session.clear()
+    session.permanent = True
+    session['user_id'] = int(user_id)
+    session['authenticated_at'] = int(_time.time())
+
+
+def requested_user_id():
+    value = request.args.get('user_id') or request.form.get('user_id')
+    if value is None and request.is_json:
+        value = (request.get_json(silent=True) or {}).get('user_id')
+    if value is None:
+        return None
+    try:
+        return int(str(value).split(':', 1)[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def public_api_request():
+    path = request.path
+    if path in {
+        '/api', '/api/health', '/api/auth/check', '/api/auth/verify',
+        '/api/auth/bot-link', '/api/auth/session', '/api/auth/logout',
+        '/api/telegram_auth', '/api/me', '/telegram_auth',
+        '/api/releases/recent', '/api/reviews', '/api/reviews/random',
+        '/api/reviews/stats',
+    }:
+        return True
+    if request.method == 'GET' and path.startswith('/api/files/telegram/'):
+        return True
+    if request.method == 'GET' and re.fullmatch(r'/api/releases/\d+/media/cover(?:-thumb)?', path):
+        return True
+    return False
+
+
+@app.before_request
+def enforce_authenticated_api():
+    path = request.path
+    if not (path.startswith('/api/') or path == '/user_releases'):
+        return None
+    if public_api_request():
+        return None
+
+    user_id = current_user_id()
+    if not user_id:
+        return jsonify({'success': False, 'error': 'Требуется авторизация'}), 401
+
+    if path.startswith('/api/admin/'):
+        conn = get_pg_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Не удалось подключиться к базе данных'}), 500
+        cursor = conn.cursor()
+        try:
+            user = load_user_by_telegram_id(cursor, user_id)
+        finally:
+            cursor.close()
+            conn.close()
+        if not user or not (user.get('isAdmin') or user.get('isOwner')):
+            return jsonify({'success': False, 'error': 'Требуются права администратора'}), 403
+        g.current_user = user
+        return None
+
+    supplied_user_id = requested_user_id()
+    if supplied_user_id is not None and supplied_user_id != user_id:
+        return jsonify({'success': False, 'error': 'Нет доступа к данным другого пользователя'}), 403
+    return None
 
 @app.route('/api/reviews', methods=['GET'])
 def get_reviews():
@@ -852,6 +985,34 @@ def safe_filename(name, fallback):
     return cleaned or fallback
 
 
+def validate_upload_file(file_storage, file_type='document'):
+    """Validate uploads before local or Telegram storage."""
+    if file_type not in ALLOWED_UPLOADS:
+        return False, "Unsupported file type"
+    if not file_storage or not file_storage.filename:
+        return False, "filename is required"
+
+    filename = safe_filename(file_storage.filename, f"{file_type}.bin")
+    suffix = Path(filename).suffix.lower()
+    rules = ALLOWED_UPLOADS[file_type]
+    if suffix not in rules["extensions"]:
+        return False, "Unsupported file extension"
+
+    mimetype = (file_storage.mimetype or infer_mimetype(filename)).split(";", 1)[0].lower()
+    if mimetype not in rules["mimetypes"]:
+        return False, "Unsupported file MIME type"
+
+    return True, None
+
+
+def validate_request_upload_size():
+    content_length = request.content_length
+    max_bytes = app.config.get('MAX_CONTENT_LENGTH')
+    if max_bytes and content_length and content_length > max_bytes:
+        return False, f"File is too large. Max size is {max_bytes // (1024 * 1024)} MB"
+    return True, None
+
+
 def storage_relative_path(user_id, release_id, kind, filename):
     return str(Path("releases") / f"user_{int(user_id)}" / f"release_{int(release_id)}" / kind / safe_filename(filename, f"{kind}.bin"))
 
@@ -904,6 +1065,10 @@ def detect_media_mimetype(path, kind=None):
 
 
 def save_upload_locally(file_storage, user_id, release_id, kind):
+    file_type = MEDIA_KIND_FILE_TYPES.get(kind, "document")
+    is_valid, error = validate_upload_file(file_storage, file_type)
+    if not is_valid:
+        raise ValueError(error)
     filename = safe_filename(file_storage.filename, f"{kind}.bin")
     relative = storage_relative_path(user_id, release_id, kind, filename)
     path = storage_absolute_path(relative)
@@ -999,6 +1164,9 @@ def upload_file_to_telegram(file_storage, file_type='document'):
     """?????????????????? ???????? ?? Telegram ?? ???????????????? file_id"""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_STORAGE_CHAT_ID:
         raise ValueError("Bot token ?????? storage chat id ???? ??????????????")
+    is_valid, error = validate_upload_file(file_storage, file_type)
+    if not is_valid:
+        raise ValueError(error)
 
     method_map = {
         'photo': ('sendPhoto', 'photo'),
@@ -1110,6 +1278,9 @@ def proxy_telegram_file(file_id, preferred_mimetype=None):
 def upload_file():
     """?????????????????? ???????? ?? Telegram ?? ?????????????? file_id"""
     try:
+        size_ok, size_error = validate_request_upload_size()
+        if not size_ok:
+            return jsonify({'success': False, 'error': size_error}), 413
         if 'file' not in request.files:
             return jsonify({'success': False, 'error': '???????? ???? ??????????????'}), 400
 
@@ -1118,6 +1289,9 @@ def upload_file():
 
         if not file.filename:
             return jsonify({'success': False, 'error': '?????? ?????????? ???? ??????????????'}), 400
+        is_valid, error = validate_upload_file(file, file_type)
+        if not is_valid:
+            return jsonify({'success': False, 'error': error}), 400
 
         file_id = upload_file_to_telegram(file, file_type=file_type)
 
@@ -1160,19 +1334,10 @@ def admin_panel_page():
 
 @app.route('/api/admin/overview', methods=['GET'])
 def admin_overview():
+    conn, cursor, error = admin_request_context()
+    if error:
+        return error
     try:
-        admin_user_id = request.args.get('admin_user_id', type=int)
-        if not admin_user_id:
-            return jsonify({'success': False, 'error': 'admin_user_id is required'}), 400
-
-        conn = get_pg_connection()
-        if not conn:
-            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
-        cursor = conn.cursor()
-
-        if not is_admin_user(cursor, admin_user_id):
-            return jsonify({'success': False, 'error': 'Admin access required'}), 403
-
         ensure_media_columns(cursor)
         conn.commit()
 
@@ -1219,10 +1384,7 @@ def admin_overview():
         logger.error("Error loading admin overview: %s", e)
         return jsonify({'success': False, 'error': 'Could not load admin overview'}), 500
     finally:
-        if 'conn' in locals() and conn:
-            if 'cursor' in locals():
-                cursor.close()
-            conn.close()
+        close_cursor(conn, cursor)
 
 
 ADMIN_RELEASE_STATUSES = [
@@ -1238,20 +1400,19 @@ ADMIN_RELEASE_STATUSES = [
 
 
 def admin_request_context():
-    admin_user_id = request.args.get('admin_user_id', type=int)
-    if not admin_user_id and request.is_json:
-        admin_user_id = (request.get_json(silent=True) or {}).get('admin_user_id')
+    admin_user_id = current_user_id()
     if not admin_user_id:
-        return None, None, (jsonify({'success': False, 'error': 'admin_user_id is required'}), 400)
+        return None, None, (jsonify({'success': False, 'error': 'Требуется авторизация'}), 401)
 
     conn = get_pg_connection()
     if not conn:
-        return None, None, (jsonify({'success': False, 'error': 'Database connection failed'}), 500)
+        return None, None, (jsonify({'success': False, 'error': 'Не удалось подключиться к базе данных'}), 500)
     cursor = conn.cursor()
-    if not is_admin_user(cursor, int(admin_user_id)):
+    current_user = getattr(g, 'current_user', None)
+    if not current_user and not is_admin_user(cursor, admin_user_id):
         cursor.close()
         conn.close()
-        return None, None, (jsonify({'success': False, 'error': 'Admin access required'}), 403)
+        return None, None, (jsonify({'success': False, 'error': 'Требуются права администратора'}), 403)
     return conn, cursor, None
 
 
@@ -1638,11 +1799,17 @@ def admin_upload_release_media(release_id, kind):
     if error:
         return error
     try:
+        size_ok, size_error = validate_request_upload_size()
+        if not size_ok:
+            return jsonify({'success': False, 'error': size_error}), 413
         if 'file' not in request.files:
             return jsonify({'success': False, 'error': 'file is required'}), 400
         upload = request.files['file']
         if not upload.filename:
             return jsonify({'success': False, 'error': 'filename is required'}), 400
+        is_valid, validation_error = validate_upload_file(upload, MEDIA_KIND_FILE_TYPES.get(kind, 'document'))
+        if not is_valid:
+            return jsonify({'success': False, 'error': validation_error}), 400
 
         ensure_media_columns(cursor)
         cursor.execute("SELECT id, user_id FROM releases WHERE id = %s", (release_id,))
@@ -1845,7 +2012,7 @@ def admin_promos_collection():
             discount = money_decimal(data.get('discount'))
             max_uses = data.get('max_uses') or None
             expires_at = data.get('expires_at') or None
-            admin_user_id = data.get('admin_user_id') or request.args.get('admin_user_id', type=int) or 0
+            admin_user_id = current_user_id()
             if not code:
                 return jsonify({'success': False, 'error': 'Code is required'}), 400
             if amount <= 0 and discount <= 0:
@@ -1986,7 +2153,7 @@ def admin_update_report_status(report_id):
         completed_sql = ", completed_at = CURRENT_TIMESTAMP" if status in ('completed', 'rejected') else ""
         cursor.execute(
             f"UPDATE report_requests SET status=%s, admin_id=%s, notes=COALESCE(%s, notes){completed_sql} WHERE id=%s RETURNING id",
-            (status, data.get('admin_user_id'), notes, report_id),
+            (status, current_user_id(), notes, report_id),
         )
         if not cursor.fetchone():
             conn.rollback()
@@ -2045,7 +2212,7 @@ def admin_update_contract_status(contract_id):
         completed_sql = ", completed_at = CURRENT_TIMESTAMP" if status in ('completed', 'rejected') else ""
         cursor.execute(
             f"UPDATE contracts SET status=%s, admin_id=%s, notes=COALESCE(%s, notes){completed_sql} WHERE id=%s RETURNING id",
-            (status, data.get('admin_user_id'), notes, contract_id),
+            (status, current_user_id(), notes, contract_id),
         )
         if not cursor.fetchone():
             conn.rollback()
@@ -2757,6 +2924,7 @@ def verify_auth_code():
 
         logger.info("Auth code verified for user_id=%s", user_id)
 
+        establish_user_session(user_info)
         return jsonify({'success': True, 'user': user_info})
 
     except Exception as e:
@@ -2778,6 +2946,33 @@ def auth_bot_link():
         'command': '/код',
         'fallback_command': '/webauth'
     })
+
+
+@app.route('/api/auth/session', methods=['GET'])
+def auth_session():
+    user_id = current_user_id()
+    if not user_id:
+        return jsonify({'success': False, 'error': 'Требуется авторизация'}), 401
+
+    conn = get_pg_connection()
+    if not conn:
+        return jsonify({'success': False, 'error': 'Не удалось подключиться к базе данных'}), 500
+    cursor = conn.cursor()
+    try:
+        user = load_user_by_telegram_id(cursor, user_id)
+        if not user:
+            session.clear()
+            return jsonify({'success': False, 'error': 'Пользователь не найден'}), 404
+        return jsonify({'success': True, 'user': user})
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def auth_logout():
+    session.clear()
+    return jsonify({'success': True})
 
 # =================== PAYMENT MODULES ===================
 
@@ -3302,6 +3497,17 @@ def get_user_balance():
 def update_user_balance():
     """???????????????? ???????????? ????????????????????????"""
     try:
+        conn = get_pg_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Не удалось подключиться к базе данных'}), 500
+        cursor = conn.cursor()
+        try:
+            if not is_admin_user(cursor, current_user_id()):
+                return jsonify({'success': False, 'error': 'Требуются права администратора'}), 403
+        finally:
+            cursor.close()
+            conn.close()
+
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'error': '???????????? ???? ????????????????'}), 400
@@ -3361,37 +3567,74 @@ def update_user_levels(user_id):
                 cursor.close()
             conn.close()
 
+def parse_telegram_init_data(init_data: str) -> dict:
+    """Parse raw Telegram WebApp initData without losing encoded JSON values."""
+    return {key: value for key, value in parse_qsl(init_data or "", keep_blank_values=True)}
+
+
+def extract_telegram_id(auth_data: dict) -> str | None:
+    """Extract Telegram user id from Login Widget, legacy tgid, or WebApp initData."""
+    telegram_id = auth_data.get('id') or auth_data.get('tgid')
+    if telegram_id:
+        return str(telegram_id)
+    raw_user = auth_data.get('user')
+    if not raw_user:
+        return None
+    try:
+        user = json.loads(raw_user)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(user, dict) or not user.get('id'):
+        return None
+    return str(user['id'])
+
+
 def verify_telegram_auth(data: dict, bot_token: str) -> bool:
-    """Проверка подписи данных от Telegram Login Widget."""
+    """Verify Telegram Login Widget or WebApp initData signature."""
     check_hash = data.pop('hash', None)
     if not check_hash or not bot_token:
         return False
     data_check_arr = sorted([f"{k}={v}" for k, v in data.items()])
     data_check_string = "\n".join(data_check_arr)
-    secret_key = hashlib.sha256(bot_token.encode()).digest()
+
+    if 'user' in data or 'chat_instance' in data:
+        secret_key = _hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+    else:
+        secret_key = hashlib.sha256(bot_token.encode()).digest()
+
     computed_hash = _hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
     return _hmac.compare_digest(computed_hash, check_hash)
 
 
-@app.route('/api/telegram_auth', methods=['GET'])
+@app.route('/api/telegram_auth', methods=['GET', 'POST'])
 def telegram_auth_api():
     """Альтернативный маршрут для telegram_auth через /api/"""
     return telegram_auth()
 
 
-@app.route('/api/me', methods=['GET'])
+@app.route('/api/me', methods=['GET', 'POST'])
 def api_me():
-    """Minimal cabinet profile endpoint by Telegram ID."""
+    """Minimal cabinet profile endpoint by verified Telegram auth data."""
     return telegram_auth()
 
 
-@app.route('/telegram_auth', methods=['GET'])
+@app.route('/telegram_auth', methods=['GET', 'POST'])
 @limiter.limit("30 per minute")
 def telegram_auth():
-    """Аутентификация по Telegram — с проверкой подписи если есть hash."""
+    """Аутентификация по Telegram с обязательной подписью в production."""
     try:
-        auth_data = {k: v for k, v in request.args.items()}
-        telegram_id = auth_data.get('id') or auth_data.get('tgid')
+        if request.is_json:
+            body = request.get_json(silent=True) or {}
+            if body.get('init_data'):
+                auth_data = parse_telegram_init_data(body.get('init_data'))
+            else:
+                auth_data = {k: str(v) for k, v in body.items() if v is not None}
+        else:
+            auth_data = {k: v for k, v in request.args.items()}
+            if auth_data.get('init_data'):
+                auth_data = parse_telegram_init_data(auth_data.get('init_data'))
+
+        telegram_id = extract_telegram_id(auth_data)
 
         if not telegram_id:
             return jsonify({'success': False, 'error': 'Telegram ID не указан'}), 400
@@ -3404,6 +3647,9 @@ def telegram_auth():
             auth_date = int(auth_data.get('auth_date', 0) or 0)
             if _time.time() - auth_date > 3600:
                 return jsonify({'success': False, 'error': 'Данные авторизации устарели'}), 403
+        elif not ALLOW_UNVERIFIED_TGID:
+            logger.warning("Rejected unsigned Telegram auth request for id=%s", telegram_id)
+            return jsonify({'success': False, 'error': 'Требуется подпись Telegram'}), 403
 
         conn = get_pg_connection()
         if not conn:
@@ -3414,6 +3660,7 @@ def telegram_auth():
         if not user_data:
             return jsonify({'success': False, 'error': 'Пользователь не найден'}), 404
 
+        establish_user_session(user_data)
         return jsonify({'success': True, 'user': user_data})
 
     except Exception as e:
@@ -3789,6 +4036,9 @@ def upload_release_media(release_id, kind):
     if kind not in MEDIA_KINDS:
         return jsonify({'success': False, 'error': 'Unsupported media kind'}), 404
     try:
+        size_ok, size_error = validate_request_upload_size()
+        if not size_ok:
+            return jsonify({'success': False, 'error': size_error}), 413
         user_id = request.form.get('user_id', type=int) or request.args.get('user_id', type=int)
         if not user_id:
             return jsonify({'success': False, 'error': 'user_id is required'}), 400
@@ -3797,6 +4047,9 @@ def upload_release_media(release_id, kind):
         upload = request.files['file']
         if not upload.filename:
             return jsonify({'success': False, 'error': 'filename is required'}), 400
+        is_valid, validation_error = validate_upload_file(upload, MEDIA_KIND_FILE_TYPES.get(kind, 'document'))
+        if not is_valid:
+            return jsonify({'success': False, 'error': validation_error}), 400
 
         conn = get_pg_connection()
         if not conn:
@@ -4014,7 +4267,7 @@ def get_recent_releases():
         cover_file_select = optional_column('cover_file_id', release_columns, 'NULL')
         cover_local_select = optional_column('cover_local_path', release_columns, 'NULL')
         cursor.execute("""
-            SELECT id, user_id, release_type, artist_name, release_name, genre,
+            SELECT id, user_id, release_type, release_name, genre,
                    release_date, status, created_at, {upc_select},
                    {release_link_select}, {cover_file_select}, {cover_local_select}
             FROM releases
@@ -4031,7 +4284,7 @@ def get_recent_releases():
 
         releases = []
         for row in cursor.fetchall():
-            (release_id, owner_id, release_type, artist_name, release_name, genre,
+            (release_id, owner_id, release_type, release_name, genre,
              release_date, status, created_at, upc_code, release_link,
              cover_file_id, cover_local_path) = row
             cover_url = f"/api/releases/{release_id}/media/cover-thumb?user_id={owner_id}" if cover_local_path else (
@@ -4040,7 +4293,6 @@ def get_recent_releases():
             releases.append({
                 'id': release_id,
                 'release_type': release_type,
-                'artist_name': artist_name,
                 'release_name': release_name,
                 'genre': genre,
                 'release_date': release_date.isoformat() if release_date else None,
@@ -4067,6 +4319,9 @@ def get_recent_releases():
 def create_distribution():
     """?????????????? ?????????? ?????? ??????????????????????"""
     try:
+        size_ok, size_error = validate_request_upload_size()
+        if not size_ok:
+            return jsonify({'success': False, 'error': size_error}), 413
         # ???????????????? ???????????? ???? ??????????
         user_id = request.form.get('user_id')
         if not user_id:
@@ -4849,12 +5104,40 @@ def get_my_contracts():
         if not user_id:
             return jsonify({'success': False, 'error': 'ID ???????????????????????? ???? ????????????'}), 400
 
-        # ???????? ???????????????????? ???????????? ????????????, ?????? ?????? ?????????????? contracts ?????????? ???? ????????????????????????
+        conn = get_pg_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+        cursor = conn.cursor()
+        if not table_exists(cursor, 'contracts'):
+            return jsonify({'success': True, 'contracts': [], 'count': 0})
+
+        cursor.execute(
+            """
+            SELECT id, contract_number, contract_type, status, contract_file_id, notes, created_at, completed_at
+            FROM contracts
+            WHERE user_id = %s
+            ORDER BY created_at DESC NULLS LAST, id DESC
+            LIMIT 50
+            """,
+            (user_id,),
+        )
+        contracts = [
+            {
+                'id': row[0],
+                'contract_number': row[1],
+                'contract_type': row[2],
+                'status': row[3],
+                'contract_file_id': row[4],
+                'notes': row[5],
+                'created_at': row[6].isoformat() if row[6] else None,
+                'completed_at': row[7].isoformat() if row[7] else None,
+            }
+            for row in cursor.fetchall()
+        ]
         return jsonify({
             'success': True,
-            'contracts': [],
-            'count': 0,
-            'message': '?????????????? ???????????????????? ?? ????????????????????'
+            'contracts': contracts,
+            'count': len(contracts),
         })
 
     except Exception as e:
@@ -4862,6 +5145,96 @@ def get_my_contracts():
         return jsonify({'success': False, 'error': '???????????? ??????????????'}), 500
     finally:
         if 'conn' in locals() and conn:
+            if 'cursor' in locals():
+                cursor.close()
+            conn.close()
+
+
+@app.route('/api/contracts/request', methods=['POST'])
+@limiter.limit("20 per hour")
+def create_contract_request():
+    """Create a contract request for admin processing."""
+    conn = None
+    try:
+        data = request.get_json(silent=True) or {}
+        user_id = data.get('user_id')
+        contract_type = (data.get('contract_type') or 'standard').strip()[:64]
+        notes = (data.get('notes') or '').strip()[:1000]
+        if not user_id:
+            return jsonify({'success': False, 'error': 'user_id is required'}), 400
+        user_id = int(user_id)
+
+        conn = get_pg_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS contracts (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                contract_number VARCHAR(100),
+                contract_type VARCHAR(100),
+                status TEXT DEFAULT 'pending',
+                contract_file_id TEXT,
+                admin_id BIGINT,
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute(
+            """
+            INSERT INTO contracts (user_id, contract_type, status, notes, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, NOW(), NOW())
+            RETURNING id, created_at
+            """,
+            (user_id, contract_type, 'pending', notes or None),
+        )
+        contract_id, created_at = cursor.fetchone()
+        contract_number = f"CTR-{datetime.now().strftime('%Y%m%d')}-{contract_id}"
+        cursor.execute("UPDATE contracts SET contract_number = %s WHERE id = %s", (contract_number, contract_id))
+        conn.commit()
+
+        try:
+            cursor.execute("SELECT name, tg FROM label WHERE telegram_id = %s", (user_id,))
+            user_row = cursor.fetchone()
+            user_name = user_row[0] if user_row and user_row[0] else str(user_id)
+            user_tg = user_row[1] if user_row and user_row[1] else "без username"
+            send_admin_notification(
+                "📄 <b>Новая заявка на договор</b>\n\n"
+                f"👤 Пользователь: {user_name} (@{user_tg})\n"
+                f"🆔 Telegram ID: {user_id}\n"
+                f"📌 Тип: {contract_type}\n"
+                f"💬 Комментарий: {notes or 'нет'}\n"
+                f"🔢 Договор: {contract_number}"
+            )
+        except Exception as notify_error:
+            logger.warning("Could not notify admins about contract request %s: %s", contract_id, notify_error)
+
+        return jsonify({
+            'success': True,
+            'contract': {
+                'id': contract_id,
+                'contract_number': contract_number,
+                'contract_type': contract_type,
+                'status': 'pending',
+                'created_at': created_at.isoformat() if created_at else None,
+                'notes': notes,
+            },
+        })
+
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid request data'}), 400
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error("Error creating contract request: %s", e)
+        return jsonify({'success': False, 'error': 'Could not create contract request'}), 500
+    finally:
+        if 'conn' in locals() and conn:
+            if 'cursor' in locals():
+                cursor.close()
             conn.close()
 
 
@@ -4930,6 +5303,113 @@ def get_my_reports():
     except Exception as e:
         logger.error(f"???????????? ?????? ?????????????????? ??????????????: {e}")
         return jsonify({'success': False, 'error': '???????????? ??????????????'}), 500
+    finally:
+        if 'conn' in locals() and conn:
+            if 'cursor' in locals():
+                cursor.close()
+            conn.close()
+
+
+@app.route('/api/reports/request', methods=['POST'])
+@limiter.limit("20 per hour")
+def create_report_request():
+    """Create a user report request for admin processing."""
+    conn = None
+    try:
+        data = request.get_json(silent=True) or {}
+        user_id = data.get('user_id')
+        release_id = data.get('release_id')
+        request_type = (data.get('request_type') or 'user_report').strip()[:64]
+        notes = (data.get('notes') or '').strip()[:1000]
+
+        if not user_id:
+            return jsonify({'success': False, 'error': 'user_id is required'}), 400
+        user_id = int(user_id)
+        release_id = int(release_id) if release_id else None
+
+        conn = get_pg_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS report_requests (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                release_id INTEGER,
+                release_type TEXT,
+                request_type TEXT,
+                status TEXT DEFAULT 'pending',
+                admin_id BIGINT,
+                report_file_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                notes TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        release_type = None
+        release_name = None
+        if release_id:
+            cursor.execute(
+                "SELECT release_type, release_name FROM releases WHERE id = %s AND user_id = %s",
+                (release_id, user_id),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return jsonify({'success': False, 'error': 'Release not found'}), 404
+            release_type, release_name = row
+
+        cursor.execute(
+            """
+            INSERT INTO report_requests (user_id, release_id, release_type, request_type, status, notes, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+            RETURNING id, created_at
+            """,
+            (user_id, release_id, release_type, request_type, 'pending', notes or None),
+        )
+        request_id, created_at = cursor.fetchone()
+        conn.commit()
+
+        try:
+            cursor.execute("SELECT name, tg FROM label WHERE telegram_id = %s", (user_id,))
+            user_row = cursor.fetchone()
+            user_name = user_row[0] if user_row and user_row[0] else str(user_id)
+            user_tg = user_row[1] if user_row and user_row[1] else "без username"
+            message = (
+                "📊 <b>Новый запрос отчёта</b>\n\n"
+                f"👤 Пользователь: {user_name} (@{user_tg})\n"
+                f"🆔 Telegram ID: {user_id}\n"
+                f"📄 Тип: {request_type}\n"
+                f"🎵 Релиз: {release_name or release_id or 'общий'}\n"
+                f"💬 Комментарий: {notes or 'нет'}\n"
+                f"🔢 Заявка: #{request_id}"
+            )
+            send_admin_notification(message)
+        except Exception as notify_error:
+            logger.warning("Could not notify admins about report request %s: %s", request_id, notify_error)
+
+        return jsonify({
+            'success': True,
+            'request': {
+                'id': request_id,
+                'user_id': user_id,
+                'release_id': release_id,
+                'release_type': release_type,
+                'request_type': request_type,
+                'status': 'pending',
+                'created_at': created_at.isoformat() if created_at else None,
+                'notes': notes,
+            },
+        })
+
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid request data'}), 400
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error("Error creating report request: %s", e)
+        return jsonify({'success': False, 'error': 'Could not create report request'}), 500
     finally:
         if 'conn' in locals() and conn:
             if 'cursor' in locals():
@@ -5308,6 +5788,12 @@ def internal_error(error):
 @app.errorhandler(400)
 def bad_request(error):
     return jsonify({'success': False, 'error': '???????????????? ????????????'}), 400
+
+@app.errorhandler(413)
+def request_too_large(error):
+    max_bytes = app.config.get('MAX_CONTENT_LENGTH') or 0
+    max_mb = max_bytes // (1024 * 1024) if max_bytes else 0
+    return jsonify({'success': False, 'error': f'File is too large. Max size is {max_mb} MB'}), 413
 
 if __name__ == '__main__':
     import ssl

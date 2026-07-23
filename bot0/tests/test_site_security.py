@@ -40,3 +40,38 @@ class SiteSecurityTests(unittest.TestCase):
         self.assertIn("status", payload)
         self.assertIn("db", payload)
         self.assertIn("timestamp", payload)
+
+    def test_private_api_requires_session(self):
+        client = api.app.test_client()
+        response = client.get("/api/user_releases?user_id=42")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.get_json()["error"], "Требуется авторизация")
+
+    def test_private_api_rejects_different_user_id(self):
+        client = api.app.test_client()
+        with client.session_transaction() as session:
+            session["user_id"] = 42
+        response = client.get("/api/user_releases?user_id=43")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_json()["error"], "Нет доступа к данным другого пользователя")
+
+    def test_admin_query_parameter_does_not_authenticate(self):
+        client = api.app.test_client()
+        response = client.get("/api/admin/overview?admin_user_id=1398275867")
+        self.assertEqual(response.status_code, 401)
+
+    def test_logout_clears_session(self):
+        client = api.app.test_client()
+        with client.session_transaction() as session:
+            session["user_id"] = 42
+        response = client.post("/api/auth/logout")
+        self.assertEqual(response.status_code, 200)
+        with client.session_transaction() as session:
+            self.assertNotIn("user_id", session)
+
+    def test_public_release_query_excludes_author_and_performer_fields(self):
+        source = Path(api.__file__).read_text(encoding="utf-8")
+        public_feed = source[source.index("def get_recent_releases():"):source.index("def create_distribution():")]
+        self.assertNotIn("'artist_name':", public_feed)
+        self.assertNotIn("'performer_name':", public_feed)
+        self.assertNotIn("'music_author':", public_feed)

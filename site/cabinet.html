@@ -1469,6 +1469,12 @@
       setStatus("Вход выполнен.", "ok");
     }
 
+    async function restoreSession() {
+      const profile = await fetchJson(`${apiBase}/api/auth/session`);
+      await applyUser(profile.user);
+      localStorage.setItem("cabinet_user", JSON.stringify(profile.user));
+    }
+
     async function applyUser(user) {
       state.user = user;
       await Promise.all([loadUserReleases(), loadProfileDashboard(), loadPromoHistory(), loadMyContracts()]);
@@ -1736,7 +1742,7 @@
               <div>
                 <p class="release-title">${escapeHtml(release.release_name || "Без названия")}</p>
                 <div class="meta">
-                  <span class="pill">${escapeHtml(release.artist_name || "Артист не указан")}</span>
+                  ${clickable ? `<span class="pill">${escapeHtml(release.artist_name || "Артист не указан")}</span>` : ""}
                   <span class="pill">${escapeHtml(release.release_type || "релиз")}</span>
                   ${release.genre ? `<span class="pill">${escapeHtml(release.genre)}</span>` : ""}
                 </div>
@@ -2823,7 +2829,12 @@
       if (!code) return setStatus("Введите код из Telegram.", "error");
       try { await loginByCode(code); } catch (error) { setStatus(`Ошибка входа: ${error.message}`, "error"); }
     });
-    $("logoutBtn").addEventListener("click", () => {
+    $("logoutBtn").addEventListener("click", async () => {
+      try {
+        await fetchJson(`${apiBase}/api/auth/logout`, { method: "POST" });
+      } catch (error) {
+        console.warn("Не удалось завершить серверную сессию:", error);
+      }
       localStorage.removeItem("cabinet_user");
       state.user = null; state.releases = []; state.filteredReleases = []; state.profileDashboard = null; state.contracts = []; state.promoHistory = []; state.activeDiscounts = []; state.distributionPayment = null;
       closeReleaseDetail();
@@ -3097,7 +3108,6 @@
       openReleaseBuilder(params.get("source") === "services" ? "services" : "releases");
       document.title = "Новый релиз — talk with a star // label";
     }
-    const savedUser = localStorage.getItem("cabinet_user");
     if (params.get("payment") === "return") {
       setTab("profile");
       toggleTopupCard(true);
@@ -3108,18 +3118,17 @@
       loginByTelegramInitData(telegramInitData)
         .then(openDedicatedReleasePage)
         .catch((error) => setStatus(`Ошибка входа: ${error.message}`, "error"));
-    } else if (savedUser) {
-      try {
-        applyUser(JSON.parse(savedUser))
-          .then(openDedicatedReleasePage)
-          .catch((error) => setStatus(`Ошибка восстановления: ${error.message}`, "error"));
-      } catch { localStorage.removeItem("cabinet_user"); }
     } else {
-      renderProfile();
-      if (dedicatedReleasePage) {
-        setTab("profile");
-        setStatus("Войдите через Telegram, затем форма релиза откроется в этой вкладке.", "warn");
-      }
+      restoreSession()
+        .then(openDedicatedReleasePage)
+        .catch(() => {
+          localStorage.removeItem("cabinet_user");
+          renderProfile();
+          if (dedicatedReleasePage) {
+            setTab("profile");
+            setStatus("Войдите через Telegram, затем форма релиза откроется в этой вкладке.", "warn");
+          }
+        });
     }
   </script>
 </body>
