@@ -1,0 +1,465 @@
+.teleprompter-tool {
+  --tp-scale: 1;
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  min-height: 100dvh;
+  color: #f8fafc;
+  background:
+    linear-gradient(145deg, rgba(124, 58, 237, .14), transparent 42%),
+    linear-gradient(320deg, rgba(14, 165, 233, .12), transparent 38%),
+    #05070d;
+  overflow: auto;
+  user-select: none;
+}
+
+body.teleprompter-open {
+  overflow: hidden;
+}
+
+.tp-setup {
+  width: min(860px, calc(100% - 28px));
+  min-height: 100dvh;
+  margin: 0 auto;
+  display: grid;
+  align-content: center;
+  gap: 28px;
+  padding: clamp(24px, 6vh, 64px) 0;
+}
+
+.tp-setup-header,
+.tp-setup-footer,
+.tp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tp-setup-header {
+  justify-content: space-between;
+}
+
+.tp-setup-header h2 {
+  margin: 2px 0 0;
+  font-size: clamp(34px, 7vw, 68px);
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.tp-kicker {
+  color: #38bdf8;
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.tp-upload-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.tp-upload-zone {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 28px;
+  border: 1px dashed rgba(148, 163, 184, .38);
+  border-radius: 20px;
+  background: rgba(15, 23, 42, .72);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+
+.tp-upload-zone:hover,
+.tp-upload-zone.is-dragging {
+  border-color: rgba(56, 189, 248, .82);
+  background: rgba(14, 165, 233, .11);
+  transform: translateY(-2px);
+}
+
+.tp-upload-zone.is-loaded {
+  border-style: solid;
+  border-color: rgba(52, 211, 153, .7);
+  background: rgba(16, 185, 129, .09);
+}
+
+.tp-upload-zone input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tp-upload-icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(148, 163, 184, .22);
+  border-radius: 16px;
+  color: #bae6fd;
+  background: rgba(255, 255, 255, .06);
+}
+
+.tp-upload-icon svg {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tp-file-types {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.tp-file-name {
+  max-width: 100%;
+  color: #c4b5fd;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tp-setup-footer {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.tp-status {
+  min-height: 20px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.tp-status.is-error {
+  color: #fda4af;
+}
+
+.tp-status.is-ready {
+  color: #6ee7b7;
+}
+
+.tp-setup-footer button {
+  min-width: 160px;
+}
+
+.tp-stage {
+  position: absolute;
+  inset: 0;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow: hidden;
+}
+
+.tp-toolbar {
+  position: relative;
+  z-index: 2;
+  padding: 12px 16px;
+  background: rgba(5, 7, 13, .86);
+  border-color: rgba(148, 163, 184, .12);
+  backdrop-filter: blur(16px);
+  transition: opacity .25s ease, transform .25s ease;
+}
+
+.tp-topbar {
+  border-bottom: 1px solid rgba(148, 163, 184, .12);
+  flex-wrap: wrap;
+}
+
+.tp-bottombar {
+  border-top: 1px solid rgba(148, 163, 184, .12);
+  padding-bottom: max(14px, env(safe-area-inset-bottom));
+}
+
+.tp-toolbar-spacer {
+  flex: 1;
+}
+
+.tp-track-title {
+  max-width: min(28vw, 360px);
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tp-icon-button,
+.tp-tool-button,
+.tp-play-button {
+  min-width: 42px;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid rgba(148, 163, 184, .18);
+  border-radius: 10px;
+  color: #f8fafc;
+  background: rgba(30, 41, 59, .76);
+}
+
+.tp-icon-button {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.tp-icon-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tp-tool-button[aria-pressed="true"] {
+  border-color: rgba(56, 189, 248, .68);
+  color: #082f49;
+  background: #7dd3fc;
+}
+
+.tp-control {
+  display: grid;
+  grid-template-columns: auto 84px auto;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.tp-control input[type="range"],
+.tp-seek {
+  accent-color: #38bdf8;
+}
+
+.tp-control output {
+  min-width: 42px;
+  color: #cbd5e1;
+  font-variant-numeric: tabular-nums;
+}
+
+.tp-lyrics-wrap {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: clamp(22px, 5vh, 64px) clamp(18px, 7vw, 96px);
+  transition: transform .2s ease;
+}
+
+.tp-lyrics-wrap.is-mirrored {
+  transform: scaleX(-1);
+}
+
+.tp-lyrics-column {
+  width: min(1280px, 100%);
+  display: grid;
+  gap: clamp(18px, 3vh, 40px);
+  text-align: center;
+}
+
+.tp-line {
+  min-height: 1.35em;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 .28em;
+  line-height: 1.24;
+  letter-spacing: 0;
+}
+
+.tp-line-secondary {
+  color: #64748b;
+  font-size: clamp(17px, calc(2.8vw * var(--tp-scale)), 40px);
+  font-weight: 600;
+  opacity: .7;
+}
+
+.tp-line-current {
+  color: #f8fafc;
+  font-size: clamp(30px, calc(5.4vw * var(--tp-scale)), 82px);
+  font-weight: 850;
+}
+
+.tp-word {
+  color: #64748b;
+  transition: color .08s linear;
+}
+
+.tp-word.is-active {
+  color: #38bdf8;
+}
+
+.tp-word.is-sung {
+  color: #f8fafc;
+}
+
+.tp-placeholder {
+  color: #475569;
+  font-size: clamp(18px, 2.5vw, 32px);
+  font-weight: 650;
+}
+
+.tp-play-button {
+  font-size: 18px;
+}
+
+.tp-time-label {
+  min-width: 104px;
+  color: #cbd5e1;
+  font-size: 13px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.tp-seek {
+  min-width: 120px;
+  flex: 1;
+}
+
+.tp-stage.controls-hidden .tp-topbar {
+  opacity: 0;
+  transform: translateY(-100%);
+  pointer-events: none;
+}
+
+.tp-stage.controls-hidden .tp-bottombar {
+  opacity: 0;
+  transform: translateY(100%);
+  pointer-events: none;
+}
+
+@media (max-width: 760px) {
+  .tp-upload-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tp-upload-zone {
+    min-height: 170px;
+    padding: 20px;
+  }
+
+  .tp-topbar {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .tp-topbar .tp-icon-button,
+  .tp-topbar .tp-tool-button {
+    width: 100%;
+  }
+
+  .tp-topbar .tp-toolbar-spacer {
+    display: none;
+  }
+
+  .tp-topbar #tpBackBtn {
+    order: 1;
+  }
+
+  .tp-control {
+    order: 2;
+    grid-column: span 2;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .tp-control > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .tp-track-title {
+    order: 4;
+    grid-column: 1 / -1;
+    width: 100%;
+    max-width: 100%;
+    padding: 2px 0;
+  }
+
+  .tp-tool-button {
+    order: 5;
+    grid-column: span 2;
+    font-size: 0;
+  }
+
+  #tpFullscreenBtn {
+    order: 6;
+  }
+
+  #tpHideBtn {
+    order: 7;
+  }
+
+  #tpExitBtn {
+    order: 8;
+  }
+
+  .tp-tool-button::after {
+    content: "↔";
+    font-size: 18px;
+  }
+
+  .tp-lyrics-wrap {
+    padding-inline: 16px;
+  }
+
+  .tp-line-current {
+    font-size: clamp(28px, calc(10vw * var(--tp-scale)), 58px);
+  }
+
+  .tp-line-secondary {
+    font-size: clamp(16px, calc(5vw * var(--tp-scale)), 30px);
+  }
+
+  .tp-time-label {
+    min-width: 88px;
+    font-size: 12px;
+  }
+}
+
+@media (max-height: 560px) and (orientation: landscape) {
+  .tp-toolbar {
+    padding-block: 7px;
+  }
+
+  .tp-icon-button,
+  .tp-tool-button,
+  .tp-play-button {
+    min-height: 36px;
+  }
+
+  .tp-lyrics-column {
+    gap: 10px;
+  }
+
+  .tp-line-current {
+    font-size: clamp(26px, calc(5vw * var(--tp-scale)), 58px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tp-upload-zone,
+  .tp-toolbar,
+  .tp-word {
+    transition: none;
+  }
+}
