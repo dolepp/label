@@ -8,6 +8,7 @@ from telebot import types
 from core.config import ADMIN_IDS, PERMANENT_ADMINS
 from db.repositories.admin_user_releases import list_admin_user_releases
 from db.repositories.users import list_admin_ids
+from utils.statuses import release_status_label
 
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ def _admin_user_releases_markup(user_id: int, releases: dict):
     for album in releases.get("albums", []):
         markup.add(
             types.InlineKeyboardButton(
-                f"💿 {album.get('release_name')} ({_release_date(album.get('release_date'))}) - {album.get('status')}",
+                f"💿 {album.get('release_name')} ({_release_date(album.get('release_date'))}) - {release_status_label(album.get('status'))}",
                 callback_data=f"album_detail_{album['id']}_admin",
             )
         )

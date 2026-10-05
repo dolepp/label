@@ -18,6 +18,7 @@ FIELD_LABELS = {
     "kanal": "канал",
     "fio": "ФИО",
     "email": "email",
+    "phone": "телефон",
 }
 
 
@@ -42,6 +43,7 @@ def _profile_text(profile: dict | None) -> str:
         f"📺 Канал: {profile.get('kanal') or 'Не указан'}\n"
         f"👥 ФИО: {profile.get('fio') or 'Не указано'}\n"
         f"📧 Email: {profile.get('email') or 'Не указан'}\n"
+        f"📱 Телефон: {profile.get('phone') or 'Не указан'}\n"
         f"💰 Баланс: {float(profile.get('balance') or 0):,.2f}₽"
     )
 
@@ -55,6 +57,7 @@ def _profile_data_text(profile: dict | None) -> str:
         f"📺 Канал: {profile.get('kanal') or 'Не указан'}\n"
         f"👥 ФИО: {profile.get('fio') or 'Не указано'}\n"
         f"📧 Email: {profile.get('email') or 'Не указан'}\n"
+        f"📱 Телефон: {profile.get('phone') or 'Не указан'}\n"
         f"💰 Баланс: {float(profile.get('balance') or 0):,.2f}₽"
     )
 
@@ -149,6 +152,15 @@ def register_profile_handlers(bot) -> None:
     def edit_email(message):
         _request_profile_field(message, "email", "Введите новый email:")
 
+    @bot.message_handler(func=lambda message: getattr(message, "text", None) == "📱 Изменить телефон")
+    def edit_phone(message):
+        _request_profile_field(message, "phone", "Введите номер телефона в формате +79991234567:")
+
+    @bot.callback_query_handler(func=lambda call: call.data == "edit_profile_data")
+    def handle_edit_profile_data(call):
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, "Выберите, что хотите изменить:", reply_markup=_edit_markup())
+
     @bot.message_handler(func=lambda message: getattr(message, "text", None) == "◀️ Назад в профиль")
     def back_to_profile(message):
         _send_profile(bot, message.chat.id, message.from_user.id)
@@ -168,6 +180,12 @@ def register_profile_handlers(bot) -> None:
             sent = bot.reply_to(message, "❌ Значение не может быть пустым. Введите еще раз:")
             bot.register_next_step_handler(sent, lambda next_message: _save_profile_field(next_message, field))
             return
+        if field == "phone":
+            value = re.sub(r"[\s()-]", "", value)
+            if not re.fullmatch(r"\+?\d{10,15}", value):
+                sent = bot.reply_to(message, "❌ Неверный формат телефона. Пример: +79991234567")
+                bot.register_next_step_handler(sent, lambda next_message: _save_profile_field(next_message, field))
+                return
         if field == "email" and not _validate_email(value):
             sent = bot.reply_to(message, "❌ Неверный формат email. Введите действительный email:")
             bot.register_next_step_handler(sent, lambda next_message: _save_profile_field(next_message, field))

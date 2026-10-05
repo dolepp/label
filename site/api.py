@@ -1387,16 +1387,42 @@ def admin_overview():
         close_cursor(conn, cursor)
 
 
+# Те же значения, что пишет бот (bot0/handlers/release_status.py), чтобы в базе не было
+# двух написаний одного статуса ("принят" / "Принят").
 ADMIN_RELEASE_STATUSES = [
     "pending",
-    "На рассмотрении",
-    "Принят",
-    "Отправлен на площадки",
-    "Отгружен на площадки",
+    "принят",
+    "отправлен на площадки",
+    "отгружен на площадки",
     "Релиз",
     "Отозван с площадок",
-    "rejected",
+    "отклонен",
 ]
+RELEASE_STATUS_LABELS = {
+    "pending": "На рассмотрении",
+    "принят": "Принят",
+    "отправлен на площадки": "Отправлен на площадки",
+    "отгружен на площадки": "Отгружен на площадки",
+    "релиз": "Релиз",
+    "отозван с площадок": "Отозван с площадок",
+    "отклонен": "Отклонён",
+}
+
+
+def notify_user_about_release_status(telegram_id, release_name, status, platform_links=None):
+    """Тот же текст, что отправляет бот при смене статуса."""
+    if not TELEGRAM_BOT_TOKEN or not telegram_id:
+        return
+    label = RELEASE_STATUS_LABELS.get(str(status).lower(), status)
+    text = f"🔄 Статус вашего релиза обновлен!\n\n🎵 Релиз: {release_name}\n🆕 Новый статус: {label}\n\n"
+    if str(status).lower() == "релиз" and isinstance(platform_links, dict):
+        links = [f"• {name}: {url}" for name, url in platform_links.items() if url and str(url).strip()]
+        if links:
+            text += "🎧 Ваш релиз доступен на площадках:\n\n" + "\n".join(links) + "\n\n🎉 Поздравляем с релизом!"
+    try:
+        requests.post(f"{TELEGRAM_API_URL}/sendMessage", data={'chat_id': telegram_id, 'text': text}, timeout=15)
+    except Exception as exc:
+        logger.warning("Could not notify user %s about release status: %s", telegram_id, exc)
 
 
 def admin_request_context():
@@ -1646,7 +1672,7 @@ def admin_releases_list():
             where += " AND r.user_id = %s"
             params.append(user_id)
         if status and status != 'all':
-            where += " AND COALESCE(r.status,'pending') = %s"
+            where += " AND LOWER(COALESCE(r.status,'pending')) = LOWER(%s)"
             params.append(status)
         if query:
             like = f"%{query}%"
@@ -1870,14 +1896,23 @@ def admin_update_release_status(release_id):
     try:
         data = request.get_json() or {}
         status = (data.get('status') or '').strip()
-        if not status:
-            return jsonify({'success': False, 'error': 'Status is required'}), 400
-        cursor.execute("UPDATE releases SET status=%s WHERE id=%s RETURNING id, user_id, release_name, status", (status, release_id))
+        canonical = {s.lower(): s for s in ADMIN_RELEASE_STATUSES}
+        if status.lower() not in canonical:
+            return jsonify({'success': False, 'error': 'Недопустимый статус'}), 400
+        status = canonical[status.lower()]
+        cursor.execute(
+            "UPDATE releases SET status=%s WHERE id=%s RETURNING id, user_id, release_name, status, COALESCE(is_album, FALSE), platform_links",
+            (status, release_id),
+        )
         row = cursor.fetchone()
         if not row:
             conn.rollback()
             return jsonify({'success': False, 'error': 'Release not found'}), 404
+        if row[4]:
+            # Как в боте: статус альбома применяется и к его трекам.
+            cursor.execute("UPDATE releases SET status=%s WHERE album_id=%s", (status, release_id))
         conn.commit()
+        notify_user_about_release_status(row[1], row[2], status, row[5])
         return jsonify({'success': True, 'release': {'id': row[0], 'user_id': row[1], 'release_name': row[2], 'status': row[3]}})
     except Exception as e:
         conn.rollback()
@@ -1945,9 +1980,9 @@ def admin_finance_summary():
         cursor.execute(
             """
             SELECT
-              COALESCE(SUM(amount) FILTER (WHERE status='completed'),0),
-              COALESCE(SUM(amount) FILTER (WHERE status='completed' AND created_date >= date_trunc('month', CURRENT_TIMESTAMP)),0),
-              COALESCE(SUM(amount) FILTER (WHERE status='completed' AND created_date::date = CURRENT_DATE),0),
+              COALESCE(SUM(amount) FILTER (WHERE status='completed' AND COALESCE(payment_id, '') NOT LIKE 'balance-%%'),0),
+              COALESCE(SUM(amount) FILTER (WHERE status='completed' AND COALESCE(payment_id, '') NOT LIKE 'balance-%%' AND created_date >= date_trunc('month', CURRENT_TIMESTAMP)),0),
+              COALESCE(SUM(amount) FILTER (WHERE status='completed' AND COALESCE(payment_id, '') NOT LIKE 'balance-%%' AND created_date::date = CURRENT_DATE),0),
               COUNT(*) FILTER (WHERE status='pending'),
               COUNT(*) FILTER (WHERE status='completed')
             FROM orders
@@ -5643,10 +5678,11 @@ def create_design_order():
         user_username = user_info[1] if user_info and user_info[1] else "не указан"
 
         # Определяем стоимость услуги
+        # Те же цены, что в боте (bot0/core/config.py SERVICE_PRICES)
         service_prices = {
-            'covers': 500.00,
-            'motion': 800.00,
-            'videoshot': 1200.00
+            'covers': 2000.00,
+            'motion': 1500.00,
+            'videoshot': 1000.00
         }
         amount = service_prices.get(service, 500.00)
 

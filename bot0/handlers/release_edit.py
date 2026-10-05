@@ -9,11 +9,11 @@ import logging
 from telebot import types
 
 from db.repositories.release_edit import get_release_edit_access
+from utils.statuses import is_release_editable
 
 
 logger = logging.getLogger(__name__)
 
-EDITABLE_STATUSES = {"В обработке", "Готов к отгрузке"}
 UNSUPPORTED_EDIT_PREFIXES = (
     "edit_artist_name_",
     "edit_producer_",
@@ -64,7 +64,7 @@ def register_release_edit_handlers(bot) -> None:
         if release["user_id"] != call.from_user.id:
             bot.answer_callback_query(call.id, "❌ У вас нет прав для редактирования этого релиза", show_alert=True)
             return
-        if release["status"] not in EDITABLE_STATUSES:
+        if not is_release_editable(release["status"]):
             bot.answer_callback_query(call.id, "❌ Этот релиз нельзя редактировать", show_alert=True)
             return
 

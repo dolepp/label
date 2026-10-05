@@ -26,9 +26,10 @@ DB_CONFIG = {
     "port": os.getenv("DB_PORT", "5432"),
 }
 
+# Единый источник цен для бота и сайта (site/api.py держит такие же значения).
 SERVICE_PRICES = {
-    "cover": 500,
-    "motion": 800,
+    "cover": 2000,
+    "motion": 1500,
     "videoshot": 1000,
     "distribution": 1299,
 }

@@ -780,9 +780,9 @@
       <div class="section-head"><div><h2>Услуги</h2><p class="muted">Всё, что нужно релизу — от дистрибуции до промо-материалов.</p></div></div>
       <div class="grid">
         <div class="service-card"><span class="icon-box"><svg><use href="#i-note"/></svg></span><h3>Дистрибуция</h3><p>Размещение релиза на всех стриминговых площадках с UPC/ISRC.</p><div class="service-foot"><span class="price">от 1 299 ₽</span><button id="distributionServiceBtn" type="button" class="small">Создать релиз</button></div></div>
-        <div class="service-card"><span class="icon-box"><svg><use href="#i-palette"/></svg></span><h3>Обложка</h3><p>Дизайн обложки 3000×3000 под требования площадок.</p><div class="service-foot"><span class="price">500 ₽</span><button type="button" class="small" data-design-service="covers">Заказать</button></div></div>
-        <div class="service-card"><span class="icon-box"><svg><use href="#i-motion"/></svg></span><h3>Motion-обложка</h3><p>Анимированная обложка для Apple Music, Яндекс и соцсетей.</p><div class="service-foot"><span class="price">800 ₽</span><button type="button" class="small" data-design-service="motion">Заказать</button></div></div>
-        <div class="service-card"><span class="icon-box"><svg><use href="#i-camera"/></svg></span><h3>Видеошот</h3><p>Короткий вертикальный клип под трек для площадок и Reels.</p><div class="service-foot"><span class="price">1 200 ₽</span><button type="button" class="small" data-design-service="videoshot">Заказать</button></div></div>
+        <div class="service-card"><span class="icon-box"><svg><use href="#i-palette"/></svg></span><h3>Обложка</h3><p>Дизайн обложки 3000×3000 под требования площадок.</p><div class="service-foot"><span class="price">2 000 ₽</span><button type="button" class="small" data-design-service="covers">Заказать</button></div></div>
+        <div class="service-card"><span class="icon-box"><svg><use href="#i-motion"/></svg></span><h3>Motion-обложка</h3><p>Анимированная обложка для Apple Music, Яндекс и соцсетей.</p><div class="service-foot"><span class="price">1 500 ₽</span><button type="button" class="small" data-design-service="motion">Заказать</button></div></div>
+        <div class="service-card"><span class="icon-box"><svg><use href="#i-camera"/></svg></span><h3>Видеошот</h3><p>Короткий вертикальный клип под трек для площадок и Reels.</p><div class="service-foot"><span class="price">1 000 ₽</span><button type="button" class="small" data-design-service="videoshot">Заказать</button></div></div>
         <div class="service-card"><span class="icon-box"><svg><use href="#i-chart"/></svg></span><h3>Отчёты</h3><p>Статистика прослушиваний и отчётность по вашим релизам.</p><div class="service-foot"><span class="price">по запросу</span><button id="reportServiceBtn" type="button" class="secondary small">Запросить</button></div></div>
         <div class="service-card"><span class="icon-box"><svg><use href="#i-doc"/></svg></span><h3>Договор</h3><p>Лицензионный договор с лейблом и сопроводительные документы.</p><div class="service-foot"><span class="price">по запросу</span><button id="contractServiceBtn" type="button" class="secondary small">Запросить</button></div></div>
         <div class="service-card"><span class="icon-box"><svg><use href="#i-prompt"/></svg></span><h3>Суфлёр</h3><p>Синхронный текст по TTML для записи видео под трек.</p><div class="service-foot"><span class="price">бесплатно</span><button id="teleprompterServiceBtn" type="button" class="secondary small">Открыть</button></div></div>
@@ -2739,9 +2739,9 @@
     }
 
     const DESIGN_SERVICES = {
-      covers: { title: "Заказ обложки", price: 500, hint: "Опишите настроение, референсы, цвета и текст, который должен быть на обложке." },
-      motion: { title: "Заказ motion-обложки", price: 800, hint: "Пришлите ссылку на статичную обложку и опишите, как она должна оживать." },
-      videoshot: { title: "Заказ видеошота", price: 1200, hint: "Опишите идею, ссылки на трек и референсы, длительность и формат." }
+      covers: { title: "Заказ обложки", price: 2000, hint: "Опишите настроение, референсы, цвета и текст, который должен быть на обложке." },
+      motion: { title: "Заказ motion-обложки", price: 1500, hint: "Пришлите ссылку на статичную обложку и опишите, как она должна оживать." },
+      videoshot: { title: "Заказ видеошота", price: 1000, hint: "Опишите идею, ссылки на трек и референсы, длительность и формат." }
     };
     function openDesignOrder(service) {
       if (!requireUser("Войдите, чтобы оформить заказ.")) return;

@@ -24,6 +24,8 @@ from handlers.release_details import (
 )
 
 
+from utils.statuses import release_status_label
+
 logger = logging.getLogger(__name__)
 
 RELEASE_STATUSES = [
@@ -64,7 +66,7 @@ def _status_notification_text(info: dict, new_status: str) -> str:
     message = (
         "🔄 Статус вашего релиза обновлен!\n\n"
         f"🎵 Релиз: {info.get('release_name')}\n"
-        f"🆕 Новый статус: {new_status}\n\n"
+        f"🆕 Новый статус: {release_status_label(new_status)}\n\n"
     )
     platform_links = info.get("platform_links")
     if new_status.lower() == "релиз" and platform_links:

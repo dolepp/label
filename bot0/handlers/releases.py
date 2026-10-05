@@ -6,6 +6,7 @@ import logging
 from telebot import types
 
 from db.repositories.releases import format_release_date, list_user_release_cards
+from utils.statuses import release_status_label
 
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ def _release_button_text(release: dict) -> str:
     icon = "💿" if release["is_album"] else "🎵"
     name = release["release_name"] or "Без названия"
     date = format_release_date(release["release_date"])
-    status = release["status"] or "статус не указан"
+    status = release_status_label(release["status"])
     return f"{icon} {name} ({date}) - {status}"
 
 
@@ -34,7 +35,7 @@ def _releases_text(releases: list[dict], all_items: bool = False) -> str:
         kind = "альбом" if release["is_album"] else "релиз"
         lines.append(
             f"{index}. {release['release_name'] or 'Без названия'} "
-            f"({format_release_date(release['release_date'])}) - {release['status'] or 'статус не указан'} [{kind}]"
+            f"({format_release_date(release['release_date'])}) - {release_status_label(release['status'])} [{kind}]"
         )
     return "\n".join(lines)
 

@@ -43,6 +43,7 @@ def create_profile_edit_menu():
         types.KeyboardButton("📺 Изменить канал"),
         types.KeyboardButton("👥 Изменить ФИО"),
         types.KeyboardButton("📧 Изменить email"),
+        types.KeyboardButton("📱 Изменить телефон"),
         types.KeyboardButton("◀️ Назад в профиль"),
     )
     return markup

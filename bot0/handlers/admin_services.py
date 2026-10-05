@@ -5,8 +5,8 @@ import logging
 
 from telebot import types
 
-from core.config import ADMIN_IDS, PERMANENT_ADMINS
-from db.repositories.service_files import save_beat_contract_file
+from core.config import ADMIN_IDS, PERMANENT_ADMINS, SERVICE_PRICES, SUPPORT_HOURS
+from db.repositories.service_files import get_latest_beat_contract_file, save_beat_contract_file
 from db.repositories.users import list_admin_ids
 from utils.security import validate_file_upload
 
@@ -38,8 +38,7 @@ def _admin_services_markup():
 def _templates_markup():
     markup = types.InlineKeyboardMarkup()
     markup.add(
-        types.InlineKeyboardButton("✉️ Шаблон письма", callback_data="template_email"),
-        types.InlineKeyboardButton("📝 Шаблон договора", callback_data="template_contract"),
+        types.InlineKeyboardButton("📝 Текущий договор на бит", callback_data="template_contract"),
         types.InlineKeyboardButton("◀️ Назад", callback_data="admin_services"),
     )
     return markup
@@ -49,7 +48,7 @@ def _service_settings_markup():
     markup = types.InlineKeyboardMarkup()
     markup.add(
         types.InlineKeyboardButton("💰 Цены на услуги", callback_data="service_prices"),
-        types.InlineKeyboardButton("⏳ Время обработки", callback_data="service_times"),
+        types.InlineKeyboardButton("⏰ Часы работы поддержки", callback_data="service_times"),
         types.InlineKeyboardButton("◀️ Назад", callback_data="admin_services"),
     )
     return markup
@@ -118,6 +117,48 @@ def register_admin_service_handlers(bot) -> None:
             call.message.chat.id,
             call.message.message_id,
             reply_markup=_service_settings_markup(),
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data == "template_contract")
+    def handle_template_contract(call):
+        if not _require_admin(bot, call):
+            return
+        try:
+            file_id = get_latest_beat_contract_file()
+        except Exception as exc:
+            logger.error("Could not load beat contract template: %s", exc)
+            file_id = None
+        if not file_id:
+            bot.answer_callback_query(call.id, "Договор ещё не загружен. Используйте «📤 Загрузить договор на бит».", show_alert=True)
+            return
+        bot.answer_callback_query(call.id)
+        bot.send_document(call.message.chat.id, file_id, caption="📝 Текущий договор для битмейкеров")
+
+    @bot.callback_query_handler(func=lambda call: call.data == "service_prices")
+    def handle_service_prices(call):
+        if not _require_admin(bot, call):
+            return
+        bot.answer_callback_query(call.id)
+        names = {"distribution": "Дистрибуция (Single)", "cover": "Обложка", "motion": "Motion-обложка", "videoshot": "Видеошот"}
+        lines = ["💰 Текущие цены\n"] + [f"{names.get(key, key)}: {price}₽" for key, price in SERVICE_PRICES.items()]
+        lines.append("\nMaxi Single 1799₽ · EP 2399₽ · ALBUM 2899₽")
+        lines.append("\nЦены задаются в bot0/core/config.py и site/api.py.")
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_service_settings"))
+        bot.edit_message_text("\n".join(lines), call.message.chat.id, call.message.message_id, reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "service_times")
+    def handle_service_times(call):
+        if not _require_admin(bot, call):
+            return
+        bot.answer_callback_query(call.id)
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_service_settings"))
+        bot.edit_message_text(
+            f"⏰ Часы работы поддержки: {SUPPORT_HOURS}\n\nМеняются переменной окружения SUPPORT_HOURS в .env.",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=markup,
         )
 
     @bot.callback_query_handler(func=lambda call: call.data == "admin_upload_contract")

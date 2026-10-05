@@ -29,3 +29,16 @@ def save_beat_contract_file(file_id: str, uploaded_by: int) -> int | None:
             raise
         finally:
             cur.close()
+
+
+def get_latest_beat_contract_file() -> str | None:
+    with connection() as conn:
+        if conn is None:
+            return None
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT file_id FROM files WHERE type = %s ORDER BY upload_date DESC NULLS LAST, id DESC LIMIT 1", ("beat_contract",))
+            row = cur.fetchone()
+            return row[0] if row else None
+        finally:
+            cur.close()

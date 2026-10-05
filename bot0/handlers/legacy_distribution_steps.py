@@ -130,32 +130,91 @@ def show_distribution_agreement(message):
             reply_markup=markup
         )
 
+DISTRIBUTION_PRICES = {"Single": 1299, "Maxi Single": 1799, "EP": 2399, "ALBUM": 2899}
+
+
+def _distribution_base_price(user_data: dict) -> int:
+    return DISTRIBUTION_PRICES.get(user_data.get('release_type') or "Single", DISTRIBUTION_PRICES["Single"])
+
+
+def _discounted_amount(base_amount: int, discount_pct: float) -> int:
+    return max(1, int(base_amount * (1 - discount_pct / 100)))
+
+
+def _user_is_artist(cursor, user_id: int) -> bool:
+    cursor.execute('SELECT COALESCE(artist, 0) FROM label WHERE telegram_id = %s', (user_id,))
+    row = cursor.fetchone()
+    return bool(row and row[0])
+
+
+def _owned_discount_promo(cursor, user_id: int, promo_id: int):
+    """Скидочный промокод, который пользователь действительно активировал."""
+    cursor.execute("""
+        SELECT pc.code, COALESCE(pc.discount, 0)
+        FROM user_discount_promos udp
+        JOIN promo_codes pc ON pc.id = udp.promo_code_id AND pc.is_active = TRUE
+        WHERE udp.user_id = %s AND pc.id = %s
+        AND (pc.expires_at IS NULL OR pc.expires_at > CURRENT_TIMESTAMP)
+    """, (user_id, promo_id))
+    return cursor.fetchone()
+
+
 def handle_distribution_pay(call):
-    """Create payment for distribution based on calculated cost"""
+    """Списать оплату дистрибуции. Сумма из кнопки только сверяется: её может подделать клиент."""
     try:
-        amount = int(call.data.split("_")[2])
+        claimed_amount = int(call.data.split("_")[2])
     except Exception:
         bot.answer_callback_query(call.id, "❌ Неверная сумма", show_alert=True)
         return
 
     user_id = call.from_user.id
+    user_data = bot.user_data.get(user_id, {})
+    if not user_data.get('release_type'):
+        bot.answer_callback_query(call.id, "❌ Данные релиза не найдены. Заполните форму заново.", show_alert=True)
+        return
+
     conn = get_pg_connection()
     if not conn:
         bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
         return
 
+    cursor = None
     try:
         cursor = conn.cursor()
+        if _user_is_artist(cursor, user_id):
+            bot.answer_callback_query(call.id)
+            save_release_data_for_user(user_id, call.message.chat.id)
+            return
+
+        base_amount = _distribution_base_price(user_data)
+        amount = base_amount
+        promo_id = user_data.get('distribution_promo_id')
+        if promo_id and claimed_amount != base_amount:
+            promo = _owned_discount_promo(cursor, user_id, promo_id)
+            if promo:
+                amount = _discounted_amount(base_amount, float(promo[1]))
+        if claimed_amount != amount:
+            user_data.pop('distribution_promo_id', None)
+            user_data.pop('distribution_discount_pct', None)
+            bot.answer_callback_query(call.id, f"❌ Сумма к оплате изменилась: {base_amount}₽. Нажмите «Оплатить» ещё раз.", show_alert=True)
+            return
+        if amount == base_amount:
+            promo_id = None
+            user_data.pop('distribution_promo_id', None)
+            user_data.pop('distribution_discount_pct', None)
+
+        cursor.execute(
+            'UPDATE label SET balance = balance - %s WHERE telegram_id = %s AND COALESCE(balance, 0) >= %s RETURNING balance',
+            (amount, user_id, amount),
+        )
+        charged = cursor.fetchone()
+        conn.commit()
         cursor.execute('SELECT COALESCE(balance, 0) FROM label WHERE telegram_id = %s', (user_id,))
         row = cursor.fetchone()
         current_balance = float(row[0]) if row else 0.0
 
-        if current_balance >= amount:
-            cursor.execute('UPDATE label SET balance = COALESCE(balance,0) - %s WHERE telegram_id = %s',
-                           (amount, user_id))
-            conn.commit()
-            user_data = bot.user_data.get(user_id, {})
-            promo_id = user_data.pop('distribution_promo_id', None)
+        if charged:
+            user_data.pop('distribution_promo_id', None)
             user_data.pop('distribution_discount_pct', None)
             if promo_id:
                 try:
@@ -180,7 +239,7 @@ def handle_distribution_pay(call):
             # Сохранить релиз для пользователя
             save_release_data_for_user(user_id, call.message.chat.id)
         else:
-            needed = int(amount - current_balance)
+            needed = max(50, int(-(-(amount - current_balance) // 1)))
             markup = types.InlineKeyboardMarkup()
             # Сохраняем ожидаемую операцию, чтобы после пополнения продолжить автоматически и не терять прогресс
             bot.user_data.setdefault(user_id, {})['pending_operation'] = {
@@ -203,9 +262,9 @@ def handle_distribution_pay(call):
         logger.error(f"Error in handle_distribution_pay: {e}")
         bot.answer_callback_query(call.id, "❌ Ошибка обработки оплаты", show_alert=True)
     finally:
-        if conn:
+        if cursor:
             cursor.close()
-            return_pg_connection(conn)
+        return_pg_connection(conn)
 
 def save_release_data_for_user(user_id: int, chat_id: int) -> None:
     """Save release using data from bot.user_data for specified user and notify."""
@@ -1589,7 +1648,21 @@ def process_preview_confirmation(message):
             reply_markup=markup
         )
     elif message.text == "✅ Отправить бесплатно":
-        # Для пользователей со статусом artist - сразу сохраняем релиз
+        # Для пользователей со статусом artist - сразу сохраняем релиз.
+        # Текст кнопки можно отправить вручную, поэтому роль проверяем по базе.
+        is_artist = False
+        conn = get_pg_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                is_artist = _user_is_artist(cursor, user_id)
+            finally:
+                cursor.close()
+                return_pg_connection(conn)
+        if not is_artist:
+            bot.send_message(message.chat.id, "❌ Бесплатная отправка доступна только артистам лейбла. Выберите «✅ Оплатить и отправить».")
+            bot.register_next_step_handler(message, process_preview_confirmation)
+            return
         bot.send_message(
             message.chat.id,
             "🎉 Отправляем релиз бесплатно! Сохраняем данные...",
@@ -2343,7 +2416,7 @@ def handle_distribution_complete(call):
 def handle_use_promo_distribution(call):
     """Показать список промокодов на скидку при оплате дистрибуции"""
     user_id = call.from_user.id
-    base_amount = bot.user_data.get(user_id, {}).get('calculated_cost', 1299)
+    base_amount = _distribution_base_price(bot.user_data.get(user_id, {}))
     conn = get_pg_connection()
     if not conn:
         bot.answer_callback_query(call.id, "❌ Ошибка подключения к БД", show_alert=True)
@@ -2390,20 +2463,20 @@ def handle_apply_promo_distribution(call):
         bot.answer_callback_query(call.id, "❌ Неверные данные", show_alert=True)
         return
     user_id = call.from_user.id
-    base_amount = bot.user_data.get(user_id, {}).get('calculated_cost', 1299)
+    base_amount = _distribution_base_price(bot.user_data.get(user_id, {}))
     conn = get_pg_connection()
     if not conn:
         bot.answer_callback_query(call.id, "❌ Ошибка подключения к БД", show_alert=True)
         return
+    cursor = None
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT code, COALESCE(discount, 0) FROM promo_codes WHERE id = %s AND is_active = TRUE', (promo_id,))
-        row = cursor.fetchone()
+        row = _owned_discount_promo(cursor, user_id, promo_id)
         if not row:
             bot.answer_callback_query(call.id, "Промокод недоступен", show_alert=True)
             return
         code, discount_pct = row[0], float(row[1])
-        discounted = max(1, int(base_amount * (1 - discount_pct / 100)))
+        discounted = _discounted_amount(base_amount, discount_pct)
         bot.user_data.setdefault(user_id, {})['distribution_promo_id'] = promo_id
         bot.user_data.setdefault(user_id, {})['distribution_discount_pct'] = discount_pct
         markup = types.InlineKeyboardMarkup()

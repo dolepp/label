@@ -128,18 +128,7 @@ def _show_improved_distribution_preview(bot, chat_id, message_id, form):
     text += f"🎶 Жанр: {form.data.get('genre', '-')}\n"
     text += f"📅 Дата: {form.data.get('release_date', '-')}\n"
     text += f"🔞 Маты: {form.data.get('explicit_content', '-')}\n\n"
-    is_artist = False
-    try:
-        conn = _ctx("get_pg_connection")()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT artist FROM label WHERE telegram_id = %s', (form.user_id,))
-            row = cursor.fetchone()
-            is_artist = bool(row and row[0])
-            cursor.close()
-            _ctx("return_pg_connection")(conn)
-    except Exception:
-        pass
+    is_artist = _is_artist(form.user_id)
     text += "🎉 БЕСПЛАТНО! У вас статус Artist" if is_artist else "💵 Стоимость: 1299₽"
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(types.InlineKeyboardButton("✅ Отправить бесплатно", callback_data="idist_submit_free") if is_artist else types.InlineKeyboardButton("💳 Оплатить и отправить", callback_data="idist_pay"))
@@ -152,6 +141,24 @@ def _show_improved_distribution_preview(bot, chat_id, message_id, form):
         bot.edit_message_text(text, chat_id, message_id, reply_markup=markup)
     except Exception as exc:
         logger.error("Error showing preview: %s", exc)
+
+
+def _is_artist(user_id: int) -> bool:
+    try:
+        conn = _ctx("get_pg_connection")()
+        if not conn:
+            return False
+        cursor = conn.cursor()
+        try:
+            cursor.execute('SELECT artist FROM label WHERE telegram_id = %s', (user_id,))
+            row = cursor.fetchone()
+            return bool(row and row[0])
+        finally:
+            cursor.close()
+            _ctx("return_pg_connection")(conn)
+    except Exception as exc:
+        logger.error("Could not check artist role for %s: %s", user_id, exc)
+        return False
 
 
 def _process_improved_distribution_input(bot, message):
@@ -406,6 +413,9 @@ def register_legacy_distribution_handlers(bot, context: dict | None = None) -> N
         form = getattr(bot, "improved_distribution_forms", {}).get(call.from_user.id)
         if not form:
             bot.answer_callback_query(call.id, "Форма не найдена", show_alert=True)
+            return
+        if not _is_artist(call.from_user.id):
+            bot.answer_callback_query(call.id, "Бесплатная отправка доступна только артистам лейбла", show_alert=True)
             return
         bot.user_data[call.from_user.id] = _form_to_legacy_user_data(form)
         bot.answer_callback_query(call.id)

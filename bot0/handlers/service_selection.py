@@ -6,6 +6,8 @@ from typing import Any, Callable
 
 from telebot import types
 
+from core.config import SERVICE_PRICES
+
 logger = logging.getLogger(__name__)
 
 bot = None
@@ -14,17 +16,17 @@ handle_service_release_for_artist: Callable[..., Any] | None = None
 DESIGN_SERVICES = {
     "cover": {
         "name": "Обложка",
-        "price": 2000,
+        "price": SERVICE_PRICES["cover"],
         "description": "Профессиональный дизайн обложки для вашего релиза",
     },
     "motion": {
         "name": "Motion обложка",
-        "price": 1500,
+        "price": SERVICE_PRICES["motion"],
         "description": "Анимированная обложка для соцсетей",
     },
     "videoshot": {
         "name": "Видеошот",
-        "price": 1000,
+        "price": SERVICE_PRICES["videoshot"],
         "description": "Короткий вертикальный клип",
     },
 }

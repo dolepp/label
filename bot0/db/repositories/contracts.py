@@ -64,3 +64,30 @@ def get_user_contract(contract_id: int, user_id: int) -> dict | None:
             return _contract_from_row(row) if row else None
         finally:
             cur.close()
+
+
+def create_contract_request(user_id: int, contract_type: str = "standard", notes: str | None = None) -> dict | None:
+    """Заявка на договор — тот же формат, что создаёт сайт (CTR-YYYYMMDD-id)."""
+    with connection() as conn:
+        if conn is None:
+            return None
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                INSERT INTO contracts (user_id, contract_type, status, notes, created_at, updated_at)
+                VALUES (%s, %s, 'pending', %s, NOW(), NOW())
+                RETURNING id, created_at
+                """,
+                (user_id, contract_type, notes),
+            )
+            contract_id, created_at = cur.fetchone()
+            contract_number = f"CTR-{created_at.strftime('%Y%m%d')}-{contract_id}"
+            cur.execute("UPDATE contracts SET contract_number = %s WHERE id = %s", (contract_number, contract_id))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+    return get_user_contract(contract_id, user_id)

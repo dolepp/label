@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, Callable
 
 from core.config import PERMANENT_ADMINS
+from db.repositories.design_orders import create_design_order
 from handlers.design_admin import build_design_status_markup, format_design_request_text
 from handlers.legacy_distribution_steps import save_release_data_for_user
 from services import notifications
@@ -101,7 +102,7 @@ def _ensure_user_exists_and_get_info(cursor, conn, user_id: int):
             cursor.execute(
                 """
                 INSERT INTO label (telegram_id, created_date, balance, artist)
-                VALUES (%s, CURRENT_TIMESTAMP, 0, 1)
+                VALUES (%s, CURRENT_TIMESTAMP, 0, 0)
                 ON CONFLICT (telegram_id) DO NOTHING
                 """,
                 (user_id,),
@@ -177,8 +178,22 @@ def handle_successful_payment(call, payment):
     cursor = None
     try:
         cursor = conn.cursor()
-        cursor.execute("UPDATE orders SET status = %s WHERE payment_id = %s", ("completed", payment.id))
+        # Переводим заказ в completed ровно один раз: повторное нажатие «Проверить оплату»
+        # или два параллельных нажатия не должны зачислить деньги дважды.
+        candidate_ids = [payment.id]
+        metadata_order_id = (getattr(payment, "metadata", None) or {}).get("order_id")
+        if metadata_order_id and metadata_order_id != payment.id:
+            candidate_ids.append(metadata_order_id)
+        cursor.execute(
+            "UPDATE orders SET status = 'completed' WHERE payment_id = ANY(%s) AND status <> 'completed' RETURNING id",
+            (candidate_ids,),
+        )
+        transitioned = cursor.fetchone()
         conn.commit()
+        if not transitioned:
+            logger.warning("Payment %s already processed or order missing; skipping", payment.id)
+            active_bot.answer_callback_query(call.id, "✅ Этот платёж уже обработан", show_alert=True)
+            return
         username, artist_name = _ensure_user_exists_and_get_info(cursor, conn, user_id)
 
         if service != "topup":
@@ -237,17 +252,31 @@ def handle_design_payment(call, payment, service):
         storage = _require("ensure_user_storage")(user_id)
         briefs = storage.get("design_briefs", {})
         brief_text = briefs.pop(service, None)
-        order_entry = {
-            "id": generate_request_id(),
-            "service": service,
-            "details": brief_text or "Бриф не был заполнен",
-            "status": "принят",
-            "user_id": user_id,
-            "chat_id": call.message.chat.id,
-            "user_display": user_display,
-            "created_at": datetime.now().isoformat(),
-        }
-        DESIGN_BRIEF_REQUESTS.append(order_entry)
+        order_entry = None
+        try:
+            order_entry = create_design_order(
+                user_id=user_id,
+                service=service,
+                details=brief_text or "Бриф не был заполнен",
+                title=SERVICE_LABELS.get(service, service),
+                chat_id=call.message.chat.id,
+                user_display=user_display,
+                payment_id=getattr(payment, "id", None),
+            )
+        except Exception as exc:
+            logger.error("Could not persist design order for %s: %s", user_id, exc)
+        if not order_entry:
+            order_entry = {
+                "id": generate_request_id(),
+                "service": service,
+                "details": brief_text or "Бриф не был заполнен",
+                "status": "принят",
+                "user_id": user_id,
+                "chat_id": call.message.chat.id,
+                "user_display": user_display,
+                "created_at": datetime.now().isoformat(),
+            }
+            DESIGN_BRIEF_REQUESTS.append(order_entry)
         notify_admins_design(order_entry)
 
         service_label = SERVICE_LABELS.get(service, service)

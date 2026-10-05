@@ -5,7 +5,8 @@ import logging
 
 from telebot import types
 
-from db.repositories.contracts import get_user_contract, list_user_contracts
+from core.config import PERMANENT_ADMINS
+from db.repositories.contracts import create_contract_request, get_user_contract, list_user_contracts
 
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,52 @@ def _download_caption(contract: dict) -> str:
     )
 
 
+def _notify_admins_about_contract(bot, contract: dict, user) -> None:
+    username = f"@{user.username}" if getattr(user, "username", None) else str(user.id)
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("📋 Открыть договор", callback_data=f"admin_view_contract_{contract['id']}"))
+    text = (
+        "📄 Новая заявка на договор\n\n"
+        f"👤 Пользователь: {username} (ID {user.id})\n"
+        f"🔢 Номер: {contract.get('contract_number')}\n"
+        "Источник: бот"
+    )
+    for admin_id in PERMANENT_ADMINS:
+        try:
+            bot.send_message(admin_id, text, reply_markup=markup)
+        except Exception as exc:
+            logger.error("Failed to notify admin %s about contract %s: %s", admin_id, contract["id"], exc)
+
+
 def register_contract_handlers(bot) -> None:
+    @bot.callback_query_handler(func=lambda call: call.data == "create_contract")
+    def handle_create_contract(call):
+        try:
+            existing = list_user_contracts(call.from_user.id)
+        except Exception as exc:
+            logger.error("Error fetching contracts for user %s: %s", call.from_user.id, exc)
+            existing = []
+        if any(contract.get("status") in ("pending", "processing") for contract in existing):
+            bot.answer_callback_query(call.id, "⏳ У вас уже есть заявка на договор в работе. Дождитесь её завершения.", show_alert=True)
+            return
+        try:
+            contract = create_contract_request(call.from_user.id, notes="Заявка на договор из бота")
+        except Exception as exc:
+            logger.error("Error creating contract for user %s: %s", call.from_user.id, exc)
+            contract = None
+        if not contract:
+            bot.answer_callback_query(call.id, "❌ Не удалось создать заявку. Попробуйте позже.", show_alert=True)
+            return
+        _notify_admins_about_contract(bot, contract, call.from_user)
+        bot.answer_callback_query(call.id, "✅ Заявка создана")
+        bot.edit_message_text(
+            f"✅ Заявка на договор {contract.get('contract_number')} создана.\n\n"
+            "Мы подготовим документ и пришлём уведомление, когда он будет готов.",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=_contract_detail_markup(contract),
+        )
+
     @bot.callback_query_handler(func=lambda call: call.data == "my_contracts")
     def handle_my_contracts(call):
         try:

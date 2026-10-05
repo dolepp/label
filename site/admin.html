@@ -201,7 +201,9 @@
     let user = null;
     let adminId = null;
     let isAdmin = false;
-    const state = { statuses: ['pending','На рассмотрении','Принят','Отправлен на площадки','Отгружен на площадки','Релиз','Отозван с площадок','rejected'] };
+    const state = { statuses: ['pending','принят','отправлен на площадки','отгружен на площадки','Релиз','Отозван с площадок','отклонен'] };
+    const STATUS_LABELS = { 'pending':'На рассмотрении', 'принят':'Принят', 'отправлен на площадки':'Отправлен на площадки', 'отгружен на площадки':'Отгружен на площадки', 'релиз':'Релиз', 'отозван с площадок':'Отозван с площадок', 'отклонен':'Отклонён', 'rejected':'Отклонён', 'на рассмотрении':'На рассмотрении' };
+    function statusLabel(status) { return STATUS_LABELS[String(status || 'pending').toLowerCase()] || status; }
 
     function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char])); }
     function money(value) { return `${Number(value || 0).toLocaleString('ru-RU')} ₽`; }
@@ -209,7 +211,7 @@
     function formatBytes(bytes) { const value = Number(bytes || 0); if (!value) return '0 Б'; const units = ['Б','КБ','МБ','ГБ','ТБ']; const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1); return `${(value / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}`; }
     function userLabel(row) { return escapeHtml(row?.name || row?.artistName || row?.user_name || row?.owner_name || row?.tg || row?.telegram_id || row?.user_id || '—'); }
     function roleBadges(u) { return ['admin','owner','artist','creator'].filter(k => u?.[k]).map(k => `<span class="badge">${k}</span>`).join(' ') || '<span class="muted">—</span>'; }
-    function statusClass(status) { const s = String(status || '').toLowerCase(); if (s.includes('релиз') || s.includes('completed') || s.includes('approved') || s.includes('закрыт') || s.includes('отгружен')) return 'ok'; if (s.includes('pending') || s.includes('рассмотр')) return 'warn'; if (s.includes('rejected') || s.includes('отозван') || s.includes('failed')) return 'bad'; return ''; }
+    function statusClass(status) { const s = String(status || '').toLowerCase(); if (s.includes('релиз') || s.includes('completed') || s.includes('approved') || s.includes('закрыт') || s.includes('отгружен')) return 'ok'; if (s.includes('pending') || s.includes('рассмотр')) return 'warn'; if (s.includes('rejected') || s.includes('отклон') || s.includes('отозван') || s.includes('failed') || s.includes('cancel')) return 'bad'; return ''; }
     function boolText(value) { return value ? 'Да' : 'Нет'; }
     function fileButton(url, label) { return url ? `<a class="button secondary" href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>` : `<span class="muted">${escapeHtml(label)}: нет</span>`; }
     function validExternalUrl(value) { return /^https?:\/\//i.test(String(value || '').trim()); }
@@ -303,13 +305,13 @@
       };
     }
 
-    function statusSelect(release) { return `<select data-release-status="${release.id}">${state.statuses.map(s => `<option value="${escapeHtml(s)}" ${s === release.status ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}</select>`; }
+    function statusSelect(release) { const current = String(release.status || 'pending').toLowerCase(); return `<select data-release-status="${release.id}">${state.statuses.map(s => `<option value="${escapeHtml(s)}" ${s.toLowerCase() === current || (current === 'rejected' && s === 'отклонен') || (current === 'на рассмотрении' && s === 'pending') ? 'selected' : ''}>${escapeHtml(statusLabel(s))}</option>`).join('')}</select>`; }
     async function loadReleases() {
       const q = encodeURIComponent($('releaseSearch').value.trim());
       const st = encodeURIComponent($('releaseStatusFilter').value || 'all');
       const data = await fetchJson(`/api/admin/releases?q=${q}&status=${st}`);
       state.statuses = data.statuses || state.statuses;
-      $('releaseStatusFilter').innerHTML = '<option value="all">Все статусы</option>' + state.statuses.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+      $('releaseStatusFilter').innerHTML = '<option value="all">Все статусы</option>' + state.statuses.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(statusLabel(s))}</option>`).join('');
       $('releaseStatusFilter').value = decodeURIComponent(st);
       $('releasesTable').innerHTML = data.releases.map((r) => `
         <tr><td>#${r.id}</td><td><b>${escapeHtml(r.release_name)}</b><br><span class="muted">${escapeHtml(r.artist_name)} · ${escapeHtml(r.release_type)}${r.upc_code ? ` · UPC ${escapeHtml(r.upc_code)}` : ''}</span></td><td>${escapeHtml(r.owner_name || r.user_id)}<br><span class="muted">${escapeHtml(r.user_id)}</span></td><td>${dateText(r.release_date)}</td><td>${statusSelect(r)}</td><td>${r.has_audio ? 'аудио' : '—'} ${r.has_cover ? 'обложка' : ''}</td><td><button class="secondary" data-release-open="${r.id}">Открыть</button></td></tr>

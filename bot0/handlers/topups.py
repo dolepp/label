@@ -32,8 +32,6 @@ def _payment_method_markup(amount: int):
     markup.add(
         types.InlineKeyboardButton("💳 YooKassa", callback_data=f"yookassa_pay_{amount}"),
         types.InlineKeyboardButton("🤖 Crypto Bot", callback_data=f"crypto_pay_{amount}"),
-        types.InlineKeyboardButton("⭐ Telegram Stars", callback_data=f"stars_pay_{amount}"),
-        types.InlineKeyboardButton("💎 TON", callback_data=f"ton_pay_{amount}"),
         types.InlineKeyboardButton("◀️ Назад", callback_data="topup_back"),
     )
     return markup
@@ -178,7 +176,6 @@ def _create_yookassa_payment(bot, call, ctx: dict) -> None:
             logger.error("Failed to create YooKassa payment: %s", exc)
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("💳 Crypto Bot", callback_data=f"crypto_pay_{amount}"))
-        markup.add(types.InlineKeyboardButton("⭐ Telegram Stars", callback_data=f"stars_pay_{amount}"))
         markup.add(types.InlineKeyboardButton("🔄 Попробовать снова", callback_data=f"yookassa_pay_{amount}"))
         bot.answer_callback_query(call.id, "❌ Ошибка при создании платежа в YooKassa", show_alert=True)
         bot.edit_message_text(
@@ -205,8 +202,9 @@ def _create_crypto_payment(bot, call, ctx: dict) -> None:
         response = requests.post(
             "https://pay.crypt.bot/api/createInvoice",
             json={
-                "asset": "USDT",
-                "amount": amount / 100,
+                "currency_type": "fiat",
+                "fiat": "RUB",
+                "amount": str(amount),
                 "description": f"Пополнение баланса пользователя {call.from_user.id}",
                 "payload": f"topup_{call.from_user.id}_{amount}",
             },
@@ -341,14 +339,25 @@ def _check_crypto_payment(bot, call, ctx: dict) -> None:
                 bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
                 return
             cursor = conn.cursor()
-            cursor.execute("SELECT user_id, amount FROM orders WHERE payment_id = %s", (invoice_id,))
+            cursor.execute("SELECT user_id, amount, status FROM orders WHERE payment_id = %s", (invoice_id,))
             order_info = cursor.fetchone()
             if not order_info:
                 bot.answer_callback_query(call.id, "❌ Заказ не найден", show_alert=True)
                 return
-            user_id, amount = order_info
-            cursor.execute("UPDATE orders SET status = %s WHERE payment_id = %s", ("completed", invoice_id))
+            user_id, amount, order_status = order_info
+            if user_id != call.from_user.id:
+                bot.answer_callback_query(call.id, "❌ Это не ваш платёж", show_alert=True)
+                return
+            # Атомарный переход: зачисляем только тот раз, когда статус реально сменился.
+            cursor.execute(
+                "UPDATE orders SET status = 'completed' WHERE payment_id = %s AND status <> 'completed' RETURNING id",
+                (invoice_id,),
+            )
+            transitioned = cursor.fetchone()
             conn.commit()
+            if not transitioned:
+                bot.answer_callback_query(call.id, "✅ Этот платёж уже зачислен", show_alert=True)
+                return
             if not _change_user_balance(ctx, user_id, amount):
                 bot.answer_callback_query(call.id, "❌ Ошибка зачисления баланса", show_alert=True)
                 return
@@ -465,11 +474,13 @@ def register_topup_handlers(
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("stars_pay_"))
     def handle_stars_payment(call):
-        _handle_provider_payment(bot, call, payment_handlers, payment_context, "stars")
+        # Stars и TON не подключены (нет инвойсов XTR и кошелька) — не даём уйти в фейковую оплату.
+        _provider_unavailable(bot, call)
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("ton_pay_"))
     def handle_ton_payment(call):
-        _handle_provider_payment(bot, call, payment_handlers, payment_context, "ton")
+        # Stars и TON не подключены (нет инвойсов XTR и кошелька) — не даём уйти в фейковую оплату.
+        _provider_unavailable(bot, call)
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("check_crypto_"))
     def handle_crypto_payment_check(call):

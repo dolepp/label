@@ -15,6 +15,7 @@ from db.repositories.admin_user_releases import (
     list_recent_releases,
 )
 from db.repositories.users import list_admin_ids
+from utils.statuses import release_status_label
 
 
 logger = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ def _artist_releases_text(artist_name: str, releases: list[dict]) -> str:
         lines.extend([
             f"🎵 {release.get('release_name') or 'Без названия'}",
             f"📅 {_date_text(release.get('release_date'))}",
-            f"🟢 {release.get('status') or 'статус не указан'}",
+            f"🟢 {release_status_label(release.get('status'))}",
             "",
         ])
     return "\n".join(lines)

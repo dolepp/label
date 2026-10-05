@@ -8,6 +8,7 @@ from telebot import types
 from core.config import MANAGER_USERNAME
 from keyboards.reply import create_main_menu
 from db.repositories.release_details import get_album_detail, get_release_detail, get_release_detail_by_name
+from utils.statuses import release_status_label
 
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ def _album_detail_text(album: dict) -> str:
     return (
         f"💿 Альбом: {album.get('release_name')}\n\n"
         f"📅 Дата релиза: {_date_text(album.get('release_date'))}\n"
-        f"🟢 Статус: {album.get('status')}\n"
+        f"🟢 Статус: {release_status_label(album.get('status'))}\n"
         f"🔖 UPC код: {album.get('upc_code') or 'не указан'}\n\n"
         "🎵 Треки в альбоме:"
     )
@@ -48,7 +49,7 @@ def _release_detail_text(release: dict) -> str:
         f"📱 TikTok коммерч.: {_yes_no(release.get('tiktok_commercial'))}",
         f"🎵 TikTok полная версия: {_yes_no(release.get('tiktok_full_version'))}",
         f"⏱️ Секунды TikTok: {preview}",
-        f"🟢 Статус: {release.get('status')}",
+        f"🟢 Статус: {release_status_label(release.get('status'))}",
         f"🔖 UPC код: {release.get('upc_code') or 'пока что нет'}",
     ]
 

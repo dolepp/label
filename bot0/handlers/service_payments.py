@@ -12,6 +12,8 @@ from typing import Any, Callable
 
 from telebot import types
 
+from core.config import SERVICE_PRICES
+
 from handlers.service_selection import show_design_service as _default_show_design_service
 
 logger = logging.getLogger(__name__)
@@ -27,14 +29,6 @@ handle_design_payment: Callable[..., Any] | None = None
 handle_successful_payment: Callable[..., Any] | None = None
 Payment = None
 DESIGN_BRIEF_TEMPLATES: dict[str, Any] = {}
-
-SERVICE_PRICES = {
-    "distribution": 1299,
-    "cover": 2000,
-    "motion": 1500,
-    "videoshot": 1000,
-}
-
 
 def configure_service_payments(**context: Any) -> None:
     globals().update({key: value for key, value in context.items() if value is not None})
@@ -72,46 +66,7 @@ def handle_payment(call):
             _require("show_design_service")(call.message, service)
             return
 
-    promo = None
-    conn = _require("get_pg_connection")()
-    cursor = None
-    if conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT code, discount FROM promo_codes WHERE service_type = %s AND current_activations < max_activations",
-                (service,),
-            )
-            promo = cursor.fetchone()
-        except Exception as exc:
-            logger.error("PostgreSQL error in handle_payment promo check: %s", exc)
-            promo = None
-        finally:
-            try:
-                if cursor:
-                    cursor.close()
-                _require("return_pg_connection")(conn)
-            except Exception:
-                pass
-    else:
-        logger.warning("Database unavailable for promo check; skipping")
-
     try:
-        if promo:
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton("💳 Оплатить без промокода", callback_data=f"confirm_pay_{service}"),
-                types.InlineKeyboardButton("🎟 Ввести промокод", callback_data=f"promo_{service}"),
-                types.InlineKeyboardButton("◀️ Отмена", callback_data="services_back"),
-            )
-            active_bot.edit_message_text(
-                f"💰 Сумма к оплате: {price}₽\n\nУ вас есть промокод?",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=markup,
-            )
-            return
-
         balance = _require("get_user_balance_safe")(user_id)
         if balance >= price:
             if _require("change_user_balance")(user_id, -price):

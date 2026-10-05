@@ -6,18 +6,19 @@ from typing import Any
 from db.pool import connection
 
 
-PROFILE_FIELDS = {"name", "kanal", "fio", "email"}
+PROFILE_FIELDS = {"name", "kanal", "fio", "email", "phone"}
 
 
 def _row_to_profile(row) -> dict[str, Any] | None:
     if row is None:
         return None
-    name, kanal, fio, email, balance = row
+    name, kanal, fio, email, phone, balance = row
     return {
         "name": name,
         "kanal": kanal,
         "fio": fio,
         "email": email,
+        "phone": phone,
         "balance": balance or 0,
     }
 
@@ -30,7 +31,7 @@ def get_profile(user_id: int) -> dict[str, Any] | None:
         try:
             cur.execute(
                 """
-                SELECT name, kanal, fio, email, COALESCE(balance, 0)
+                SELECT name, kanal, fio, email, phone, COALESCE(balance, 0)
                 FROM label
                 WHERE telegram_id = %s
                 """,

@@ -357,6 +357,24 @@ def register_admin_contract_handlers(bot) -> None:
         bot.answer_callback_query(call.id, "✅ Договор взят в работу", show_alert=True)
         _refresh_admin_contract(bot, call, contract_id)
 
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("reopen_contract_"))
+    def handle_reopen_contract(call):
+        if not _is_admin(call.from_user.id):
+            bot.answer_callback_query(call.id, "❌ Только администраторы могут управлять договорами", show_alert=True)
+            return
+        try:
+            contract_id = int(call.data.split("_")[2])
+            contract = update_contract_status(contract_id, "processing")
+        except Exception as exc:
+            logger.error("Error reopening contract: %s", exc)
+            bot.answer_callback_query(call.id, "❌ Ошибка при изменении статуса", show_alert=True)
+            return
+        if not contract:
+            bot.answer_callback_query(call.id, "❌ Договор не найден", show_alert=True)
+            return
+        bot.answer_callback_query(call.id, "🔄 Договор снова в работе", show_alert=True)
+        _refresh_admin_contract(bot, call, contract_id)
+
     @bot.callback_query_handler(func=lambda call: call.data.startswith("reject_contract_"))
     def handle_reject_contract(call):
         if not _is_admin(call.from_user.id):

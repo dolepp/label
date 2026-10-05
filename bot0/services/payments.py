@@ -46,9 +46,22 @@ def change_user_balance(
             return False
 
         cursor = conn.cursor()
-        cursor.execute("UPDATE label SET balance = COALESCE(balance,0) + %s WHERE telegram_id = %s", (delta, user_id))
+        if delta < 0:
+            # Списание атомарно проверяет остаток: два параллельных списания не уведут баланс в минус.
+            cursor.execute(
+                "UPDATE label SET balance = COALESCE(balance,0) + %s WHERE telegram_id = %s AND COALESCE(balance,0) >= %s RETURNING balance",
+                (delta, user_id, -delta),
+            )
+        else:
+            cursor.execute(
+                "UPDATE label SET balance = COALESCE(balance,0) + %s WHERE telegram_id = %s RETURNING balance",
+                (delta, user_id),
+            )
+        updated = cursor.fetchone()
         conn.commit()
-        return True
+        if not updated:
+            logger.warning("Balance change %s for %s was not applied (insufficient funds or no user)", delta, user_id)
+        return bool(updated)
     except Exception as exc:
         logger.error("Failed to change balance for %s by %s: %s", user_id, delta, exc)
         return False
