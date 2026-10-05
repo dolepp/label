@@ -2,745 +2,631 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>talk with a star // label</title>
+  <meta name="description" content="Музыкальный лейбл talk with a star: дистрибуция релизов на все площадки, обложки, motion, видеошоты, отчёты и личный кабинет артиста.">
+  <meta name="theme-color" content="#0b0b0d">
+  <meta property="og:title" content="talk with a star // label">
+  <meta property="og:description" content="Дистрибуция музыки на все площадки и кабинет артиста.">
+  <meta property="og:image" content="/assets/logo.png?v=4">
   <link rel="icon" type="image/png" href="/assets/logo.png?v=4">
-  <link rel="shortcut icon" type="image/png" href="/assets/logo.png?v=4">
   <link rel="apple-touch-icon" href="/assets/logo.png?v=4">
-  <link rel="stylesheet" href="/assets/teleprompter.css?v=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;700;800&display=swap">
+  <link rel="stylesheet" href="/assets/teleprompter.css?v=2">
   <style>
     :root {
       color-scheme: dark;
-      --bg: #070a14;
-      --panel: rgba(15, 23, 42, .86);
-      --panel-2: rgba(30, 41, 59, .82);
-      --line: rgba(148, 163, 184, .16);
-      --text: #eef3ff;
-      --muted: #94a3b8;
-      --accent: #7c3aed;
-      --accent-2: #38bdf8;
-      --ok: #34d399;
+      --bg: #0b0b0d;
+      --bg-2: #111114;
+      --surface: #151518;
+      --surface-2: #1c1c21;
+      --surface-3: #24242a;
+      --line: #2a2a31;
+      --line-strong: #3a3a43;
+      --text: #f4f4f5;
+      --text-2: #c9c9cf;
+      --muted: #8b8b95;
+      --accent: #ffd23f;
+      --accent-ink: #141006;
+      --accent-soft: rgba(255, 210, 63, .12);
+      --ok: #4ade80;
       --warn: #fbbf24;
-      --danger: #fb7185;
-      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --danger: #f87171;
+      --info: #7dd3fc;
+      --radius: 14px;
+      --radius-lg: 20px;
+      --display: "Unbounded", "Manrope", system-ui, sans-serif;
+      --sans: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --nav-h: 64px;
     }
-
-    * {
-      box-sizing: border-box;
-      -webkit-tap-highlight-color: transparent;
-      -webkit-user-select: none;
-      user-select: none;
-    }
-    html { scroll-behavior: smooth; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html { scroll-behavior: smooth; scroll-padding-top: 84px; }
     body {
       margin: 0;
       min-height: 100vh;
-      background:
-        radial-gradient(circle at 12% 4%, rgba(124, 58, 237, .34), transparent 32rem),
-        radial-gradient(circle at 88% 20%, rgba(56, 189, 248, .20), transparent 28rem),
-        radial-gradient(circle at 50% 100%, rgba(16, 185, 129, .10), transparent 28rem),
-        var(--bg);
+      background: var(--bg);
       color: var(--text);
-      padding-bottom: 92px;
-      position: relative;
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      padding-bottom: 40px;
     }
-    body:before {
+    body::before {
       content: "";
       position: fixed;
-      inset: 0;
-      pointer-events: none;
-      opacity: .08;
-      z-index: -1;
-      background-image:
-        repeating-radial-gradient(circle at 0 0, rgba(255,255,255,.75) 0 1px, transparent 1px 4px),
-        linear-gradient(115deg, rgba(124,58,237,.18), transparent 40%, rgba(56,189,248,.12));
-      mix-blend-mode: screen;
-    }
-
-    .shell { width: min(1120px, calc(100% - 28px)); margin: 0 auto; padding: 22px 0; }
-    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 18px; }
-    .brand { display: flex; align-items: center; gap: 12px; font-weight: 900; letter-spacing: .03em; }
-    .logo {
-      width: 42px; height: 42px; border-radius: 15px;
-      display: grid; place-items: center;
-      background: #ffffff;
-      border: 1px solid rgba(148, 163, 184, .22);
-      box-shadow: 0 12px 30px rgba(0, 0, 0, .24);
-      padding: 6px;
-      overflow: hidden;
-    }
-    .logo img {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      display: block;
-    }
-    .top-actions { display: flex; gap: 10px; align-items: center; }
-
-    .section { display: none; animation: fade .18s ease-out; }
-    .section.active { display: block; }
-    @keyframes fade { from { opacity: .35; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-    @keyframes shinyText { to { background-position: 220% center; } }
-    @keyframes starBorder { to { background-position: 220% 0; } }
-    @keyframes sparkPop { from { opacity: .9; transform: translate(-50%, -50%) scale(.25); } to { opacity: 0; transform: translate(-50%, -50%) scale(1.8); } }
-    @keyframes marquee { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
-
-    .hero {
-      min-height: 250px;
-      border: 1px solid var(--line);
-      border-radius: 30px;
-      padding: clamp(24px, 5vw, 44px);
-      background:
-        linear-gradient(135deg, rgba(124, 58, 237, .24), rgba(56, 189, 248, .10)),
-        rgba(15, 23, 42, .78);
-      overflow: hidden;
-      position: relative;
-      isolation: isolate;
-    }
-    .hero h1 {
-      background: linear-gradient(90deg, #fff, #bae6fd, #c4b5fd, #fff);
-      background-size: 220% auto;
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-      animation: shinyText 6s linear infinite;
-    }
-    .hero:before {
-      content: "";
-      position: absolute;
-      inset: -1px;
-      border-radius: inherit;
-      padding: 1px;
-      background: linear-gradient(120deg, rgba(124,58,237,0), rgba(56,189,248,.9), rgba(124,58,237,0));
-      background-size: 220% 100%;
-      animation: starBorder 4s linear infinite;
-      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-      -webkit-mask-composite: xor;
-      mask-composite: exclude;
+      inset: 0 0 auto 0;
+      height: 520px;
       pointer-events: none;
       z-index: -1;
+      background: radial-gradient(60% 100% at 50% 0%, rgba(255, 210, 63, .07), transparent 70%);
     }
-    .hero:after {
-      content: "";
-      position: absolute;
-      inset: auto -60px -90px auto;
-      width: 240px; height: 240px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(56, 189, 248, .36), transparent 68%);
-      filter: blur(4px);
-    }
-    h1, h2, h3, p { margin-top: 0; }
-    h1 { font-size: clamp(34px, 7vw, 64px); line-height: .95; margin-bottom: 14px; max-width: 780px; }
-    h2 { font-size: clamp(24px, 4vw, 34px); margin-bottom: 16px; }
-    h3 { margin-bottom: 8px; }
+    a { color: inherit; }
+    img { max-width: 100%; }
+    h1, h2, h3, h4, p { margin-top: 0; }
+    h1, h2 { font-family: var(--display); letter-spacing: -.02em; font-weight: 700; }
+    h1 { font-size: clamp(32px, 6vw, 64px); line-height: 1.02; margin-bottom: 18px; }
+    h2 { font-size: clamp(22px, 3vw, 30px); line-height: 1.15; margin-bottom: 14px; }
+    h3 { font-size: 17px; font-weight: 800; margin-bottom: 6px; }
+    h4 { font-size: 14px; font-weight: 800; margin-bottom: 6px; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    ::selection { background: var(--accent); color: var(--accent-ink); }
+
+    .shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
     .muted { color: var(--muted); }
-    .hint { font-size: 13px; line-height: 1.5; }
-
-    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .card, .release, .service-card {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 24px;
-      padding: 18px;
-      box-shadow: 0 18px 60px rgba(0, 0, 0, .18);
-      backdrop-filter: blur(10px);
-      position: relative;
-      overflow: hidden;
-    }
-    .card:before, .release:before, .service-card:before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-      pointer-events: none;
-      background: radial-gradient(360px circle at var(--mx, 50%) var(--my, 0%), rgba(56,189,248,.16), transparent 42%);
-      transition: opacity .18s ease;
-    }
-    .card:hover:before, .release:hover:before, .service-card:hover:before { opacity: 1; }
-    .card:after, .service-card:after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.10) 50%, transparent 65%);
-      transform: translateX(-120%);
-      transition: transform .65s ease;
-    }
-    .card:hover:after, .service-card:hover:after { transform: translateX(120%); }
-    .tilt-card { transform-style: preserve-3d; transition: transform .18s ease, border-color .18s ease; }
-    .tilt-card:hover { transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-3px); border-color: rgba(56,189,248,.34); }
-    .pixel-card {
-      background-image:
-        linear-gradient(135deg, rgba(124,58,237,.18), rgba(56,189,248,.08)),
-        linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
-      background-size: auto, 14px 14px, 14px 14px;
-    }
-    .glass-icon-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-    .glass-icon {
-      min-height: 78px;
-      display: grid;
-      place-items: center;
-      gap: 4px;
-      border-radius: 18px;
-      border: 1px solid rgba(255,255,255,.13);
-      background: linear-gradient(135deg, rgba(255,255,255,.11), rgba(255,255,255,.03));
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 14px 34px rgba(0,0,0,.18);
-    }
-    .glass-icon b { font-size: 24px; }
-    .glass-icon span { color: var(--muted); font-size: 12px; }
-    .amount-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-    .topup-status { min-height: 22px; }
-    .topup-result {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-    }
-    .scroll-velocity {
-      overflow: hidden;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      background: rgba(15,23,42,.55);
-      margin-top: 16px;
-    }
-    .scroll-velocity span {
-      display: inline-block;
-      white-space: nowrap;
-      padding: 10px 0;
-      animation: marquee 22s linear infinite;
-      color: #bae6fd;
-      font-weight: 850;
-    }
-    .spark {
-      position: fixed;
-      width: 38px;
-      height: 38px;
-      border-radius: 50%;
-      pointer-events: none;
-      z-index: 9999;
-      border: 2px solid rgba(56,189,248,.9);
-      box-shadow: 0 0 24px rgba(124,58,237,.45);
-      animation: sparkPop .48s ease-out forwards;
-    }
-    .stack { display: grid; gap: 16px; }
+    .hint { font-size: 13px; }
+    .hidden { display: none !important; }
     .spaced { margin-top: 18px; }
+    .stack { display: grid; gap: 16px; }
+    .eyebrow { font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin-bottom: 10px; display: block; }
 
+    /* ---------- header ---------- */
+    .topbar {
+      position: sticky; top: 0; z-index: 60;
+      background: rgba(11, 11, 13, .82);
+      backdrop-filter: saturate(140%) blur(14px);
+      -webkit-backdrop-filter: saturate(140%) blur(14px);
+      border-bottom: 1px solid var(--line);
+    }
+    .topbar-inner { display: flex; align-items: center; gap: 18px; height: 64px; }
+    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 800; white-space: nowrap; background: none; border: 0; color: var(--text); padding: 0; cursor: pointer; font: inherit; }
+    .brand-logo { width: 34px; height: 34px; border-radius: 9px; background: #fff; padding: 4px; display: grid; place-items: center; }
+    .brand-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .brand-name { font-family: var(--display); font-size: 14px; letter-spacing: -.01em; font-weight: 700; }
+    .brand-name span { color: var(--muted); font-weight: 500; }
+    .nav { display: flex; gap: 2px; margin-left: 10px; }
+    .nav-item {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: transparent; border: 0; color: var(--muted);
+      padding: 8px 12px; border-radius: 10px;
+      font: 700 14px var(--sans); cursor: pointer;
+      transition: color .15s, background .15s;
+    }
+    .nav-item:hover { color: var(--text); background: var(--surface); }
+    .nav-item.active { color: var(--text); background: var(--surface-2); }
+    .nav-item svg { width: 18px; height: 18px; }
+    .nav-item .nav-label { white-space: nowrap; }
+    .top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+    .user-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border: 1px solid var(--line); border-radius: 999px; font-weight: 700; font-size: 13px; max-width: 220px; background: none; color: var(--text); cursor: pointer; font-family: var(--sans); }
+    .user-chip .avatar { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-size: 12px; font-weight: 800; flex: none; }
+    .user-chip .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ---------- buttons & inputs ---------- */
     button, .button-link {
-      border: 0;
-      color: white;
-      background: linear-gradient(135deg, var(--accent), #2563eb);
-      padding: 12px 15px;
-      border-radius: 15px;
-      font-weight: 850;
+      font: 700 14px/1 var(--sans);
+      border: 1px solid transparent;
+      background: var(--accent);
+      color: var(--accent-ink);
+      padding: 12px 16px;
+      min-height: 42px;
+      border-radius: 11px;
       cursor: pointer;
       text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      transition: background .15s, border-color .15s, color .15s, transform .1s, opacity .15s;
+      white-space: nowrap;
     }
-    button.secondary, .button-link.secondary { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
-    button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
-    button svg, .button-link svg, .service-icon svg, .glass-icon svg, .mini-row svg, .cover-placeholder svg {
-      width: 20px;
-      height: 20px;
-      stroke: currentColor;
-      stroke-width: 1.9;
-      fill: none;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      flex: 0 0 auto;
+    button:hover, .button-link:hover { background: #ffdc66; }
+    button:active, .button-link:active { transform: translateY(1px); }
+    button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+    button.secondary, .button-link.secondary { background: var(--surface-2); color: var(--text); border-color: var(--line); }
+    button.secondary:hover, .button-link.secondary:hover { background: var(--surface-3); border-color: var(--line-strong); }
+    button.ghost, .button-link.ghost { background: transparent; color: var(--text-2); border-color: var(--line); }
+    button.ghost:hover, .button-link.ghost:hover { color: var(--text); border-color: var(--line-strong); background: var(--surface); }
+    button.danger { background: transparent; color: var(--danger); border-color: rgba(248,113,113,.35); }
+    button.danger:hover { background: rgba(248,113,113,.1); }
+    button.small, .button-link.small { min-height: 34px; padding: 8px 12px; font-size: 13px; border-radius: 9px; }
+    button.is-loading { position: relative; color: transparent !important; pointer-events: none; }
+    button.is-loading::after { content: ""; position: absolute; width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-color: var(--accent-ink) transparent var(--accent-ink) transparent; animation: spin .7s linear infinite; }
+    button.secondary.is-loading::after, button.ghost.is-loading::after { border-color: var(--text) transparent var(--text) transparent; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    svg.i, button svg, .button-link svg, .nav-item svg, .icon-box svg, .mini-row svg, .cover-placeholder svg, .release-type-icon svg {
+      stroke: currentColor; stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; flex: none;
     }
-    .service-icon svg, .glass-icon svg {
-      width: 30px;
-      height: 30px;
-    }
-    .cover-placeholder svg {
-      width: 64px;
-      height: 64px;
-    }
+    button svg, .button-link svg { width: 18px; height: 18px; }
+
     input, textarea, select {
       width: 100%;
-      border: 1px solid rgba(148, 163, 184, .22);
-      background: #0b1120;
+      font: 500 15px var(--sans);
       color: var(--text);
-      padding: 13px 14px;
-      border-radius: 15px;
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      padding: 11px 13px;
+      min-height: 44px;
       outline: none;
-      font-size: 16px;
-      font-family: inherit;
+      transition: border-color .15s, background .15s;
     }
-    textarea { min-height: 112px; resize: vertical; }
-    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 7px; }
+    input:hover, textarea:hover, select:hover { border-color: var(--line-strong); }
+    input:focus, textarea:focus, select:focus { border-color: var(--accent); background: #0e0e11; }
+    input:disabled { color: var(--text-2); -webkit-text-fill-color: var(--text-2); opacity: 1; background: var(--surface); }
+    input::placeholder, textarea::placeholder { color: #5f5f69; }
+    select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 34px; }
+    textarea { min-height: 100px; resize: vertical; line-height: 1.5; }
+    input[type="file"] { padding: 9px; font-size: 13px; color: var(--muted); border-style: dashed; }
+    input[type="file"]::file-selector-button { font: 700 13px var(--sans); background: var(--surface-3); color: var(--text); border: 0; border-radius: 8px; padding: 7px 10px; margin-right: 10px; cursor: pointer; }
+    input[type="date"] { color-scheme: dark; }
+    label { display: block; font-size: 13px; font-weight: 700; color: var(--text-2); margin-bottom: 7px; }
     .row { display: flex; gap: 10px; align-items: center; }
-    .row > * { flex: 1; }
-    .actions { display: flex; flex-wrap: wrap; gap: 10px; }
-    .status { min-height: 20px; }
+    .row > * { flex: 1; min-width: 0; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .status { min-height: 20px; font-size: 14px; margin: 10px 0 0; }
     .ok { color: var(--ok); }
     .warn { color: var(--warn); }
     .error { color: var(--danger); white-space: pre-wrap; }
-    .hidden { display: none !important; }
+    code { font-family: var(--mono); background: var(--surface-2); padding: 2px 6px; border-radius: 6px; font-size: .9em; }
 
-    .stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-    .stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 18px; padding: 15px; }
-    .stat strong { display: block; min-height: 28px; font-size: 24px; }
-    .counter-container {
+    /* ---------- layout pieces ---------- */
+    main.shell { padding: 28px 0 40px; }
+    .section { display: none; }
+    .section.active { display: block; animation: fade .2s ease-out; }
+    @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+    .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+    .section-head h2 { margin-bottom: 4px; }
+    .section-head p { margin: 0; }
+    .card, .release, .service-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 20px;
       position: relative;
-      display: inline-block;
     }
-    .counter-counter {
-      display: flex;
-      overflow: hidden;
-      line-height: 1;
-      direction: ltr;
-      font-variant-numeric: tabular-nums;
-    }
-    .counter-digit {
-      position: relative;
-      width: 1ch;
-      font-variant-numeric: tabular-nums;
-      overflow: hidden;
-    }
-    .counter-number {
-      position: absolute;
-      top: 0;
-      right: 0;
-      bottom: 0;
-      left: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .counter-char {
-      display: inline-flex;
-      width: fit-content;
-      align-items: center;
-      justify-content: center;
-    }
-    .gradient-container {
-      pointer-events: none;
-      position: absolute;
-      inset: 0;
-    }
-    .top-gradient {
-      position: absolute;
-      top: 0;
-      width: 100%;
-    }
-    .bottom-gradient {
-      position: absolute;
-      bottom: 0;
-      width: 100%;
-    }
+    .card > h3:first-child, .card > h2:first-child { margin-top: 0; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .divider { height: 1px; background: var(--line); margin: 18px 0; border: 0; }
 
-    .release-list { display: grid; gap: 12px; }
-    .release-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
-    .release-title { font-weight: 900; font-size: 18px; margin: 0 0 6px; }
-    .meta { display: flex; flex-wrap: wrap; gap: 8px; }
-    .pill, .badge {
-      width: fit-content;
-      display: inline-flex;
-      padding: 6px 10px;
-      border-radius: 999px;
-      background: rgba(56, 189, 248, .13);
-      color: #bae6fd;
-      border: 1px solid rgba(56, 189, 248, .16);
-      font-size: 12px;
+    /* ---------- home ---------- */
+    .hero {
+      display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr); gap: 28px; align-items: stretch;
+      padding: clamp(20px, 4vw, 40px) 0 clamp(28px, 4vw, 48px);
     }
-    .badge.draft { background: rgba(168, 85, 247, .14); color: #e9d5ff; border-color: rgba(168, 85, 247, .22); }
-    .badge.pending { background: rgba(251, 191, 36, .13); color: #fde68a; border-color: rgba(251, 191, 36, .18); }
-    .badge.accepted, .badge.sent, .badge.delivered, .badge.released { background: rgba(52, 211, 153, .13); color: #bbf7d0; border-color: rgba(52, 211, 153, .18); }
-    .badge.withdrawn, .badge.rejected { background: rgba(251, 113, 133, .13); color: #fecdd3; border-color: rgba(251, 113, 133, .18); }
-    .details { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-top: 12px; }
-    .detail { background: rgba(2, 6, 23, .35); border: 1px solid rgba(148, 163, 184, .10); border-radius: 14px; padding: 10px; }
-    .detail span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
-    .detail b { font-size: 14px; }
-    .release {
-      transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    .hero h1 .accent { color: var(--accent); }
+    .hero-lead { font-size: clamp(16px, 1.6vw, 18px); color: var(--text-2); max-width: 560px; margin-bottom: 26px; }
+    .hero .actions button, .hero .actions .button-link { min-height: 50px; padding: 14px 22px; font-size: 15px; }
+    .hero-points { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 26px; color: var(--muted); font-size: 14px; font-weight: 600; }
+    .hero-points span { display: inline-flex; align-items: center; gap: 8px; }
+    .hero-points span::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+    .hero-panel {
+      border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface);
+      padding: 22px; display: grid; gap: 14px; align-content: start; align-self: center;
     }
-    .release-with-cover {
-      display: grid;
-      grid-template-columns: 96px minmax(0, 1fr);
-      gap: 14px;
-      align-items: stretch;
-    }
-    .release-cover-thumb {
-      width: 96px;
-      height: 96px;
-      min-height: 96px;
-      aspect-ratio: 1 / 1;
-      border-radius: 18px;
-      border: 1px solid rgba(148, 163, 184, .18);
-      background: linear-gradient(135deg, rgba(124,58,237,.28), rgba(56,189,248,.12)), rgba(2,6,23,.38);
-      display: grid;
-      place-items: center;
-      overflow: hidden;
-      align-self: stretch;
-    }
+    .hero-panel-head { display: flex; justify-content: space-between; align-items: center; }
+    .hero-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+    .hero-stat { background: var(--bg-2); padding: 16px; }
+    .hero-stat b { display: block; font-family: var(--display); font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+    .hero-stat > span { color: var(--muted); font-size: 13px; font-weight: 600; }
+    .platforms { display: flex; flex-wrap: wrap; gap: 6px; }
+    .platforms span { font-size: 12px; font-weight: 700; color: var(--text-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; }
+
+    .block { margin-top: clamp(36px, 5vw, 64px); }
+    .steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; counter-reset: step; }
+    .step { border-top: 2px solid var(--line); padding-top: 16px; counter-increment: step; }
+    .step::before { content: "0" counter(step); font-family: var(--display); font-weight: 700; color: var(--accent); font-size: 14px; display: block; margin-bottom: 10px; }
+    .step p { color: var(--muted); margin: 0; font-size: 14px; }
+
+    .price-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    .price-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 20px; display: grid; gap: 10px; align-content: start; transition: border-color .15s; }
+    .price-card:hover { border-color: var(--line-strong); }
+    .price-card.featured { border-color: rgba(255,210,63,.5); background: linear-gradient(180deg, var(--accent-soft), transparent 60%), var(--surface); }
+    .price-card .tag { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+    .price-card .amount { font-family: var(--display); font-size: 28px; font-weight: 700; letter-spacing: -.02em; }
+    .price-card .amount small { font-family: var(--sans); font-size: 14px; color: var(--muted); font-weight: 600; }
+    .price-card ul { list-style: none; padding: 0; margin: 4px 0 6px; display: grid; gap: 6px; color: var(--text-2); font-size: 14px; }
+    .price-card li { display: flex; gap: 8px; }
+    .price-card li::before { content: "—"; color: var(--accent); }
+
+    .faq { display: grid; gap: 8px; }
+    .faq details { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 0 18px; }
+    .faq summary { cursor: pointer; padding: 16px 0; font-weight: 800; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+    .faq summary::-webkit-details-marker { display: none; }
+    .faq summary::after { content: "+"; color: var(--accent); font-size: 20px; line-height: 1; }
+    .faq details[open] summary::after { content: "–"; }
+    .faq details p { color: var(--text-2); margin: 0 0 16px; }
+
+    .review-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .review-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 18px; display: grid; gap: 10px; align-content: start; }
+    .review-card .stars { color: var(--accent); letter-spacing: 2px; }
+    .review-card p { margin: 0; color: var(--text-2); }
+
+    .site-footer { border-top: 1px solid var(--line); margin-top: 56px; padding: 26px 0 10px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; color: var(--muted); font-size: 13px; }
+    .site-footer a { color: var(--text-2); text-decoration: none; }
+    .site-footer a:hover { color: var(--accent); }
+    .footer-links { display: flex; flex-wrap: wrap; gap: 18px; }
+
+    /* ---------- releases ---------- */
+    .release-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    .cover-card { display: grid; gap: 10px; text-decoration: none; color: inherit; }
+    .cover-card .cover { aspect-ratio: 1; border-radius: var(--radius); overflow: hidden; background: var(--surface-2); border: 1px solid var(--line); display: grid; place-items: center; position: relative; }
+    .cover-card .cover > * { grid-area: 1 / 1; }
+    .cover-card .cover img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .3s ease; position: relative; }
+    .cover-card:hover .cover img { transform: scale(1.03); }
+    .cover-card .cover .badge { position: absolute; left: 8px; bottom: 8px; backdrop-filter: blur(8px); }
+    .cover-card b { display: block; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cover-card span.sub { color: var(--muted); font-size: 13px; }
+    .skeleton { background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; border-radius: var(--radius); }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+
+    .toolbar { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; align-items: center; margin-bottom: 16px; }
+    .release-list { display: grid; gap: 10px; }
+    .release { padding: 14px; transition: border-color .15s, background .15s; }
+    .release[data-release-id], .release[data-draft-id] { cursor: pointer; }
+    .release[data-release-id]:hover, .release[data-draft-id]:hover { border-color: var(--line-strong); background: var(--surface-2); }
+    .release-with-cover { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 16px; align-items: center; }
+    .release-cover-thumb { width: 88px; height: 88px; border-radius: 12px; background: var(--surface-3); display: grid; place-items: center; overflow: hidden; color: var(--muted); }
     .release-cover-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .release-cover-thumb .cover-placeholder { font-size: 34px; }
     .release-content { min-width: 0; }
-    .release[data-release-id] { cursor: pointer; }
-    .release:hover {
-      transform: translateY(-2px);
-      border-color: rgba(56, 189, 248, .34);
-      background: rgba(30, 41, 59, .9);
+    .release-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+    .release-title { font-weight: 800; font-size: 16px; margin: 0 0 6px; overflow: hidden; text-overflow: ellipsis; }
+    .meta { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill, .badge {
+      display: inline-flex; align-items: center; gap: 6px; width: fit-content;
+      padding: 4px 9px; border-radius: 999px; font-size: 12px; font-weight: 700;
+      background: var(--surface-3); color: var(--text-2); border: 1px solid var(--line);
+      white-space: nowrap; text-decoration: none;
     }
+    a.pill:hover { border-color: var(--accent); color: var(--text); }
+    .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .badge.draft { color: #c4b5fd; background: rgba(167,139,250,.1); border-color: rgba(167,139,250,.25); }
+    .badge.pending { color: var(--warn); background: rgba(251,191,36,.1); border-color: rgba(251,191,36,.25); }
+    .badge.accepted, .badge.sent { color: var(--info); background: rgba(125,211,252,.1); border-color: rgba(125,211,252,.25); }
+    .badge.delivered, .badge.released, .badge.completed { color: var(--ok); background: rgba(74,222,128,.1); border-color: rgba(74,222,128,.25); }
+    .badge.withdrawn, .badge.rejected, .badge.cancelled { color: var(--danger); background: rgba(248,113,113,.1); border-color: rgba(248,113,113,.25); }
+    .details { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .detail { background: var(--bg-2); border: 1px solid var(--line); border-radius: 11px; padding: 9px 11px; min-width: 0; }
+    .detail > span { display: block; color: var(--muted); font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+    .detail b { font-size: 14px; overflow-wrap: anywhere; }
+    .release .details { margin-top: 10px; }
+    .release .actions { margin-top: 12px; }
+    .pagination-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+    .pagination-bar select { width: auto; min-width: 80px; }
+    .empty { border: 1px dashed var(--line-strong); border-radius: var(--radius-lg); padding: 28px; text-align: center; color: var(--muted); }
+    .empty b { display: block; color: var(--text); font-size: 16px; margin-bottom: 4px; }
+    .empty .actions { justify-content: center; margin-top: 14px; }
+
     .detail-view { display: grid; gap: 14px; }
-    .cover-box {
-      min-height: 260px;
-      border-radius: 24px;
-      border: 1px solid var(--line);
-      background:
-        linear-gradient(135deg, rgba(124,58,237,.28), rgba(56,189,248,.12)),
-        rgba(2, 6, 23, .35);
-      display: grid;
-      place-items: center;
-      overflow: hidden;
-    }
-    .cover-box img {
-      width: 100%;
-      height: 100%;
-      max-height: 420px;
-      object-fit: cover;
-      display: block;
-    }
-    .cover-placeholder { font-size: 64px; opacity: .86; }
-    audio {
-      width: 100%;
-      accent-color: var(--accent-2);
-    }
-    .audio-error { margin: 0; color: #fecdd3; font-size: 13px; }
-    .upload-row {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 10px;
-      align-items: center;
-      margin-top: 10px;
-    }
-    .upload-row input[type="file"] {
-      min-width: 0;
-      width: 100%;
-      padding: 10px;
-      border: 1px dashed rgba(148, 163, 184, .28);
-      border-radius: 14px;
-      background: rgba(15, 23, 42, .5);
-      color: var(--muted);
-    }
-    .track-list { display: grid; gap: 10px; }
-    .track-item {
-      padding: 12px;
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      background: rgba(2, 6, 23, .26);
-      display: grid;
-      gap: 8px;
-    }
+    .detail-hero { display: grid; grid-template-columns: minmax(220px, 360px) minmax(0, 1fr); gap: 20px; align-items: start; }
+    .cover-box { aspect-ratio: 1; border-radius: var(--radius-lg); border: 1px solid var(--line); background: var(--surface-2); display: grid; place-items: center; overflow: hidden; color: var(--muted); }
+    .cover-box img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .cover-placeholder svg { width: 40px; height: 40px; }
+    .cover-box .cover-placeholder svg { width: 64px; height: 64px; }
+    audio { width: 100%; height: 40px; color-scheme: dark; }
+    .audio-error { margin: 6px 0 0; color: var(--danger); font-size: 13px; }
+    .pretty-player { display: grid; grid-template-columns: 48px 1fr; gap: 14px; align-items: center; padding: 14px; border-radius: var(--radius); background: var(--bg-2); border: 1px solid var(--line); }
+    .pretty-player h3 { margin: 0 0 6px; font-size: 14px; }
+    .player-disc { width: 48px; height: 48px; border-radius: 50%; background: radial-gradient(circle, var(--accent) 0 12%, #000 13% 18%, #1f1f24 19% 100%); border: 1px solid var(--line-strong); }
+    .track-list { display: grid; gap: 8px; }
+    .track-item { padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-2); display: grid; gap: 8px; }
 
-    .service-card { display: grid; gap: 12px; min-height: 190px; }
-    .service-icon { font-size: 28px; }
-    .price { font-weight: 900; color: #bae6fd; }
-
-    .dock-host {
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      height: 118px;
-      z-index: 50;
-      pointer-events: none;
-    }
-    .dock-outer {
-      margin: 0 auto;
-      display: flex;
-      max-width: 100%;
-      height: 100%;
-      align-items: flex-end;
-      justify-content: center;
-      pointer-events: none;
-    }
-    .dock-panel {
-      position: absolute;
-      bottom: .85rem;
-      left: 50%;
-      transform: translateX(-50%);
-      display: flex;
-      align-items: flex-end;
-      width: fit-content;
-      max-width: calc(100vw - 18px);
-      gap: .62rem;
-      border-radius: 1.4rem;
-      background: rgba(15, 23, 42, .92);
-      border: 1px solid rgba(148, 163, 184, .22);
-      padding: 0 .55rem .55rem;
-      backdrop-filter: blur(16px);
-      box-shadow: 0 18px 60px rgba(0, 0, 0, .35);
-      pointer-events: auto;
-    }
-    .dock-item {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      gap: 2px;
-      border-radius: 17px;
-      background: rgba(2, 6, 23, .58);
-      border: 1px solid rgba(148, 163, 184, .16);
-      box-shadow: 0 8px 22px rgba(0, 0, 0, .24);
-      cursor: pointer;
-      outline: none;
-      color: var(--muted);
-      overflow: visible;
-      transition: width .18s ease, height .18s ease, transform .18s ease, border-color .18s ease, background .18s ease;
-    }
-    .dock-panel:hover .dock-item:hover,
-    .dock-item:focus-visible {
-      width: 70px !important;
-      height: 70px !important;
-      transform: translateY(-8px);
-      color: var(--text);
-      border-color: rgba(56, 189, 248, .48);
-      background: linear-gradient(135deg, rgba(124,58,237,.52), rgba(37,99,235,.38));
-    }
-    .dock-item.active {
-      color: var(--text);
-      border-color: rgba(56, 189, 248, .42);
-      background: linear-gradient(135deg, rgba(124,58,237,.50), rgba(37,99,235,.36));
-    }
-    .dock-item:focus-visible {
-      box-shadow: 0 0 0 3px rgba(56, 189, 248, .26), 0 8px 22px rgba(0, 0, 0, .24);
-    }
-    .dock-icon {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      line-height: 1;
-      filter: drop-shadow(0 6px 10px rgba(0,0,0,.22));
-      pointer-events: none;
-    }
-    .dock-icon svg {
-      width: 22px;
-      height: 22px;
-      stroke: currentColor;
-      stroke-width: 1.9;
-      fill: none;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    .dock-label {
-      position: static;
-      width: fit-content;
-      white-space: pre;
-      border: 0;
-      background: transparent;
-      padding: 0;
-      font-size: .61rem;
-      color: currentColor;
-      transform: none;
-      box-shadow: none;
-      opacity: .86;
-      pointer-events: none;
-      transition: opacity .18s ease, transform .18s ease;
-    }
-    .dock-item:hover .dock-label,
-    .dock-item:focus-visible .dock-label {
-      opacity: 1;
-      transform: translateY(-1px);
-    }
-
-    .auth-box { max-width: 560px; }
-    .profile-form { display: grid; gap: 12px; }
-    .profile-shell {
-      display: grid;
-      grid-template-columns: minmax(260px, .9fr) minmax(320px, 1.3fr);
-      gap: 14px;
-    }
-    .profile-side { display: grid; gap: 14px; align-content: start; }
-    .profile-main {
-      grid-column: 1 / -1;
-      display: grid;
-      grid-template-columns: minmax(300px, .95fr) minmax(360px, 1.25fr);
-      gap: 14px;
-      align-content: start;
-    }
-    #topupCard { grid-column: 1 / -1; }
-    .profile-main > .grid.two { grid-column: 1 / -1; }
-    .profile-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    /* ---------- release builder ---------- */
+    .release-builder { margin-bottom: 18px; }
+    .profile-form { display: grid; gap: 14px; }
     .profile-form.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .profile-form .full { grid-column: 1 / -1; }
+    .release-builder .form-section-title { margin: 8px 0 0; font-family: var(--display); font-size: 15px; font-weight: 700; }
+    .release-builder textarea { min-height: 80px; }
+    .field-note { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+    .release-type-field { grid-column: 1 / -1; }
+    .release-type-select-native { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .release-type-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .release-type-card {
+      display: grid; gap: 8px; align-content: start; text-align: left; white-space: normal;
+      min-height: 150px; padding: 14px; border-radius: var(--radius);
+      background: var(--bg-2); border: 1px solid var(--line); color: var(--text);
+      font-weight: 500; line-height: 1.35;
+    }
+    .release-type-card:hover { background: var(--surface-2); border-color: var(--line-strong); }
+    .release-type-card.active { border-color: var(--accent); background: linear-gradient(180deg, var(--accent-soft), transparent), var(--bg-2); box-shadow: inset 0 0 0 1px var(--accent); }
+    .release-type-icon { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-3); color: var(--accent); }
+    .release-type-icon svg { width: 20px; height: 20px; }
+    .release-type-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 800; font-size: 15px; }
+    .release-type-price { color: var(--accent); font-size: 13px; font-weight: 800; }
+    .release-type-desc { color: var(--muted); font-size: 12.5px; }
+    .release-type-limits { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+    .release-type-limits span { border-radius: 999px; padding: 3px 8px; color: var(--text-2); background: var(--surface-3); font-size: 11px; font-weight: 700; }
+    .release-stepper { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 16px 0 18px; }
+    .release-step-pill { border-top: 3px solid var(--line); padding-top: 8px; color: var(--muted); font-size: 13px; font-weight: 700; }
+    .release-step-pill.active { border-color: var(--accent); color: var(--text); }
+    .release-step-pill.done { border-color: rgba(255,210,63,.4); color: var(--text-2); }
+    .release-step-nav { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+    .release-builder-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .payment-summary { grid-column: 1 / -1; display: grid; gap: 10px; padding: 16px; border: 1px solid rgba(255,210,63,.35); border-radius: var(--radius); background: var(--accent-soft); }
+    .payment-summary.error { border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.06); }
+    .payment-summary .details { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .track-editor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-2); }
+    .track-editor > :nth-last-child(-n+3), .track-editor > button { grid-column: 1 / -1; }
+    .track-editor > button { justify-self: start; }
+    .mini-list { display: grid; gap: 8px; }
+    .mini-row { display: block; width: 100%; text-align: left; white-space: normal; padding: 11px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--bg-2); color: var(--text); font: 500 14px/1.45 var(--sans); }
+    .mini-row svg { width: 16px; height: 16px; vertical-align: -3px; margin-right: 6px; color: var(--muted); }
+    button.mini-row { min-height: 0; }
+    button.mini-row:hover { background: var(--surface-2); border-color: var(--line-strong); }
+
+    body.release-page .topbar, body.release-page .mobile-nav, body.release-page .site-footer,
+    body.release-page #releaseListView > :not(#releaseBuilder),
+    body.release-page #releaseDetailView { display: none !important; }
+    body.release-page main.shell { padding-top: 24px; }
+
+    /* ---------- services ---------- */
+    .service-card { display: grid; gap: 10px; align-content: start; transition: border-color .15s; }
+    .service-card:hover { border-color: var(--line-strong); }
+    .service-card p { margin: 0; color: var(--muted); font-size: 14px; }
+    .service-card .service-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--line); }
+    .icon-box { width: 42px; height: 42px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); display: grid; place-items: center; color: var(--accent); }
+    .icon-box svg { width: 22px; height: 22px; }
+    .price { font-weight: 800; color: var(--text); }
+
+    /* ---------- profile ---------- */
+    .profile-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+    .profile-layout > .full { grid-column: 1 / -1; }
+    .auth-box { max-width: 480px; margin: 0 auto; text-align: left; }
+    .auth-steps { margin: 0 0 18px; padding-left: 20px; color: var(--text-2); display: grid; gap: 6px; }
+    .code-input { font-family: var(--mono); font-size: 22px; letter-spacing: .3em; text-align: center; }
+    .profile-hero { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 18px; align-items: center; }
+    .profile-avatar { width: 64px; height: 64px; border-radius: 18px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-family: var(--display); font-size: 26px; font-weight: 700; }
+    .profile-hero h2 { margin: 0 0 4px; overflow-wrap: anywhere; }
+    .stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-top: 18px; }
+    .stat { background: var(--bg-2); padding: 14px 16px; }
+    .stat > span { font-size: 13px; color: var(--muted); font-weight: 600; }
+    .stat strong { display: block; font-family: var(--display); font-size: 22px; font-weight: 700; letter-spacing: -.02em; overflow-wrap: anywhere; }
+    .profile-action-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+    .profile-action-grid button { justify-content: flex-start; }
     .profile-field { min-width: 0; }
     .profile-copy-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
-    .profile-copy-row input { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-    .profile-copy-row input:disabled { color: var(--text); -webkit-text-fill-color: var(--text); opacity: .92; }
-    .profile-copy-btn { padding: 10px 12px; min-height: 42px; white-space: nowrap; }
-    .release-builder { grid-column: 1 / -1; }
-    .release-builder textarea { min-height: 76px; }
-    .release-builder .form-section-title { margin: 10px 0 0; color: var(--text); }
-    .release-builder .field-note { margin-top: 6px; font-size: 12px; color: var(--muted); }
-
-    .release-type-field { grid-column: 1 / -1; }
-    .release-type-select-native { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
-    .release-type-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
-    .release-type-card {
-      position: relative;
-      display: grid;
-      gap: 8px;
-      min-height: 154px;
-      padding: 14px;
-      border-radius: 22px;
-      border: 1px solid rgba(148,163,184,.16);
-      background:
-        radial-gradient(circle at 18% 18%, rgba(56,189,248,.18), transparent 34%),
-        linear-gradient(145deg, rgba(15,23,42,.88), rgba(2,6,23,.72));
-      color: var(--text);
-      text-align: left;
-      cursor: pointer;
-      overflow: hidden;
-      transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background .18s ease;
-    }
-    .release-type-card::after {
-      content: "";
-      position: absolute;
-      inset: auto -30% -38% 28%;
-      height: 76px;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent);
-      transform: rotate(-12deg);
-      opacity: 0;
-      transition: opacity .18s ease;
-    }
-    .release-type-card:hover { transform: translateY(-2px); border-color: rgba(56,189,248,.42); box-shadow: 0 18px 46px rgba(2,6,23,.28); }
-    .release-type-card:hover::after { opacity: 1; }
-    .release-type-card.active {
-      border-color: rgba(34,211,238,.72);
-      background:
-        radial-gradient(circle at 22% 16%, rgba(34,211,238,.28), transparent 34%),
-        linear-gradient(145deg, rgba(14,165,233,.20), rgba(124,58,237,.13)),
-        rgba(2,6,23,.82);
-      box-shadow: 0 0 0 1px rgba(34,211,238,.18), 0 22px 58px rgba(14,165,233,.14);
-    }
-    .release-type-icon { width: 42px; height: 42px; border-radius: 16px; display: grid; place-items: center; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.10); }
-    .release-type-icon svg { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-    .release-type-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 900; font-size: 15px; }
-    .release-type-price { color: #bae6fd; font-size: 13px; font-weight: 800; white-space: nowrap; }
-    .release-type-desc { color: var(--muted); font-size: 12px; line-height: 1.35; }
-    .release-type-limits { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
-    .release-type-limits span { border-radius: 999px; padding: 5px 8px; color: #dbeafe; background: rgba(148,163,184,.10); border: 1px solid rgba(148,163,184,.12); font-size: 11px; }
-    .release-stepper { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
-    .release-step-pill { border: 1px solid rgba(148,163,184,.18); color: var(--muted); background: rgba(2,6,23,.28); border-radius: 999px; padding: 7px 11px; font-size: 12px; }
-    .release-step-pill.active { color: #fff; border-color: rgba(56,189,248,.42); background: rgba(56,189,248,.16); }
-    .release-step-nav { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 8px; border-top: 1px solid rgba(148,163,184,.12); }
-    .release-track-limit { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
-    .payment-summary { grid-column: 1 / -1; display: grid; gap: 10px; padding: 14px; border: 1px solid rgba(56,189,248,.22); border-radius: 18px; background: rgba(14,165,233,.08); }
-    .payment-summary.error { border-color: rgba(248,113,113,.35); background: rgba(248,113,113,.08); }
-    .promo-activate { display: grid; grid-template-columns: minmax(220px, 1fr) auto; gap: 10px; align-items: end; }
+    .profile-copy-btn { min-height: 44px; }
+    .amount-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .topup-result { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+    .count-number { font-variant-numeric: tabular-nums; }
+    .promo-activate { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
     .promo-list { display: grid; gap: 8px; }
-    .promo-code-pill { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
-    .pagination-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
-    .pagination-bar .actions { margin: 0; }
-    .pagination-bar select { width: auto; min-width: 88px; }
-    body.release-page .topbar, body.release-page .dock-host, body.release-page #releaseListView > .release-head, body.release-page #releaseListView > .row, body.release-page #releaseListView > .actions, body.release-page #releases, body.release-page #releaseDetailView { display: none !important; }
-    body.release-page .shell { max-width: 1120px; padding-top: 24px; }
-    body.release-page #releaseBuilder { display: block; }
-    .release-builder-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-    .track-editor { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 18px; background: rgba(2, 6, 23, .26); }
-    .mini-list { display: grid; gap: 8px; }
-    .mini-row { padding: 10px; border: 1px solid rgba(148, 163, 184, .12); border-radius: 14px; background: rgba(2, 6, 23, .28); }
-    .count-number {
-      display: inline-block;
-      min-width: max-content;
-      font-variant-numeric: tabular-nums;
-      letter-spacing: -.01em;
-    }
-    .pretty-player {
-      display: grid;
-      grid-template-columns: 54px 1fr;
-      gap: 12px;
-      align-items: center;
-      padding: 14px;
-      border-radius: 22px;
-      background:
-        linear-gradient(135deg, rgba(124,58,237,.24), rgba(56,189,248,.12)),
-        rgba(2, 6, 23, .42);
-      border: 1px solid rgba(148, 163, 184, .16);
-    }
-    .player-disc {
-      width: 54px;
-      height: 54px;
-      border-radius: 50%;
-      display: grid;
-      place-items: center;
-      background: radial-gradient(circle, rgba(255,255,255,.9) 0 7%, rgba(56,189,248,.22) 8% 34%, rgba(15,23,42,.95) 35% 100%);
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), 0 12px 30px rgba(0,0,0,.26);
-    }
-    .pretty-player audio {
-      height: 38px;
-      border-radius: 999px;
-    }
-    .pretty-player h3 { margin: 0 0 7px; }
-    code { background: rgba(148, 163, 184, .14); padding: 2px 6px; border-radius: 8px; }
+    .promo-code-pill { font-family: var(--mono); letter-spacing: .04em; }
+    .ref-link { font-family: var(--mono); font-size: 13px; }
 
-    @media (max-width: 860px) {
-      .grid, .grid.two, .details, .stat-grid, .profile-shell { grid-template-columns: 1fr; }
-      .topbar, .release-head { align-items: stretch; flex-direction: column; }
-      .row { flex-direction: column; align-items: stretch; }
-      .shell { padding: 16px 0; }
+    /* ---------- tools ---------- */
+    .tool-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    #emailOutput { min-height: 240px; font-size: 14px; }
+
+    /* ---------- modal & toast ---------- */
+    .modal-backdrop { position: fixed; inset: 0; z-index: 9000; background: rgba(0,0,0,.66); backdrop-filter: blur(4px); display: grid; place-items: center; padding: 16px; animation: fade .15s ease-out; }
+    .modal { width: min(560px, 100%); max-height: calc(100dvh - 32px); overflow: auto; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); padding: 22px; box-shadow: 0 30px 80px rgba(0,0,0,.5); }
+    .modal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+    .modal-head h3 { font-family: var(--display); font-size: 18px; font-weight: 700; margin: 0; }
+    .icon-btn { width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 10px; background: transparent; color: var(--muted); border: 1px solid var(--line); font-size: 20px; }
+    .icon-btn:hover { color: var(--text); background: var(--surface-2); }
+    .toast-host { position: fixed; z-index: 13000; left: 50%; transform: translateX(-50%); bottom: 24px; display: grid; gap: 8px; width: min(440px, calc(100% - 32px)); pointer-events: none; }
+    .toast { pointer-events: auto; background: var(--surface-3); border: 1px solid var(--line-strong); border-left: 3px solid var(--info); border-radius: 12px; padding: 12px 14px; font-weight: 600; font-size: 14px; box-shadow: 0 16px 40px rgba(0,0,0,.45); animation: toastIn .2s ease-out; }
+    .toast.ok { border-left-color: var(--ok); color: var(--text); }
+    .toast.warn { border-left-color: var(--warn); color: var(--text); }
+    .toast.error { border-left-color: var(--danger); color: var(--text); }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    /* ---------- mobile nav ---------- */
+    .mobile-nav { display: none; }
+
+    @media (max-width: 1020px) {
+      .nav .nav-label { display: none; }
+      .nav-item { padding: 9px; }
+      .release-grid, .price-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .release-type-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
-    @media (max-width: 640px) {
-      .profile-main, .profile-form.compact, .profile-action-grid { grid-template-columns: 1fr; }
+    @media (max-width: 860px) {
+      body { padding-bottom: calc(var(--nav-h) + 24px + env(safe-area-inset-bottom)); }
+      .nav { display: none; }
+      .brand-name span { display: none; }
+      .mobile-nav {
+        display: grid; grid-template-columns: repeat(6, 1fr);
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 70;
+        background: rgba(11, 11, 13, .94); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+        border-top: 1px solid var(--line);
+        padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+      }
+      .mobile-nav .nav-item { flex-direction: column; gap: 3px; padding: 6px 2px; font-size: 10.5px; border-radius: 10px; min-height: 0; }
+      .mobile-nav .nav-item .nav-label { display: block; }
+      .mobile-nav .nav-item.active { color: var(--accent); background: transparent; }
+      .mobile-nav .nav-item svg { width: 22px; height: 22px; }
+      .hero { grid-template-columns: 1fr; }
+      .grid, .grid.two, .grid.four, .profile-layout, .review-strip, .detail-hero { grid-template-columns: 1fr; }
+      .details, .payment-summary .details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .toolbar { grid-template-columns: 1fr 1fr; }
+      .toolbar > :first-child { grid-column: 1 / -1; }
+      .toolbar > button { grid-column: 1 / -1; }
+      .profile-hero { grid-template-columns: auto minmax(0, 1fr); }
+      .profile-hero > :last-child { grid-column: 1 / -1; }
+      .toast-host { bottom: calc(var(--nav-h) + 16px + env(safe-area-inset-bottom)); }
+      .user-chip .name { max-width: 110px; }
+    }
+    @media (max-width: 600px) {
+      .shell { width: calc(100% - 32px); }
+      main.shell { padding-top: 18px; }
+      .profile-form.compact, .track-editor { grid-template-columns: 1fr; }
+      .release-grid { gap: 10px; }
+      .steps, .price-grid { grid-template-columns: 1fr; }
+      .release-with-cover { grid-template-columns: 64px minmax(0, 1fr); gap: 12px; align-items: start; }
+      .release-cover-thumb { width: 64px; height: 64px; }
+      .release-head { flex-direction: column; gap: 6px; }
+      .profile-action-grid, .amount-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .stat-grid { grid-template-columns: 1fr; }
       .promo-activate { grid-template-columns: 1fr; }
+      .release-stepper { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .card, .service-card { padding: 16px; }
+      .top-actions .button-link.secondary { display: none; }
+      #logoutBtn { padding: 10px 12px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
     }
   </style>
 </head>
 <body>
-  <main class="shell">
-    <header class="topbar">
-      <div class="brand"><div class="logo"><img src="/assets/logo.png?v=3" alt="talk with a star // label"></div><div>talk with a star // label</div></div>
-      <div class="top-actions">
-        <span id="topUser" class="muted">Гость</span>
-        <a class="button-link secondary hidden" id="adminPanelBtn" href="/admin">Админ панель</a>
-        <button class="secondary" id="logoutBtn">Выйти</button>
-      </div>
-    </header>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-6h5v6"/></symbol>
+    <symbol id="i-disc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/></symbol>
+    <symbol id="i-bag" viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></symbol>
+    <symbol id="i-tools" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></symbol>
+    <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z"/><path d="M10 6v12" stroke-dasharray="2 2"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></symbol>
+    <symbol id="i-note" viewBox="0 0 24 24"><path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18h1.5a2 2 0 0 0 1.4-3.4l-.4-.4a2 2 0 0 1 1.4-3.4H17a4 4 0 0 0 4-4C21 6 17 3 12 3Z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="14.5" cy="7.5" r="1"/></symbol>
+    <symbol id="i-motion" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><rect x="3" y="7" width="12" height="10" rx="2"/><path d="m15 10 6-3v10l-6-3z"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16"/><path d="M8 16v-4M12 16V8M16 16v-6"/></symbol>
+    <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/></symbol>
+    <symbol id="i-prompt" viewBox="0 0 24 24"><path d="M4 6h16M4 10h11M4 14h16M4 18h9"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18M7 15h4"/></symbol>
+    <symbol id="i-draft" viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></symbol>
+    <symbol id="i-cart" viewBox="0 0 24 24"><path d="M3 4h2l2.4 11h11L21 7H6.2"/><circle cx="9" cy="19.5" r="1.5"/><circle cx="17" cy="19.5" r="1.5"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m4 12 16-8-6 16-2.5-6.5z"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/></symbol>
+  </svg>
 
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <button class="brand" type="button" data-fallback-tab="home" aria-label="talk with a star // label — на главную">
+        <span class="brand-logo"><img src="/assets/logo.png?v=4" alt=""></span>
+        <span class="brand-name">talk with a star <span>// label</span></span>
+      </button>
+      <nav class="nav" aria-label="Разделы">
+        <button class="nav-item active" type="button" data-fallback-tab="home"><svg class="i"><use href="#i-home"/></svg><span class="nav-label">Главная</span></button>
+        <button class="nav-item" type="button" data-fallback-tab="releases"><svg class="i"><use href="#i-disc"/></svg><span class="nav-label">Релизы</span></button>
+        <button class="nav-item" type="button" data-fallback-tab="services"><svg class="i"><use href="#i-bag"/></svg><span class="nav-label">Услуги</span></button>
+        <button class="nav-item" type="button" data-fallback-tab="tools"><svg class="i"><use href="#i-tools"/></svg><span class="nav-label">Инструменты</span></button>
+        <button class="nav-item" type="button" data-fallback-tab="promos"><svg class="i"><use href="#i-ticket"/></svg><span class="nav-label">Промокоды</span></button>
+      </nav>
+      <div class="top-actions">
+        <a class="button-link secondary small hidden" id="adminPanelBtn" href="/admin"><svg class="i"><use href="#i-shield"/></svg>Админка</a>
+        <button class="user-chip" type="button" data-fallback-tab="profile" aria-label="Профиль"><span class="avatar" id="topAvatar">?</span><span class="name" id="topUser">Войти</span></button>
+        <button class="ghost small hidden" id="logoutBtn" type="button" title="Выйти" aria-label="Выйти"><svg class="i"><use href="#i-logout"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <!-- ================= HOME ================= -->
     <section class="section active" id="homeSection">
       <div class="hero">
-        <h1>Кабинет артиста talk with a star // label</h1>
-        <p class="muted">Релизы, услуги, бесплатные инструменты и профиль артиста в одном месте.</p>
-        <div class="actions">
-          <button id="homeLoginBtn" data-go="auth">Получить код для входа</button>
-          <button class="secondary" data-go="services">Наши услуги</button>
+        <div>
+          <span class="eyebrow">Музыкальный лейбл и дистрибуция</span>
+          <h1>Выпускай музыку <span class="accent">на все площадки</span> без лишней бюрократии</h1>
+          <p class="hero-lead">Загрузи трек, обложку и метаданные в кабинете — мы проверим релиз, отгрузим его на площадки и будем держать в курсе каждого этапа.</p>
+          <div class="actions">
+            <button type="button" id="heroReleaseBtn"><svg class="i"><use href="#i-plus"/></svg>Отправить релиз</button>
+            <button class="secondary" type="button" id="homeLoginBtn" data-go="auth">Войти через Telegram</button>
+          </div>
+          <div class="hero-points">
+            <span>Сингл от 1 299 ₽</span>
+            <span>Черновики бесплатно</span>
+            <span>Статусы в Telegram</span>
+          </div>
+        </div>
+        <aside class="hero-panel" aria-label="Коротко о лейбле">
+          <div class="hero-panel-head"><b>Форматы релизов</b><span class="muted hint">цена за релиз</span></div>
+          <div class="hero-stat-grid">
+            <div class="hero-stat"><b>1 299 ₽</b><span>Single</span></div>
+            <div class="hero-stat"><b>1 799 ₽</b><span>Maxi Single · до 3</span></div>
+            <div class="hero-stat"><b>2 399 ₽</b><span>EP · 2–5 треков</span></div>
+            <div class="hero-stat"><b>2 899 ₽</b><span>Album · 6+ треков</span></div>
+          </div>
+          <span class="muted hint">Площадки</span>
+          <div class="platforms">
+            <span>Яндекс Музыка</span><span>VK Музыка</span><span>Apple Music</span><span>Spotify</span><span>YouTube Music</span><span>TikTok</span><span>iTunes</span><span>и другие</span>
+          </div>
+        </aside>
+      </div>
+
+      <div class="block">
+        <div class="section-head">
+          <div><span class="eyebrow">Каталог</span><h2>Свежие релизы лейбла</h2></div>
+          <button class="ghost small" id="refreshRecentBtn" type="button"><svg class="i"><use href="#i-refresh"/></svg>Обновить</button>
+        </div>
+        <div id="recentReleases" class="release-grid" aria-live="polite">
+          <div class="skeleton" style="aspect-ratio:1"></div><div class="skeleton" style="aspect-ratio:1"></div><div class="skeleton" style="aspect-ratio:1"></div><div class="skeleton" style="aspect-ratio:1"></div>
         </div>
       </div>
-      <div class="scroll-velocity"><span>TALK WITH A STAR // LABEL • DISTRIBUTION • RELEASES • SERVICES • PROMO • ANALYTICS • ARTIST CABINET • </span></div>
 
-      <div class="card pixel-card spaced">
-        <div class="release-head">
-          <div></div>
-          <button class="ghost" id="refreshRecentBtn">Обновить</button>
+      <div class="block">
+        <div class="section-head"><div><span class="eyebrow">Как это работает</span><h2>От трека до площадок — 4 шага</h2></div></div>
+        <div class="steps">
+          <div class="step"><h3>Вход через Telegram</h3><p>Получите одноразовый код в боте @twaslabel_bot — без паролей и регистраций.</p></div>
+          <div class="step"><h3>Заполните релиз</h3><p>Тип, метаданные, аудио, обложка 3000×3000. Можно сохранить черновик и вернуться позже.</p></div>
+          <div class="step"><h3>Оплата с баланса</h3><p>Пополните баланс через ЮKassa или активируйте промокод — скидка применится автоматически.</p></div>
+          <div class="step"><h3>Модерация и отгрузка</h3><p>Следите за статусом в кабинете: принят → отправлен → отгружен → релиз.</p></div>
         </div>
-        <div id="recentReleases" class="release-list muted">Загружаю релизы...</div>
+      </div>
+
+      <div class="block">
+        <div class="section-head"><div><span class="eyebrow">Тарифы</span><h2>Дистрибуция</h2></div><p class="muted">Оплата один раз за релиз. Черновики не тарифицируются.</p></div>
+        <div class="price-grid">
+          <div class="price-card"><span class="tag">Single</span><div class="amount">1 299 <small>₽</small></div><ul><li>1 композиция</li><li>Все площадки</li><li>UPC и ISRC автоматически</li></ul><button class="secondary" type="button" data-start-release="Single">Выбрать</button></div>
+          <div class="price-card"><span class="tag">Maxi Single</span><div class="amount">1 799 <small>₽</small></div><ul><li>До 3 композиций</li><li>Ремиксы и версии</li><li>Все площадки</li></ul><button class="secondary" type="button" data-start-release="Maxi Single">Выбрать</button></div>
+          <div class="price-card featured"><span class="tag">EP</span><div class="amount">2 399 <small>₽</small></div><ul><li>2–5 треков</li><li>Мини-альбом</li><li>Все площадки</li></ul><button type="button" data-start-release="EP">Выбрать</button></div>
+          <div class="price-card"><span class="tag">Album</span><div class="amount">2 899 <small>₽</small></div><ul><li>6+ треков</li><li>Без верхнего лимита</li><li>Все площадки</li></ul><button class="secondary" type="button" data-start-release="ALBUM">Выбрать</button></div>
+        </div>
+      </div>
+
+      <div class="block hidden" id="reviewsBlock">
+        <div class="section-head"><div><span class="eyebrow">Отзывы</span><h2>Что говорят артисты</h2></div><span class="muted" id="reviewsSummary"></span></div>
+        <div class="review-strip" id="reviewsList"></div>
+      </div>
+
+      <div class="block">
+        <div class="section-head"><div><span class="eyebrow">FAQ</span><h2>Частые вопросы</h2></div></div>
+        <div class="faq">
+          <details><summary>Сколько времени занимает отгрузка?</summary><p>После модерации релиз отправляется на площадки. Рекомендуем ставить дату релиза минимум за 2–3 недели — так успеют пройти проверки и появится возможность питчинга.</p></details>
+          <details><summary>Какие требования к обложке и аудио?</summary><p>Обложка — квадрат 3000×3000 px в PNG или JPG, без ссылок, логотипов площадок и мелкого текста. Аудио — WAV или FLAC (MP3 допустим), без тишины в начале и клиппинга.</p></details>
+          <details><summary>Можно ли сохранить релиз и доделать позже?</summary><p>Да. Кнопка «Сохранить черновик» есть на каждом шаге. Черновики бесплатны и доступны и в кабинете, и в боте.</p></details>
+          <details><summary>Как пополнить баланс?</summary><p>В профиле → «Пополнить баланс». Оплата картой проходит на стороне ЮKassa, данные карты мы не видим. После оплаты нажмите «Проверить оплату».</p></details>
+          <details><summary>Где смотреть статус релиза?</summary><p>В разделе «Релизы». Также бот присылает уведомление при каждой смене статуса.</p></details>
+        </div>
       </div>
     </section>
 
+    <!-- ================= RELEASES ================= -->
     <section class="section" id="releasesSection">
-      <div class="card">
-        <div id="releaseListView">
-        <div class="release-head">
-          <div>
-            <h2>Мои релизы</h2>
-            <p class="muted">Карточки релизов из аккаунта после входа.</p>
+      <div id="releaseListView">
+        <div class="section-head">
+          <div><h2>Мои релизы</h2><p class="muted">Релизы и черновики вашего аккаунта.</p></div>
+          <div class="actions">
+            <button class="ghost" id="refreshBtn" type="button"><svg class="i"><use href="#i-refresh"/></svg>Обновить</button>
+            <button id="newReleaseBtn" type="button"><svg class="i"><use href="#i-plus"/></svg>Новый релиз</button>
           </div>
-          <button class="ghost" id="refreshBtn">Обновить</button>
         </div>
-        <div class="row spaced">
-          <input id="releaseSearch" placeholder="Поиск по названию, артисту, UPC, статусу">
-        </div>
-        <div class="row spaced">
-          <select id="releaseStageFilter">
-            <option value="all">Все этапы + черновики</option>
+        <div class="toolbar">
+          <input id="releaseSearch" type="search" placeholder="Поиск: название, артист, UPC" aria-label="Поиск релизов">
+          <select id="releaseStageFilter" aria-label="Статус">
+            <option value="all">Все статусы</option>
             <option value="draft">Черновики</option>
             <option value="pending">На рассмотрении</option>
             <option value="accepted">Принят</option>
@@ -750,24 +636,21 @@
             <option value="withdrawn">Отозван с площадок</option>
             <option value="rejected">Отклонён</option>
           </select>
-          <select id="releaseSortSelect">
+          <select id="releaseSortSelect" aria-label="Сортировка">
             <option value="updated_desc">Сначала новые</option>
-            <option value="date_desc">По дате релиза ↓</option>
-            <option value="date_asc">По дате релиза ↑</option>
-            <option value="title_asc">По названию А–Я</option>
-            <option value="stage_asc">По этапу</option>
+            <option value="date_desc">Дата релиза ↓</option>
+            <option value="date_asc">Дата релиза ↑</option>
+            <option value="title_asc">Название А–Я</option>
+            <option value="stage_asc">По статусу</option>
           </select>
         </div>
-        <div class="actions spaced">
-          <button id="newReleaseBtn">Создать релиз</button>
-        </div>
-        <div class="card release-builder hidden spaced" id="releaseBuilder">
+        <div class="card release-builder hidden" id="releaseBuilder">
           <div class="release-head">
             <div>
-              <h3>Новый релиз</h3>
-              <p class="muted">Форма повторяет вопросы из бота. Файлы загружаются после создания релиза и синхронизируются с Telegram-хранилищем.</p>
+              <h2 style="margin-bottom:4px">Новый релиз</h2>
+              <p class="muted" style="margin:0">Те же вопросы, что и в боте. Файлы загружаются после создания релиза.</p>
             </div>
-            <button class="ghost" id="closeReleaseBuilderBtn">Скрыть</button>
+            <button class="ghost small" type="button" id="closeReleaseBuilderBtn">Закрыть</button>
           </div>
           <div class="release-stepper" id="releaseStepper"></div>
           <form id="releaseForm" class="profile-form compact">
@@ -782,7 +665,7 @@
               <div class="release-type-grid" id="releaseTypeCards" role="radiogroup" aria-label="Тип релиза"></div>
               <p class="field-note" id="releaseTypeLimitNote">Single: ровно 1 композиция.</p>
             </div>
-            <div class="full"><h4 class="form-section-title">Шаг 1 — Релиз как в дистрибуции</h4></div>
+            <div class="full" data-step-title="1"><h4 class="form-section-title">Метаданные релиза</h4></div>
             <div><label>Язык метаданных</label><select id="distributionMetaMetadataLanguageInput"><option value="ru">Русский</option><option value="en">English</option><option value="mixed">Несколько языков</option></select></div>
             <div><label>Подзаголовок релиза</label><input id="distributionMetaReleaseSubtitleInput" placeholder="Deluxe Edition / Acoustic Version"></div>
             <div><label>Вид релиза</label><select id="distributionMetaReleaseKindInput"><option value="">Обычный релиз</option><option value="SingleMaxi">Single Maxi</option><option value="Mixtape">Mixtape</option><option value="Audiobook">Аудиокнига</option></select></div>
@@ -814,11 +697,13 @@
             <div><label>ADM: страна / город</label><input id="distributionMetaAdmLocationInput" placeholder="Россия, Москва"></div>
             <div><label>Буклет / сопроводительные материалы</label><textarea id="distributionMetaBookletNoteInput" placeholder="Ссылка/комментарий по PDF буклету, если нужен"></textarea></div>
             <div><label>Аннотация к аудиокниге</label><textarea id="distributionMetaAudiobookAnnotationInput" placeholder="Только для вида релиза Аудиокнига"></textarea></div>
-            <div class="full"><h4 class="form-section-title">Шаг 2 — Данные трека Single как в дистрибуции</h4></div>
+            <div class="full single-release-only" data-step-title="2"><h4 class="form-section-title">Данные трека</h4></div>
             <div class="single-release-only"><label>Подзаголовок трека</label><input id="distributionMetaTrackSubtitleInput" placeholder="Remix / Acoustic Version"></div>
             <div class="single-release-only"><label>ISRC</label><input id="distributionMetaTrackIsrcInput" placeholder="Оставьте пустым — присвоится автоматически"></div>
             <div class="single-release-only"><label>Код партнёра трека</label><input id="distributionMetaTrackPartnerCodeInput" placeholder="Внутренний ID трека"></div>
             <div class="single-release-only"><label>Артисты feat.</label><input id="distributionMetaTrackCoPerformersInput" placeholder="Не через запятую; лучше через ;"></div>
+            <div class="single-release-only"><label>Авторы текста</label><input id="distributionMetaLyricsAuthorsInput" placeholder="ФИО авторов слов через ;"></div>
+            <div class="single-release-only"><label>Доля автора, %</label><input id="distributionMetaAuthorShareInput" inputmode="numeric" placeholder="100"></div>
             <div class="single-release-only"><label>Язык трека</label><input id="distributionMetaTrackLanguageInput" placeholder="Русский / English / Без слов"></div>
             <div class="single-release-only"><label>Версия трека</label><input id="distributionMetaTrackVersionInput" placeholder="Explicit, Live, Cover, Remix, Instrumental"></div>
             <div class="single-release-only"><label>Instant Gratification</label><select id="distributionMetaInstantInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
@@ -854,7 +739,7 @@
                   <h4 class="form-section-title">Оплата дистрибуции</h4>
                   <p class="muted">Сумма спишется с баланса после нажатия “Отправить релиз”. Черновики бесплатные.</p>
                 </div>
-                <button class="secondary" type="button" id="refreshDistributionPriceBtn">Обновить стоимость</button>
+                <button class="ghost small" type="button" id="refreshDistributionPriceBtn">Пересчитать</button>
               </div>
               <div class="details" id="distributionPaymentSummary">
                 <div class="detail"><span>Стоимость</span><b>—</b></div>
@@ -873,12 +758,12 @@
             </div>
           </form>
         </div>
-        <div id="releases" class="release-list spaced muted">Войдите, чтобы увидеть релизы.</div>
+        <div id="releases" class="release-list" aria-live="polite"><div class="empty"><b>Войдите, чтобы увидеть релизы</b>Вход занимает полминуты через Telegram-бота.<div class="actions"><button type="button" data-go="auth">Войти</button></div></div></div>
         <div class="pagination-bar hidden" id="releasePagination">
           <span class="muted" id="releasePageInfo">—</span>
-          <div class="actions spaced">
-            <button class="secondary" type="button" id="releasePrevPageBtn">Назад</button>
-            <button class="secondary" type="button" id="releaseNextPageBtn">Далее</button>
+          <div class="actions">
+            <button class="secondary small" type="button" id="releasePrevPageBtn">Назад</button>
+            <button class="secondary small" type="button" id="releaseNextPageBtn">Далее</button>
             <select id="releasePageSizeSelect" aria-label="Релизов на странице">
               <option value="12">12</option>
               <option value="24">24</option>
@@ -886,67 +771,76 @@
             </select>
           </div>
         </div>
-        </div>
-        <div id="releaseDetailView" class="hidden"></div>
       </div>
+      <div id="releaseDetailView" class="hidden"></div>
     </section>
 
+    <!-- ================= SERVICES ================= -->
     <section class="section" id="servicesSection">
-      <h2>Наши услуги</h2>
+      <div class="section-head"><div><h2>Услуги</h2><p class="muted">Всё, что нужно релизу — от дистрибуции до промо-материалов.</p></div></div>
       <div class="grid">
-        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><path d="M9 18V5l10-2v13"/><circle cx="7" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></div><h3>Дистрибуция</h3><p class="muted">Размещение релиза на площадках.</p><div class="price">от 1299 ₽</div><button id="distributionServiceBtn">Создать заявку</button></div>
-        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18h1.5a2 2 0 0 0 1.4-3.4l-.4-.4a2 2 0 0 1 1.4-3.4H17a4 4 0 0 0 0-8.8A8.9 8.9 0 0 0 12 3Z"/><circle cx="7.5" cy="11" r=".8"/><circle cx="10" cy="7.5" r=".8"/><circle cx="14" cy="7.5" r=".8"/></svg></div><h3>Обложка</h3><p class="muted">Дизайн обложки для сингла или альбома.</p><div class="price">от 500 ₽</div><button>Заказать</button></div>
-        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 5l2 4M14 5l2 4M4 9h16"/></svg></div><h3>Motion</h3><p class="muted">Анимированная обложка для промо.</p><div class="price">от 800 ₽</div><button>Заказать</button></div>
-        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><rect x="4" y="7" width="11" height="10" rx="2"/><path d="m15 10 5-3v10l-5-3z"/></svg></div><h3>Видеошот</h3><p class="muted">Короткий вертикальный клип.</p><div class="price">от 1000 ₽</div><button>Заказать</button></div>
-        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/></svg></div><h3>Отчёты</h3><p class="muted">Запрос статистики и отчётности по релизам.</p><div class="price">по запросу</div><button id="reportServiceBtn" class="secondary">Запросить отчёт</button></div>
-        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg></div><h3>Договоры</h3><p class="muted">Работа с договорами и документами.</p><div class="price">по запросу</div><button id="contractServiceBtn" class="secondary">Запросить договор</button></div>
-        <div class="service-card tilt-card"><div class="service-icon"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 10h11M4 14h16M4 18h9"/><path d="m17 16 3 2-3 2z"/></svg></div><h3>Суфлёр</h3><p class="muted">Синхронный текст для записи видео под трек.</p><div class="price">бесплатно</div><button id="teleprompterServiceBtn">Открыть суфлёр</button></div>
+        <div class="service-card"><span class="icon-box"><svg><use href="#i-note"/></svg></span><h3>Дистрибуция</h3><p>Размещение релиза на всех стриминговых площадках с UPC/ISRC.</p><div class="service-foot"><span class="price">от 1 299 ₽</span><button id="distributionServiceBtn" type="button" class="small">Создать релиз</button></div></div>
+        <div class="service-card"><span class="icon-box"><svg><use href="#i-palette"/></svg></span><h3>Обложка</h3><p>Дизайн обложки 3000×3000 под требования площадок.</p><div class="service-foot"><span class="price">500 ₽</span><button type="button" class="small" data-design-service="covers">Заказать</button></div></div>
+        <div class="service-card"><span class="icon-box"><svg><use href="#i-motion"/></svg></span><h3>Motion-обложка</h3><p>Анимированная обложка для Apple Music, Яндекс и соцсетей.</p><div class="service-foot"><span class="price">800 ₽</span><button type="button" class="small" data-design-service="motion">Заказать</button></div></div>
+        <div class="service-card"><span class="icon-box"><svg><use href="#i-camera"/></svg></span><h3>Видеошот</h3><p>Короткий вертикальный клип под трек для площадок и Reels.</p><div class="service-foot"><span class="price">1 200 ₽</span><button type="button" class="small" data-design-service="videoshot">Заказать</button></div></div>
+        <div class="service-card"><span class="icon-box"><svg><use href="#i-chart"/></svg></span><h3>Отчёты</h3><p>Статистика прослушиваний и отчётность по вашим релизам.</p><div class="service-foot"><span class="price">по запросу</span><button id="reportServiceBtn" type="button" class="secondary small">Запросить</button></div></div>
+        <div class="service-card"><span class="icon-box"><svg><use href="#i-doc"/></svg></span><h3>Договор</h3><p>Лицензионный договор с лейблом и сопроводительные документы.</p><div class="service-foot"><span class="price">по запросу</span><button id="contractServiceBtn" type="button" class="secondary small">Запросить</button></div></div>
+        <div class="service-card"><span class="icon-box"><svg><use href="#i-prompt"/></svg></span><h3>Суфлёр</h3><p>Синхронный текст по TTML для записи видео под трек.</p><div class="service-foot"><span class="price">бесплатно</span><button id="teleprompterServiceBtn" type="button" class="secondary small">Открыть</button></div></div>
+        <div class="service-card"><span class="icon-box"><svg><use href="#i-chat"/></svg></span><h3>Поддержка</h3><p>Вопрос по релизу, изменение метаданных, снятие с площадок.</p><div class="service-foot"><span class="price">бесплатно</span><button id="supportServiceBtn" type="button" class="secondary small">Написать</button></div></div>
       </div>
     </section>
 
+    <!-- ================= TOOLS ================= -->
     <section class="section" id="toolsSection">
-      <h2>Бесплатные сервисы</h2>
-      <div class="glass-icon-grid spaced">
-        <div class="glass-icon"><b><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="2"/><path d="m4 8 8 6 8-6"/></svg></b><span>Email</span></div>
-        <div class="glass-icon"><b><svg viewBox="0 0 24 24"><path d="M5 15v-3a7 7 0 0 1 14 0v3"/><rect x="3" y="14" width="4" height="6" rx="2"/><rect x="17" y="14" width="4" height="6" rx="2"/></svg></b><span>Preview</span></div>
-        <div class="glass-icon"><b><svg viewBox="0 0 24 24"><path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/></svg></b><span>Reports</span></div>
-        <div class="glass-icon"><b><svg viewBox="0 0 24 24"><path d="m13 2-8 12h6l-1 8 8-12h-6z"/></svg></b><span>Tools</span></div>
-      </div>
+      <div class="section-head"><div><h2>Инструменты</h2><p class="muted">Бесплатно для всех артистов.</p></div></div>
       <div class="grid two">
         <div class="card">
-          <h3>Email-генератор</h3>
-          <p class="muted">Быстро собрать письмо для площадки, менеджера или партнёра.</p>
+          <span class="icon-box"><svg><use href="#i-mail"/></svg></span>
+          <h3 class="spaced">Генератор писем</h3>
+          <p class="muted">Письмо для редактора плейлиста, медиа или менеджера за минуту.</p>
           <div class="profile-form">
-            <div><label>Кому пишем</label><input id="emailTo" placeholder="Например: редактору плейлиста"></div>
-            <div><label>Артист / проект</label><input id="emailArtist" placeholder="Имя артиста"></div>
-            <div><label>Повод</label><input id="emailReason" placeholder="Например: новый релиз, питчинг, запрос отчёта"></div>
-            <button id="generateEmailBtn">Сгенерировать письмо</button>
+            <div><label for="emailTemplate">Тип письма</label>
+              <select id="emailTemplate">
+                <option value="pitch">Питчинг в плейлист</option>
+                <option value="media">Анонс для медиа / блога</option>
+                <option value="collab">Предложение о сотрудничестве</option>
+                <option value="report">Запрос отчёта / статистики</option>
+              </select>
+            </div>
+            <div><label for="emailTo">Кому пишем</label><input id="emailTo" placeholder="Например: редактору плейлиста «Новый рэп»"></div>
+            <div class="row">
+              <div><label for="emailArtist">Артист</label><input id="emailArtist" placeholder="Имя артиста"></div>
+              <div><label for="emailRelease">Релиз</label><input id="emailRelease" placeholder="Название трека"></div>
+            </div>
+            <div><label for="emailReason">Детали</label><input id="emailReason" placeholder="Жанр, дата выхода, ссылка на релиз"></div>
+            <button id="generateEmailBtn" type="button">Сгенерировать письмо</button>
           </div>
         </div>
         <div class="card">
           <h3>Готовый текст</h3>
-          <textarea id="emailOutput" placeholder="Здесь появится письмо"></textarea>
+          <textarea id="emailOutput" placeholder="Здесь появится письмо — его можно отредактировать"></textarea>
           <div class="actions spaced">
-            <button class="secondary" id="copyEmailBtn">Скопировать</button>
+            <button class="secondary" id="copyEmailBtn" type="button">Скопировать</button>
           </div>
         </div>
       </div>
+      <div class="card spaced" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <span class="icon-box"><svg><use href="#i-prompt"/></svg></span>
+        <div style="flex:1;min-width:220px"><h3>Суфлёр для съёмки</h3><p class="muted" style="margin:0">Загрузите трек и TTML с таймингами — текст будет подсвечиваться синхронно. Файлы не покидают браузер.</p></div>
+        <button class="secondary" type="button" data-open-teleprompter>Открыть суфлёр</button>
+      </div>
     </section>
 
+    <!-- ================= PROMOS ================= -->
     <section class="section" id="promosSection">
+      <div class="section-head"><div><h2>Промокоды</h2><p class="muted">Зачисление на баланс или скидка на следующую отправку релиза.</p></div></div>
       <div class="card">
-        <div class="release-head">
+        <div class="promo-activate">
           <div>
-            <h2>Промокоды</h2>
-            <p class="muted">Зачисление на баланс или скидка на следующую отправку релиза.</p>
+            <label for="promoCodeInput">Промокод</label>
+            <input id="promoCodeInput" placeholder="Введите код" autocomplete="off" autocapitalize="characters" spellcheck="false">
           </div>
-        </div>
-        <div class="promo-activate spaced">
-          <div>
-            <label>Промокод</label>
-            <input id="promoCodeInput" placeholder="Введите код" autocomplete="off">
-          </div>
-          <button id="activatePromoBtn">Активировать</button>
+          <button id="activatePromoBtn" type="button">Активировать</button>
         </div>
         <p class="status muted" id="promoStatus"></p>
       </div>
@@ -956,95 +850,107 @@
           <div id="activePromoList" class="promo-list muted">Войдите, чтобы увидеть скидки.</div>
         </div>
         <div class="card">
-          <h3>История промокодов</h3>
+          <h3>История</h3>
           <div id="promoHistoryList" class="promo-list muted">Войдите, чтобы увидеть историю.</div>
         </div>
       </div>
     </section>
 
+    <!-- ================= PROFILE ================= -->
     <section class="section" id="profileSection">
-      <div class="profile-shell">
-        <div class="card auth-box" id="authCard">
-          <h2>Вход</h2>
-          <p class="muted">Получите код в Telegram-боте и вставьте его сюда.</p>
-          <div class="actions">
-            <a class="button-link" id="telegramBotLink" href="https://t.me/twaslabel_bot?start=webauth" target="_blank" rel="noopener">Получить код для входа</a>
+      <div class="card auth-box" id="authCard">
+        <span class="eyebrow">Личный кабинет</span>
+        <h2>Вход через Telegram</h2>
+        <ol class="auth-steps">
+          <li>Откройте бота и нажмите «Старт» — он пришлёт код.</li>
+          <li>Введите код ниже. Код одноразовый и действует несколько минут.</li>
+        </ol>
+        <a class="button-link secondary" id="telegramBotLink" href="https://t.me/twaslabel_bot?start=webauth" target="_blank" rel="noopener" style="width:100%"><svg class="i"><use href="#i-send"/></svg>Получить код в @twaslabel_bot</a>
+        <form id="loginForm" class="profile-form spaced">
+          <div><label for="authCode">Код из Telegram</label><input id="authCode" class="code-input" inputmode="numeric" placeholder="••••••" maxlength="8" autocomplete="one-time-code"></div>
+          <button type="submit">Войти</button>
+        </form>
+        <p id="status" class="status muted" role="status"></p>
+      </div>
+
+      <div class="profile-layout hidden" id="profileCard">
+        <div class="card full">
+          <div class="profile-hero">
+            <div class="profile-avatar" id="profileAvatar">?</div>
+            <div><h2 id="artistName">—</h2><span class="muted" id="profileSubline">Артист лейбла</span></div>
+            <div class="actions"><button id="profileTopupBtn" type="button"><svg class="i"><use href="#i-card"/></svg>Пополнить баланс</button></div>
           </div>
-          <form id="loginForm" class="profile-form spaced">
-            <div><label>Код из Telegram</label><input id="authCode" inputmode="numeric" placeholder="123456" maxlength="8" autocomplete="one-time-code"></div>
-            <button type="submit">Войти</button>
-          </form>
-          <p id="status" class="status muted"></p>
+          <div class="stat-grid">
+            <div class="stat"><span>Баланс</span><strong id="balance">0 ₽</strong></div>
+            <div class="stat"><span>Релизы</span><strong id="releaseCount">0</strong></div>
+            <div class="stat"><span>Черновики</span><strong id="draftCount">0</strong></div>
+          </div>
+          <div class="profile-action-grid">
+            <button class="secondary" id="profileReleasesBtn" type="button"><svg class="i"><use href="#i-disc"/></svg>Мои релизы</button>
+            <button class="secondary" id="profileDraftsBtn" type="button"><svg class="i"><use href="#i-draft"/></svg>Черновики</button>
+            <button class="secondary" id="profileReportsBtn" type="button"><svg class="i"><use href="#i-chart"/></svg>Запросить отчёт</button>
+            <button class="secondary" id="profileOrdersBtn" type="button"><svg class="i"><use href="#i-cart"/></svg>Мои заказы</button>
+            <button class="secondary" id="profilePromoBtn" type="button"><svg class="i"><use href="#i-ticket"/></svg>Промокод</button>
+            <button class="secondary" id="profileSupportBtn" type="button"><svg class="i"><use href="#i-chat"/></svg>Поддержка</button>
+          </div>
         </div>
 
-        <div class="profile-main" id="profileCard">
-          <div class="card">
-            <h2>Мой профиль</h2>
-            <div class="stat-grid">
-              <div class="stat"><span class="muted">Артист</span><strong id="artistName">—</strong></div>
-              <div class="stat"><span class="muted">Баланс</span><strong id="balance">0 ₽</strong></div>
-              <div class="stat"><span class="muted">Релизы</span><strong id="releaseCount">0</strong></div>
-            </div>
-            <div class="profile-action-grid spaced">
-              <button class="secondary" id="profileReleasesBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/></svg> Мои релизы</button>
-              <button class="secondary" id="profileDraftsBtn"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4.5h6M9 10h6M9 14h6M9 18h4"/></svg> Черновики</button>
-              <button class="secondary" id="profileReportsBtn"><svg viewBox="0 0 24 24"><path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/></svg> Мои отчёты</button>
-              <button class="secondary" id="profileOrdersBtn"><svg viewBox="0 0 24 24"><path d="M5 6h16l-2 8H7L5 3H2"/><circle cx="8" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/></svg> Мои заказы</button>
-              <button class="secondary" id="profileTopupBtn"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18M7 15h4"/></svg> Пополнить баланс</button>
-              <button class="secondary" id="profilePromoBtn"><svg viewBox="0 0 24 24"><path d="M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z"/><path d="M9 8v8"/></svg> Ввести промокод</button>
-            </div>
+        <div class="card full hidden" id="topupCard">
+          <div class="modal-head" style="margin-bottom:8px"><h3 style="font-family:var(--display)">Пополнение баланса</h3><button class="icon-btn" type="button" id="topupCloseBtn" aria-label="Скрыть">×</button></div>
+          <p class="muted">Оплата картой через ЮKassa. После оплаты вернитесь сюда и нажмите «Проверить оплату».</p>
+          <div class="amount-grid">
+            <button class="secondary" type="button" data-topup-amount="1299">1 299 ₽</button>
+            <button class="secondary" type="button" data-topup-amount="1799">1 799 ₽</button>
+            <button class="secondary" type="button" data-topup-amount="2399">2 399 ₽</button>
+            <button class="secondary" type="button" data-topup-amount="2899">2 899 ₽</button>
           </div>
-          <div class="card profile-form compact">
-            <div class="profile-field"><label>Имя артиста</label><div class="profile-copy-row"><input id="profileArtist" placeholder="Не указано"><button class="secondary profile-copy-btn" type="button" data-copy-profile="profileArtist">Копировать</button></div></div>
-            <div class="profile-field"><label>ФИО</label><div class="profile-copy-row"><input id="profileFio" placeholder="Не указано"><button class="secondary profile-copy-btn" type="button" data-copy-profile="profileFio">Копировать</button></div></div>
-            <div class="profile-field"><label>Email</label><div class="profile-copy-row"><input id="profileEmail" placeholder="Не указан"><button class="secondary profile-copy-btn" type="button" data-copy-profile="profileEmail">Копировать</button></div></div>
-            <div class="profile-field"><label>Телефон</label><div class="profile-copy-row"><input id="profilePhone" placeholder="Не указан"><button class="secondary profile-copy-btn" type="button" data-copy-profile="profilePhone">Копировать</button></div></div>
-            <div class="profile-field"><label>Оплата картой</label><input placeholder="Данные карты вводятся только на стороне YooKassa" disabled></div>
-            <div class="actions full">
-              <button class="secondary" id="editProfileBtn" type="button">Изменить данные</button>
-              <button class="secondary hidden" id="cancelProfileEditBtn" type="button">Отмена</button>
-              <button class="secondary hidden" id="saveProfileBtn" type="button">Сохранить профиль</button>
-            </div>
+          <div class="row spaced" style="align-items:end">
+            <div><label for="topupAmount">Другая сумма, ₽</label><input id="topupAmount" inputmode="numeric" type="number" min="50" max="100000" step="1" value="500"></div>
+            <button id="topupCreateBtn" type="button" style="flex:0 0 auto">Перейти к оплате</button>
           </div>
-          <div class="card hidden" id="topupCard">
-            <h3>Пополнение баланса</h3>
-            <p class="muted">Оплата через ЮKassa. После оплаты нажмите “Проверить оплату”, чтобы зачислить баланс.</p>
-            <div class="amount-grid spaced">
-              <button class="secondary" data-topup-amount="300">300 ₽</button>
-              <button class="secondary" data-topup-amount="500">500 ₽</button>
-              <button class="secondary" data-topup-amount="1000">1000 ₽</button>
-              <button class="secondary" data-topup-amount="2000">2000 ₽</button>
-            </div>
-            <div class="row spaced">
-              <div><label>Другая сумма</label><input id="topupAmount" inputmode="numeric" type="number" min="50" max="100000" step="1" value="500"></div>
-              <button id="topupCreateBtn">Создать оплату</button>
-            </div>
-            <p class="topup-status muted" id="topupStatus"></p>
-            <div class="topup-result hidden" id="topupResult">
-              <a class="button-link" id="topupPayLink" href="#" target="_blank" rel="noopener">Перейти к оплате</a>
-              <button class="secondary" id="topupCheckBtn">Проверить оплату</button>
-            </div>
-          </div>
-          <div class="grid two spaced">
-            <div class="card">
-              <h3>Финансы</h3>
-              <div id="financeSummary" class="mini-list muted">Войдите, чтобы увидеть финансы.</div>
-            </div>
-            <div class="card">
-              <h3>Сводка</h3>
-              <div id="profileCounts" class="mini-list muted">Войдите, чтобы увидеть сводку.</div>
-            </div>
-          </div>
-          <div class="grid two spaced">
-            <div class="card"><h3>Последние заказы</h3><div id="profileOrders" class="mini-list muted">—</div></div>
-            <div class="card"><h3>Черновики</h3><div id="profileDrafts" class="mini-list muted">—</div></div>
-            <div class="card"><h3>Отчёты</h3><div id="profileReports" class="mini-list muted">—</div></div>
-            <div class="card"><h3>Договоры</h3><div id="profileContracts" class="mini-list muted">—</div></div>
-            <div class="card"><h3>Реферал</h3><div id="profileReferral" class="mini-list muted">Ссылку приглашения подключим после проверки реферальной таблицы.</div></div>
+          <p class="status muted" id="topupStatus"></p>
+          <div class="topup-result hidden" id="topupResult">
+            <a class="button-link" id="topupPayLink" href="#" target="_blank" rel="noopener">Открыть страницу оплаты</a>
+            <button class="secondary" id="topupCheckBtn" type="button">Проверить оплату</button>
           </div>
         </div>
+
+        <div class="card">
+          <div class="modal-head" style="margin-bottom:12px"><h3>Данные артиста</h3></div>
+          <div class="profile-form">
+            <div class="profile-field"><label for="profileArtist">Имя артиста</label><div class="profile-copy-row"><input id="profileArtist" placeholder="Не указано"><button class="ghost small profile-copy-btn" type="button" data-copy-profile="profileArtist">Копировать</button></div></div>
+            <div class="profile-field"><label for="profileFio">ФИО</label><div class="profile-copy-row"><input id="profileFio" placeholder="Не указано"><button class="ghost small profile-copy-btn" type="button" data-copy-profile="profileFio">Копировать</button></div></div>
+            <div class="profile-field"><label for="profileEmail">Email</label><div class="profile-copy-row"><input id="profileEmail" type="email" placeholder="Не указан"><button class="ghost small profile-copy-btn" type="button" data-copy-profile="profileEmail">Копировать</button></div></div>
+            <div class="profile-field"><label for="profilePhone">Телефон</label><div class="profile-copy-row"><input id="profilePhone" type="tel" placeholder="Не указан"><button class="ghost small profile-copy-btn" type="button" data-copy-profile="profilePhone">Копировать</button></div></div>
+            <div class="actions">
+              <button class="secondary" id="editProfileBtn" type="button">Изменить данные</button>
+              <button id="saveProfileBtn" class="hidden" type="button">Сохранить</button>
+              <button class="ghost hidden" id="cancelProfileEditBtn" type="button">Отмена</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack">
+          <div class="card"><h3>Финансы</h3><div id="financeSummary" class="mini-list muted">—</div></div>
+          <div class="card"><h3>Реферальная программа</h3><div id="profileReferral" class="mini-list muted">—</div></div>
+        </div>
+
+        <div class="card"><h3>Последние заказы</h3><div id="profileOrders" class="mini-list muted">—</div></div>
+        <div class="card"><h3>Черновики</h3><div id="profileDrafts" class="mini-list muted">—</div></div>
+        <div class="card"><h3>Отчёты</h3><div id="profileReports" class="mini-list muted">—</div></div>
+        <div class="card"><h3>Договоры</h3><div id="profileContracts" class="mini-list muted">—</div></div>
+        <div class="card full hidden"><div id="profileCounts"></div></div>
       </div>
     </section>
+
+    <footer class="site-footer">
+      <span>© <span id="footerYear">2026</span> talk with a star // label</span>
+      <div class="footer-links">
+        <a href="https://t.me/twaslabel_bot" target="_blank" rel="noopener">Бот @twaslabel_bot</a>
+        <a href="https://t.me/twaslabel" target="_blank" rel="noopener">Канал @twaslabel</a>
+        <a href="https://t.me/twaslabelmn" target="_blank" rel="noopener">Менеджер</a>
+      </div>
+    </footer>
   </main>
 
   <div id="teleprompterTool" class="teleprompter-tool hidden" role="dialog" aria-modal="true" aria-labelledby="tpTitle">
@@ -1118,253 +1024,52 @@
     </section>
   </div>
 
-  <div id="dockRoot" class="dock-host" aria-label="Главная навигация">
-    <div class="dock-outer">
-      <div class="dock-panel" style="height:68px">
-        <button class="dock-item active" style="width:62px;height:54px" data-fallback-tab="home" aria-label="Главная"><span class="dock-icon"><svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-6h5v6"/></svg></span><span class="dock-label">Главная</span></button>
-        <button class="dock-item" style="width:62px;height:54px" data-fallback-tab="releases" aria-label="Мои релизы"><span class="dock-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M15.5 8.5h.01"/></svg></span><span class="dock-label">Релизы</span></button>
-        <button class="dock-item" style="width:62px;height:54px" data-fallback-tab="services" aria-label="Услуги"><span class="dock-icon"><svg viewBox="0 0 24 24"><path d="M5 6h16l-2 8H7L5 3H2"/><circle cx="8" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/></svg></span><span class="dock-label">Услуги</span></button>
-        <button class="dock-item" style="width:62px;height:54px" data-fallback-tab="tools" aria-label="Сервисы"><span class="dock-icon"><svg viewBox="0 0 24 24"><path d="M8 7V5h8v2"/><rect x="4" y="7" width="16" height="12" rx="2"/><path d="M4 12h16"/><path d="M10 12v2h4v-2"/></svg></span><span class="dock-label">Сервисы</span></button>
-        <button class="dock-item" style="width:62px;height:54px" data-fallback-tab="profile" aria-label="Профиль"><span class="dock-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></span><span class="dock-label">Профиль</span></button>
-      </div>
-    </div>
-  </div>
+  <nav class="mobile-nav" aria-label="Разделы">
+    <button class="nav-item active" type="button" data-fallback-tab="home"><svg class="i"><use href="#i-home"/></svg><span class="nav-label">Главная</span></button>
+    <button class="nav-item" type="button" data-fallback-tab="releases"><svg class="i"><use href="#i-disc"/></svg><span class="nav-label">Релизы</span></button>
+    <button class="nav-item" type="button" data-fallback-tab="services"><svg class="i"><use href="#i-bag"/></svg><span class="nav-label">Услуги</span></button>
+    <button class="nav-item" type="button" data-fallback-tab="tools"><svg class="i"><use href="#i-tools"/></svg><span class="nav-label">Тулзы</span></button>
+    <button class="nav-item" type="button" data-fallback-tab="promos"><svg class="i"><use href="#i-ticket"/></svg><span class="nav-label">Промо</span></button>
+    <button class="nav-item" type="button" data-fallback-tab="profile"><svg class="i"><use href="#i-user"/></svg><span class="nav-label">Профиль</span></button>
+  </nav>
+
+  <div id="modalHost"></div>
+  <div class="toast-host" id="toastHost" aria-live="polite"></div>
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="/assets/teleprompter.js?v=1" defer></script>
+  <script src="/assets/teleprompter.js?v=2" defer></script>
   <script type="module">
-    import React, { Children, cloneElement, useEffect, useMemo, useRef, useState } from "https://esm.sh/react@18.3.1";
-    import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
-    import { AnimatePresence, motion, useMotionValue, useSpring, useTransform } from "https://esm.sh/motion@12.23.24/react";
-
-    const h = React.createElement;
-    const counterRoots = new Map();
-    let dockRoot = null;
-
-    function CounterNumber({ mv, number, height }) {
-      const y = useTransform(mv, latest => {
-        const placeValue = latest % 10;
-        let offset = (10 + number - placeValue) % 10;
-        let memo = offset * height;
-        if (offset > 5) memo -= 10 * height;
-        return memo;
-      });
-      return h(motion.span, { className: "counter-number", style: { y } }, number);
-    }
-
-    function normalizeNearInteger(num) {
-      const nearest = Math.round(num);
-      const tolerance = 1e-9 * Math.max(1, Math.abs(num));
-      return Math.abs(num - nearest) < tolerance ? nearest : num;
-    }
-
-    function getValueRoundedToPlace(value, place) {
-      const scaled = value / place;
-      return Math.floor(normalizeNearInteger(scaled));
-    }
-
-    function CounterDigit({ place, value, height, digitStyle }) {
-      if (place === "char") {
-        return h("span", { className: "counter-char", style: { height, ...digitStyle, width: "fit-content" } }, value);
-      }
-
-      const valueRoundedToPlace = getValueRoundedToPlace(value, place);
-      const animatedValue = useSpring(valueRoundedToPlace, { stiffness: 120, damping: 22, mass: .65 });
-
-      useEffect(() => {
-        animatedValue.set(valueRoundedToPlace);
-      }, [animatedValue, valueRoundedToPlace]);
-
-      return h(
-        "span",
-        { className: "counter-digit", style: { height, ...digitStyle } },
-        Array.from({ length: 10 }, (_, i) =>
-          h(CounterNumber, { key: i, mv: animatedValue, number: i, height })
-        )
-      );
-    }
-
-    function getPlacesForInteger(value) {
-      const digits = String(Math.max(0, Math.floor(Number(value) || 0))).length;
-      return Array.from({ length: digits }, (_, index) => 10 ** (digits - index - 1));
-    }
-
-    function Counter({
-      value,
-      suffix = "",
-      fontSize = 24,
-      padding = 3,
-      gap = 1,
-      textColor = "inherit",
-      fontWeight = 900,
-      gradientHeight = 7,
-      gradientFrom = "rgba(30, 41, 59, .95)",
-      gradientTo = "rgba(30, 41, 59, 0)"
-    }) {
-      const numericValue = Math.max(0, Math.floor(Number(value) || 0));
-      const places = getPlacesForInteger(numericValue);
-      const height = fontSize + padding;
-      const counterStyle = {
-        fontSize,
-        gap,
-        color: textColor,
-        fontWeight,
-        paddingLeft: 0,
-        paddingRight: 0
-      };
-      const topGradientStyle = {
-        height: gradientHeight,
-        background: `linear-gradient(to bottom, ${gradientFrom}, ${gradientTo})`
-      };
-      const bottomGradientStyle = {
-        height: gradientHeight,
-        background: `linear-gradient(to top, ${gradientFrom}, ${gradientTo})`
-      };
-
-      return h(
-        "span",
-        { className: "counter-container" },
-        h(
-          "span",
-          { className: "counter-counter", style: counterStyle },
-          ...places.map((place, index) => h(CounterDigit, { key: `${place}-${index}`, place, value: numericValue, height })),
-          suffix ? h(CounterDigit, { key: "suffix", place: "char", value: suffix, height }) : null
-        ),
-        h(
-          "span",
-          { className: "gradient-container" },
-          h("span", { className: "top-gradient", style: topGradientStyle }),
-          h("span", { className: "bottom-gradient", style: bottomGradientStyle })
-        )
-      );
-    }
-
-    function renderReactCounter(element, value, options = {}) {
-      if (!element) return;
-      let root = counterRoots.get(element);
-      if (!root) {
-        root = createRoot(element);
-        counterRoots.set(element, root);
-      }
-      root.render(h(Counter, { value, ...options }));
-    }
-
-    function DockItem({ children, className = "", onClick, mouseX, spring, distance, magnification, baseItemSize }) {
-      const ref = useRef(null);
-      const isHovered = useMotionValue(0);
-      const mouseDistance = useTransform(mouseX, (value) => {
-        const rect = ref.current?.getBoundingClientRect() ?? { x: 0, width: baseItemSize };
-        return value - rect.x - baseItemSize / 2;
-      });
-      const targetSize = useTransform(mouseDistance, [-distance, 0, distance], [baseItemSize, magnification, baseItemSize]);
-      const size = useSpring(targetSize, spring);
-
-      return h(motion.div, {
-        ref,
-        style: { width: size, height: size },
-        onHoverStart: () => isHovered.set(1),
-        onHoverEnd: () => isHovered.set(0),
-        onFocus: () => isHovered.set(1),
-        onBlur: () => isHovered.set(0),
-        onClick,
-        onKeyDown: (event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          onClick?.();
-        },
-        className: `dock-item ${className}`,
-        tabIndex: 0,
-        role: "button",
-        "aria-haspopup": "false"
-      }, Children.map(children, (child) => cloneElement(child, { isHovered })));
-    }
-
-    function DockLabel({ children, className = "", isHovered }) {
-      const [isVisible, setIsVisible] = useState(false);
-      useEffect(() => {
-        const unsubscribe = isHovered.on("change", (latest) => setIsVisible(latest === 1));
-        return () => unsubscribe();
-      }, [isHovered]);
-
-      return h(AnimatePresence, null, isVisible
-        ? h(motion.div, {
-            initial: { opacity: 0, y: 0 },
-            animate: { opacity: 1, y: -10 },
-            exit: { opacity: 0, y: 0 },
-            transition: { duration: 0.2 },
-            className: `dock-label ${className}`,
-            role: "tooltip",
-            style: { x: "-50%" }
-          }, children)
-        : null
-      );
-    }
-
-    function DockIcon({ children, className = "" }) {
-      return h("div", { className: `dock-icon ${className}` }, children);
-    }
-
-    function Dock({
-      items,
-      className = "",
-      spring = { mass: 0.1, stiffness: 150, damping: 12 },
-      magnification = 70,
-      distance = 190,
-      panelHeight = 68,
-      dockHeight = 118,
-      baseItemSize = 48
-    }) {
-      const mouseX = useMotionValue(Infinity);
-      const isHovered = useMotionValue(0);
-      const maxHeight = useMemo(
-        () => Math.max(dockHeight, magnification + magnification / 2 + 4),
-        [magnification, dockHeight]
-      );
-      const heightRow = useTransform(isHovered, [0, 1], [panelHeight, maxHeight]);
-      const height = useSpring(heightRow, spring);
-
-      return h(motion.div, { style: { height, scrollbarWidth: "none" }, className: "dock-outer" },
-        h(motion.div, {
-          onMouseMove: ({ pageX }) => {
-            isHovered.set(1);
-            mouseX.set(pageX);
-          },
-          onMouseLeave: () => {
-            isHovered.set(0);
-            mouseX.set(Infinity);
-          },
-          className: `dock-panel ${className}`,
-          style: { height: panelHeight },
-          role: "toolbar",
-          "aria-label": "Главная навигация"
-        }, items.map((item, index) =>
-          h(DockItem, {
-            key: item.key || index,
-            onClick: item.onClick,
-            className: item.className,
-            mouseX,
-            spring,
-            distance,
-            magnification,
-            baseItemSize
-          }, h(DockIcon, null, item.icon), h(DockLabel, null, item.label))
-        ))
-      );
-    }
-
-    function renderDock() {
-      return;
-    }
-
-
     const apiBase = window.location.origin;
     const $ = (id) => document.getElementById(id);
     const state = { user: null, releases: [], drafts: [], filteredReleases: [], recentReleases: [], selectedRelease: null, profileDashboard: null, contracts: [], promoHistory: [], activeDiscounts: [], distributionPayment: null, activeTab: "home", editingDraftId: null, albumTracks: [], releaseStep: 0, releasePage: 1, releasePageSize: 12, releaseDirty: false, releaseSavedSignature: "" };
 
+    function showToast(message, kind = "muted", timeout = 4200) {
+      if (!message) return;
+      const host = $("toastHost");
+      const toast = document.createElement("div");
+      toast.className = `toast ${kind}`;
+      toast.setAttribute("role", kind === "error" ? "alert" : "status");
+      toast.textContent = message;
+      host.appendChild(toast);
+      while (host.children.length > 3) host.firstElementChild.remove();
+      setTimeout(() => toast.remove(), kind === "error" ? timeout + 2500 : timeout);
+    }
     function setStatus(message, kind = "muted") {
       const status = $("status");
       status.className = `status ${kind}`;
       status.textContent = message || "";
+      const authVisible = !$("authCard").classList.contains("hidden") && state.activeTab === "profile";
+      if (message && !authVisible && kind !== "muted") showToast(message, kind);
+    }
+    async function withBusy(button, task) {
+      if (button?.classList.contains("is-loading")) return;
+      button?.classList.add("is-loading");
+      try { return await task(); } finally { button?.classList.remove("is-loading"); }
+    }
+    function initials(name) {
+      const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+      if (!parts.length) return "?";
+      return (parts[0][0] + (parts[1]?.[0] || "")).toUpperCase();
     }
     function money(value) { return `${Number(value || 0).toLocaleString("ru-RU")} ₽`; }
     function escapeAttr(value) {
@@ -1498,14 +1203,19 @@
       });
     }
 
+    const TABS = ["home", "releases", "services", "tools", "promos", "profile"];
     function setTab(tab) {
+      if (!TABS.includes(tab)) tab = "home";
       document.querySelectorAll(".section").forEach((node) => node.classList.remove("active"));
       $(`${tab}Section`).classList.add("active");
       state.activeTab = tab;
       document.querySelectorAll("[data-fallback-tab]").forEach((button) => {
         button.classList.toggle("active", button.dataset.fallbackTab === tab);
       });
-      renderDock();
+      if (!document.body.classList.contains("release-page")) {
+        const hash = tab === "home" ? "" : `#${tab}`;
+        if (window.location.hash !== hash) history.replaceState(null, "", `${window.location.pathname}${window.location.search}${hash}`);
+      }
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
@@ -1551,7 +1261,7 @@
 
     async function applyUser(user) {
       state.user = user;
-      await Promise.all([loadUserReleases(), loadProfileDashboard(), loadPromoHistory(), loadMyContracts()]);
+      await Promise.all([loadUserReleases(), loadProfileDashboard(), loadPromoHistory(), loadMyContracts(), loadReferral().catch(() => null)]);
       renderProfile();
       renderUserReleases();
       renderPromoSection();
@@ -1827,7 +1537,7 @@
               <div class="detail"><span>Дата</span><b>${dateText(release.release_date)}</b></div>
               ${upcText ? `<div class="detail"><span>UPC</span><b>${escapeHtml(upcText)}</b></div>` : ""}
             </div>
-            ${releaseLink ? `<p class="spaced"><a class="button-link secondary" href="${escapeHtml(releaseLink)}" target="_blank" rel="noopener">Открыть релиз</a></p>` : ""}
+            ${releaseLink ? `<div class="actions"><a class="button-link secondary small" href="${escapeHtml(releaseLink)}" target="_blank" rel="noopener">Открыть релиз</a></div>` : ""}
           </div>
         </article>
       `;
@@ -1836,12 +1546,25 @@
     function renderRecentReleases() {
       const box = $("recentReleases");
       if (!state.recentReleases.length) {
-        box.className = "muted";
-        box.textContent = "Пока нет релизов для отображения.";
+        box.className = "";
+        box.innerHTML = '<div class="empty"><b>Скоро здесь появятся релизы</b>Каталог обновляется после отгрузки на площадки.</div>';
         return;
       }
-      box.className = "release-list";
-      box.innerHTML = state.recentReleases.map((release) => releaseCard(release, false)).join("");
+      box.className = "release-grid";
+      box.innerHTML = state.recentReleases.map((release) => {
+        const status = statusInfo(release.status);
+        const link = validExternalUrl(release.release_link) ? release.release_link : "";
+        const cover = release.cover_url
+          ? `<img src="${escapeHtml(release.cover_url)}" alt="" loading="lazy" onerror="this.remove()">`
+          : "";
+        const tag = link ? "a" : "div";
+        const attrs = link ? `href="${escapeHtml(link)}" target="_blank" rel="noopener"` : "";
+        return `
+          <${tag} class="cover-card" ${attrs}>
+            <div class="cover"><span class="cover-placeholder"><svg viewBox="0 0 24 24"><use href="#i-disc"/></svg></span>${cover}</div>
+            <div><b>${escapeHtml(release.release_name || "Без названия")}</b><span class="sub">${escapeHtml(release.release_type || "Релиз")} · ${release.release_date ? dateText(release.release_date) : escapeHtml(status.text)}</span></div>
+          </${tag}>`;
+      }).join("");
     }
 
     function draftCard(draft) {
@@ -1870,11 +1593,10 @@
               <div class="detail"><span>Прогресс</span><b>${counterHtml(progress)}%</b></div>
               <div class="detail"><span>Шаг</span><b>${counterHtml(step)} из ${counterHtml(RELEASE_STEPS.length)}</b></div>
               <div class="detail"><span>Дата релиза</span><b>${dateText(data.releaseDate)}</b></div>
-              <div class="detail"><span>Действие</span><b>Открыть</b></div>
             </div>
             <div class="actions spaced">
-              <button class="secondary" type="button" data-load-draft="${draft.id}">Продолжить</button>
-              <button class="ghost" type="button" data-delete-draft="${draft.id}">Удалить</button>
+              <button class="small" type="button" data-load-draft="${draft.id}">Продолжить</button>
+              <button class="danger small" type="button" data-delete-draft="${draft.id}">Удалить</button>
             </div>
           </div>
         </article>
@@ -1884,20 +1606,20 @@
     function renderUserReleases() {
       const box = $("releases");
       if (!state.user) {
-        box.className = "release-list muted";
-        box.textContent = "Войдите, чтобы увидеть релизы.";
+        box.className = "release-list";
+        box.innerHTML = '<div class="empty"><b>Войдите, чтобы увидеть релизы</b>Вход занимает полминуты через Telegram-бота.<div class="actions"><button type="button" data-go="auth">Войти</button></div></div>';
         $("releasePagination")?.classList.add("hidden");
         return;
       }
       if (!state.releases.length && !state.drafts.length) {
-        box.className = "release-list muted";
-        box.textContent = "Релизов и черновиков пока нет.";
+        box.className = "release-list";
+        box.innerHTML = '<div class="empty"><b>Релизов пока нет</b>Создайте первый релиз — черновик можно сохранить на любом шаге.<div class="actions"><button type="button" data-new-release>Создать релиз</button></div></div>';
         $("releasePagination")?.classList.add("hidden");
         return;
       }
       if (!state.filteredReleases.length) {
-        box.className = "release-list muted";
-        box.textContent = "По текущему фильтру ничего не найдено.";
+        box.className = "release-list";
+        box.innerHTML = '<div class="empty"><b>Ничего не найдено</b>Измените поиск или фильтр статуса.</div>';
         $("releasePagination")?.classList.add("hidden");
         return;
       }
@@ -2082,6 +1804,7 @@
     function assignReleaseStep(node) {
       if (!node || !node.querySelector) return 0;
       if (node.classList.contains("release-step-nav") || node.classList.contains("release-builder-actions")) return null;
+      if (node.dataset.stepTitle) return Number(node.dataset.stepTitle);
       if (node.id === "distributionPaymentBox") return 3;
       if (node.id === "albumTracksBox" || node.classList.contains("single-release-only") || node.querySelector("#releaseAudioInput, #releaseContractInput, #releaseLyricsInput, #releaseVideoInput, #releasePreviewInput, #releaseExplicitInput")) return 2;
       if (node.querySelector("#releaseYandexInput, #releaseLinksInput, #releaseTikTokCommercialInput, #releaseTikTokFullInput")) return 3;
@@ -2112,6 +1835,7 @@
       });
       document.querySelectorAll("[data-step-pill]").forEach((node) => {
         node.classList.toggle("active", Number(node.dataset.stepPill) === state.releaseStep);
+        node.classList.toggle("done", Number(node.dataset.stepPill) < state.releaseStep);
       });
       $("releasePrevStepBtn").disabled = state.releaseStep === 0;
       $("releaseNextStepBtn").classList.toggle("hidden", state.releaseStep >= RELEASE_STEPS.length - 1);
@@ -2580,6 +2304,10 @@
       renderUserReleases();
       renderDistributionPayment(created.payment);
       setStatus(isAlbum ? "Альбом отправлен на рассмотрение." : "Релиз отправлен на рассмотрение.", "ok");
+      if (document.body.classList.contains("release-page")) {
+        state.releaseDirty = false;
+        setTimeout(() => { window.location.href = "/cabinet?submitted=1#releases"; }, 900);
+      }
     }
 
     async function openReleaseDetail(releaseId) {
@@ -2643,16 +2371,16 @@
       $("releaseDetailView").innerHTML = `
         <div class="detail-view">
           <div class="actions">
-            <button class="secondary" id="backToReleasesBtn">← Назад к релизам</button>
+            <button class="ghost" id="backToReleasesBtn" type="button"><svg class="i"><use href="#i-back"/></svg>Назад к релизам</button>
           </div>
-          <div class="grid two">
+          <div class="detail-hero">
             <div class="cover-box">${cover}</div>
             <div class="card">
               <div class="meta">
                 <span class="pill">${escapeHtml(kindText)}</span>
                 <span class="badge ${escapeHtml(status.value)}">${escapeHtml(status.text)}</span>
               </div>
-              <h2 class="spaced">${escapeHtml(release.release_name || "Без названия")}</h2>
+              <h2 class="spaced" style="overflow-wrap:anywhere">${escapeHtml(release.release_name || "Без названия")}</h2>
               <p class="muted">${escapeHtml(release.artist_name || "Артист не указан")}</p>
               ${parentAlbum ? `<p class="spaced"><span class="pill">Альбом: ${escapeHtml(parentAlbum.release_name || "Без названия")}</span></p>` : ""}
               <div class="details">
@@ -2661,7 +2389,10 @@
               <div class="detail"><span>Жанр</span><b>${escapeHtml(release.genre || "—")}</b></div>
               ${upcText ? `<div class="detail"><span>UPC</span><b>${escapeHtml(upcText)}</b></div>` : ""}
             </div>
-            ${releaseLink ? `<p class="spaced"><a class="button-link secondary" href="${escapeHtml(releaseLink)}" target="_blank" rel="noopener">Открыть релиз</a></p>` : ""}
+            <div class="actions spaced">
+              ${releaseLink ? `<a class="button-link" href="${escapeHtml(releaseLink)}" target="_blank" rel="noopener">Открыть релиз</a>` : ""}
+              <button class="secondary" type="button" data-support-release="${release.id}" data-support-release-name="${escapeAttr(release.release_name || "")}"><svg class="i"><use href="#i-chat"/></svg>Вопрос по релизу</button>
+            </div>
           </div>
         </div>
 
@@ -2743,27 +2474,33 @@
         <div class="mini-row"><svg viewBox="0 0 24 24"><path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/></svg> Отчёты: <b>${counterHtml(counts.reports || 0)}</b></div>
       `;
 
-      renderMiniRows("profileOrders", dashboard.orders, "Заказов пока нет.", (order) => `
-        <div class="mini-row">#${counterHtml(order.id)} · ${escapeHtml(order.service_type || "услуга")} · <b>${moneyCounter(order.amount)}</b><br><span class="muted">${escapeHtml(order.status || "pending")} · ${dateText(order.created_date)}</span></div>
+      renderMiniRows("profileOrders", (dashboard.orders || []).slice(0, 6), "Заказов пока нет.", (order) => `
+        <div class="mini-row"><b>${escapeHtml(serviceLabel(order.service_type))}</b> · ${moneyCounter(order.amount)}<br><span class="muted">#${order.id} · ${escapeHtml(requestStatusText(order.status))} · ${dateText(order.created_date)}</span></div>
       `);
       renderMiniRows("profileDrafts", dashboard.drafts, "Черновиков пока нет.", (draft) => `
-        <button class="mini-row secondary" data-load-draft="${draft.id}">#${counterHtml(draft.id)} · ${escapeHtml(draftTitle(draft))}<br><span class="muted">Шаг ${counterHtml(draftStep(draft))} из ${counterHtml(RELEASE_STEPS.length)} · ${dateText(draft.updated_at || draft.created_at)}</span></button>
+        <button class="mini-row" type="button" data-load-draft="${draft.id}"><b>${escapeHtml(draftTitle(draft))}</b><br><span class="muted">Шаг ${counterHtml(draftStep(draft))} из ${counterHtml(RELEASE_STEPS.length)} · ${dateText(draft.updated_at || draft.created_at)}</span></button>
       `);
       if (dashboard.drafts?.length) {
-        $("profileDrafts").insertAdjacentHTML("beforeend", `<button class="mini-row ghost" type="button" data-show-drafts>Все черновики в разделе релизов</button>`);
+        $("profileDrafts").insertAdjacentHTML("beforeend", `<button class="ghost small" type="button" data-show-drafts>Все черновики →</button>`);
       }
       renderMiniRows("profileReports", dashboard.reports, "Отчётов пока нет.", (report) => `
-        <div class="mini-row">#${counterHtml(report.id)} · ${escapeHtml(report.request_type || "отчёт")}<br><span class="muted">${escapeHtml(report.status || "pending")} · ${dateText(report.created_at)}</span></div>
+        <div class="mini-row"><b>Отчёт #${report.id}</b><br><span class="muted">${escapeHtml(requestStatusText(report.status))} · ${dateText(report.created_at)}</span></div>
       `);
       renderMiniRows("profileContracts", state.contracts, "Договоров пока нет.", (contract) => `
-        <div class="mini-row">#${counterHtml(contract.id)} · ${escapeHtml(contract.contract_number || "договор")}<br><span class="muted">${escapeHtml(contract.status || "pending")} · ${dateText(contract.created_at)}</span></div>
+        <div class="mini-row"><b>${escapeHtml(contract.contract_number || `Договор #${contract.id}`)}</b><br><span class="muted">${escapeHtml(requestStatusText(contract.status))} · ${dateText(contract.created_at)}</span></div>
       `);
+      renderReferral();
       animateCounters($("profileCard"));
     }
 
     function renderProfile() {
       const user = state.user;
-      $("topUser").textContent = user ? (user.artistName || user.name || "Пользователь") : "Гость";
+      const displayName = user ? (user.artistName || user.name || "Артист") : "";
+      $("topUser").textContent = user ? displayName : "Войти";
+      $("topAvatar").textContent = user ? initials(displayName) : "→";
+      $("profileAvatar").textContent = initials(displayName);
+      $("profileCard").classList.toggle("hidden", !user);
+      $("profileSubline").textContent = user ? [user.isOwner ? "Владелец" : user.isAdmin ? "Администратор" : user.isArtist ? "Артист лейбла" : "Артист", user.tg ? `@${String(user.tg).replace(/^@/, "")}` : ""].filter(Boolean).join(" · ") : "";
       $("adminPanelBtn").classList.toggle("hidden", !(user?.isAdmin || user?.isOwner));
       $("logoutBtn").classList.toggle("hidden", !user);
       $("authCard").classList.toggle("hidden", !!user);
@@ -2773,6 +2510,7 @@
       const releaseCountValue = state.profileDashboard?.counts?.releases ?? state.releases.length ?? 0;
       setCounter($("balance"), balanceValue, { suffix: " ₽" });
       setCounter($("releaseCount"), releaseCountValue);
+      setCounter($("draftCount"), state.profileDashboard?.counts?.drafts ?? state.drafts.length ?? 0);
       $("profileArtist").value = user?.artistName || user?.name || "";
       $("profileFio").value = user?.fio || "";
       $("profileEmail").value = user?.email || "";
@@ -2897,6 +2635,182 @@
       setTopupStatus("Платёж не завершён или отменён.", "error");
     }
 
+    const SERVICE_LABELS = { topup: "Пополнение баланса", covers: "Обложка", cover: "Обложка", motion: "Motion-обложка", videoshot: "Видеошот", distribution: "Дистрибуция", other: "Услуга" };
+    function serviceLabel(value) {
+      const raw = String(value || "").trim();
+      return SERVICE_LABELS[raw.toLowerCase()] || raw || "Услуга";
+    }
+    const REQUEST_STATUS_LABELS = { pending: "Ожидает", processing: "В работе", completed: "Готово", cancelled: "Отменён", canceled: "Отменён", rejected: "Отклонён", approved: "Одобрен", succeeded: "Оплачен", failed: "Ошибка" };
+    function requestStatusText(value) {
+      const raw = String(value || "pending").trim();
+      return REQUEST_STATUS_LABELS[raw.toLowerCase()] || raw;
+    }
+
+    async function loadReferral() {
+      if (!state.user) return;
+      const data = await fetchJson(`${apiBase}/api/referral`);
+      state.referral = data.referral;
+    }
+    function renderReferral() {
+      const box = $("profileReferral");
+      const ref = state.referral;
+      if (!box) return;
+      if (!ref) {
+        box.className = "mini-list muted";
+        box.textContent = "Реферальная ссылка доступна в боте: Профиль → Рефералы.";
+        return;
+      }
+      box.className = "mini-list";
+      box.innerHTML = `
+        <p class="muted" style="margin:0">Друг получает ${money(ref.friend_bonus)} на баланс, вы — ${money(ref.referrer_bonus)} за каждого приглашённого.</p>
+        <div class="profile-copy-row"><input class="ref-link" value="${escapeAttr(ref.link)}" readonly aria-label="Реферальная ссылка"><button class="secondary small profile-copy-btn" type="button" data-copy-ref="${escapeAttr(ref.link)}">Копировать</button></div>
+        <div class="details" style="grid-template-columns:1fr 1fr;margin:0">
+          <div class="detail"><span>Приглашено</span><b>${counterHtml(ref.count)}</b></div>
+          <div class="detail"><span>Заработано</span><b>${moneyCounter(ref.earnings)}</b></div>
+        </div>`;
+      animateCounters(box);
+    }
+
+    async function loadReviews() {
+      try {
+        const [list, stats] = await Promise.all([
+          fetchJson(`${apiBase}/api/reviews?limit=6`),
+          fetchJson(`${apiBase}/api/reviews/stats`).catch(() => null)
+        ]);
+        const reviews = (list.reviews || []).filter((review) => String(review.text || "").trim());
+        if (!reviews.length) return;
+        $("reviewsList").innerHTML = reviews.slice(0, 6).map((review) => {
+          const rating = Math.max(0, Math.min(5, Number(review.rating) || 0));
+          return `<div class="review-card"><span class="stars" aria-label="Оценка ${rating} из 5">${"★".repeat(rating)}${"☆".repeat(5 - rating)}</span><p>${escapeHtml(review.text)}</p><span class="muted hint">${escapeHtml(review.user_name || review.name || "Артист лейбла")}${review.service_type ? ` · ${escapeHtml(serviceLabel(review.service_type))}` : ""}</span></div>`;
+        }).join("");
+        const total = stats?.stats?.total_reviews;
+        const avg = stats?.stats?.average_rating;
+        $("reviewsSummary").textContent = total ? `★ ${Number(avg || 0).toFixed(1)} · ${total} отзывов` : "";
+        $("reviewsBlock").classList.remove("hidden");
+      } catch (error) {
+        console.warn("Отзывы недоступны:", error);
+      }
+    }
+
+    function closeModal() {
+      $("modalHost").innerHTML = "";
+      document.removeEventListener("keydown", modalEscHandler);
+    }
+    function modalEscHandler(event) {
+      if (event.key === "Escape") closeModal();
+    }
+    function openModal({ title, body, submitText = "Отправить", onSubmit }) {
+      $("modalHost").innerHTML = `
+        <div class="modal-backdrop" data-modal-backdrop>
+          <form class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+            <div class="modal-head"><h3 id="modalTitle">${escapeHtml(title)}</h3><button class="icon-btn" type="button" data-modal-close aria-label="Закрыть">×</button></div>
+            <div class="profile-form">${body}</div>
+            <p class="status" data-modal-status></p>
+            <div class="actions spaced"><button type="submit">${escapeHtml(submitText)}</button><button class="ghost" type="button" data-modal-close>Отмена</button></div>
+          </form>
+        </div>`;
+      const backdrop = $("modalHost").querySelector("[data-modal-backdrop]");
+      const form = backdrop.querySelector("form");
+      const status = form.querySelector("[data-modal-status]");
+      backdrop.addEventListener("click", (event) => {
+        if (event.target === backdrop || event.target.closest("[data-modal-close]")) closeModal();
+      });
+      document.addEventListener("keydown", modalEscHandler);
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        status.className = "status";
+        status.textContent = "";
+        const button = form.querySelector('button[type="submit"]');
+        try {
+          await withBusy(button, () => onSubmit(new FormData(form)));
+        } catch (error) {
+          status.className = "status error";
+          status.textContent = error.message;
+        }
+      });
+      form.querySelector("input, textarea, select")?.focus();
+    }
+
+    function requireUser(message = "Сначала войдите через Telegram.") {
+      if (state.user) return true;
+      setTab("profile");
+      setStatus(message, "warn");
+      return false;
+    }
+
+    const DESIGN_SERVICES = {
+      covers: { title: "Заказ обложки", price: 500, hint: "Опишите настроение, референсы, цвета и текст, который должен быть на обложке." },
+      motion: { title: "Заказ motion-обложки", price: 800, hint: "Пришлите ссылку на статичную обложку и опишите, как она должна оживать." },
+      videoshot: { title: "Заказ видеошота", price: 1200, hint: "Опишите идею, ссылки на трек и референсы, длительность и формат." }
+    };
+    function openDesignOrder(service) {
+      if (!requireUser("Войдите, чтобы оформить заказ.")) return;
+      const config = DESIGN_SERVICES[service];
+      if (!config) return;
+      openModal({
+        title: config.title,
+        submitText: "Оформить заявку",
+        body: `
+          <p class="muted" style="margin:0">Стоимость — <b style="color:var(--text)">${money(config.price)}</b>. Менеджер свяжется в Telegram, уточнит детали и способ оплаты.</p>
+          <div><label for="designRelease">Релиз</label><input id="designRelease" name="release" placeholder="Название трека или альбома"></div>
+          <div><label for="designDetails">Пожелания</label><textarea id="designDetails" name="details" required minlength="10" placeholder="${escapeAttr(config.hint)}"></textarea></div>
+          <div><label for="designRefs">Ссылки на референсы</label><input id="designRefs" name="refs" placeholder="https://..."></div>`,
+        onSubmit: async (form) => {
+          const details = String(form.get("details") || "").trim();
+          if (details.length < 10) throw new Error("Опишите задачу подробнее — минимум 10 символов.");
+          const parts = [form.get("release") && `Релиз: ${form.get("release")}`, details, form.get("refs") && `Референсы: ${form.get("refs")}`].filter(Boolean);
+          const data = await fetchJson(`${apiBase}/api/design/order`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: state.user.telegram_id || state.user.id, service, details: parts.join("\n") })
+          });
+          closeModal();
+          showToast(`Заявка #${data.order_id} принята. Менеджер напишет вам в Telegram.`, "ok", 6000);
+          await loadProfileDashboard().catch(() => null);
+          renderProfileDashboard();
+        }
+      });
+    }
+
+    const SUPPORT_TOPICS = [
+      ["release_question", "Вопрос по релизу"],
+      ["metadata_change", "Изменить метаданные / обложку"],
+      ["takedown", "Снять релиз с площадок"],
+      ["payment", "Оплата и баланс"],
+      ["other", "Другое"]
+    ];
+    function openSupportModal(preset = {}) {
+      if (!requireUser("Войдите, чтобы написать в поддержку.")) return;
+      const releaseOptions = (state.releases || []).map((release) => `<option value="${release.id}" ${String(release.id) === String(preset.releaseId) ? "selected" : ""}>${escapeHtml(release.release_name || `Релиз #${release.id}`)}</option>`).join("");
+      openModal({
+        title: "Обращение в поддержку",
+        body: `
+          <div><label for="supportTopic">Тема</label><select id="supportTopic" name="topic">${SUPPORT_TOPICS.map(([value, label]) => `<option value="${value}" ${preset.releaseId && value === "release_question" ? "selected" : ""}>${label}</option>`).join("")}</select></div>
+          <div><label for="supportRelease">Релиз</label><select id="supportRelease" name="release"><option value="">Не относится к релизу</option>${releaseOptions}</select></div>
+          <div><label for="supportMessage">Сообщение</label><textarea id="supportMessage" name="message" required minlength="10" placeholder="Опишите вопрос — чем подробнее, тем быстрее ответим"></textarea></div>`,
+        onSubmit: async (form) => {
+          const message = String(form.get("message") || "").trim();
+          if (message.length < 10) throw new Error("Опишите вопрос подробнее — минимум 10 символов.");
+          const topic = String(form.get("topic"));
+          const topicTitle = (SUPPORT_TOPICS.find(([value]) => value === topic) || SUPPORT_TOPICS[0])[1];
+          const releaseId = String(form.get("release") || "");
+          const release = (state.releases || []).find((item) => String(item.id) === releaseId);
+          const data = await fetchJson(`${apiBase}/api/support/request`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              user_id: state.user.telegram_id || state.user.id,
+              templateId: topic,
+              templateTitle: topicTitle,
+              data: { message, releaseId: releaseId || undefined, releaseName: release?.release_name || preset.releaseName || undefined, source: "site" }
+            })
+          });
+          closeModal();
+          showToast(`Обращение #${data.request_id} отправлено. Ответим в Telegram.`, "ok", 6000);
+        }
+      });
+    }
+
     $("loginForm").addEventListener("submit", async (event) => {
       event.preventDefault();
       const code = $("authCode").value.replace(/\D/g, "");
@@ -2910,7 +2824,7 @@
         console.warn("Не удалось завершить серверную сессию:", error);
       }
       localStorage.removeItem("cabinet_user");
-      state.user = null; state.releases = []; state.filteredReleases = []; state.profileDashboard = null; state.contracts = []; state.promoHistory = []; state.activeDiscounts = []; state.distributionPayment = null;
+      state.user = null; state.releases = []; state.drafts = []; state.referral = null; state.filteredReleases = []; state.profileDashboard = null; state.contracts = []; state.promoHistory = []; state.activeDiscounts = []; state.distributionPayment = null;
       closeReleaseDetail();
       renderProfile(); renderUserReleases(); setStatus("Вы вышли.");
       renderPromoSection();
@@ -2941,8 +2855,11 @@
     $("contractServiceBtn").addEventListener("click", () => createContractRequest().catch((error) => setStatus(`Ошибка заявки на договор: ${error.message}`, "error")));
     $("closeReleaseBuilderBtn").addEventListener("click", () => {
       if (!confirmReleaseDiscard()) return;
-      if (document.body.classList.contains("release-page")) window.close();
-      else $("releaseBuilder").classList.add("hidden");
+      if (document.body.classList.contains("release-page")) {
+        state.releaseDirty = false;
+        window.close();
+        setTimeout(() => { window.location.href = "/cabinet#releases"; }, 150);
+      } else $("releaseBuilder").classList.add("hidden");
     });
     $("saveReleaseDraftBtnForm").addEventListener("click", () => saveReleaseDraft().catch((error) => setReleaseBuilderStatus(`Ошибка черновика: ${error.message}`, "error")));
     $("releaseTypeInput").addEventListener("change", () => setReleaseType($("releaseTypeInput").value));
@@ -3048,27 +2965,6 @@
       event.preventDefault();
       event.returnValue = "";
     });
-    document.addEventListener("pointermove", (event) => {
-      const card = event.target.closest(".card, .release, .service-card");
-      if (!card) return;
-      const rect = card.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      card.style.setProperty("--mx", `${x}px`);
-      card.style.setProperty("--my", `${y}px`);
-      if (card.classList.contains("tilt-card")) {
-        card.style.setProperty("--rx", `${((y / rect.height) - .5) * -7}deg`);
-        card.style.setProperty("--ry", `${((x / rect.width) - .5) * 7}deg`);
-      }
-    });
-    document.addEventListener("click", (event) => {
-      const spark = document.createElement("span");
-      spark.className = "spark";
-      spark.style.left = `${event.clientX}px`;
-      spark.style.top = `${event.clientY}px`;
-      document.body.appendChild(spark);
-      setTimeout(() => spark.remove(), 520);
-    });
     $("editProfileBtn").addEventListener("click", () => {
       if (!state.user) return setTab("profile");
       setProfileEditing(true);
@@ -3142,22 +3038,54 @@
       activatePromoFromSite().catch((error) => setPromoStatus(`Ошибка активации: ${error.message}`, "error"));
     });
     $("generateEmailBtn").addEventListener("click", () => {
-      const to = $("emailTo").value || "команде";
-      const artist = $("emailArtist").value || "артиста";
-      const reason = $("emailReason").value || "сотрудничества";
-      $("emailOutput").value = `Здравствуйте!\\n\\nМеня зовут ${artist}. Пишу по поводу: ${reason}.\\n\\nБуду рад обсудить детали и предоставить все необходимые материалы.\\n\\nС уважением,\\n${artist}`;
+      const to = $("emailTo").value.trim();
+      const artist = $("emailArtist").value.trim() || state.user?.artistName || "[имя артиста]";
+      const release = $("emailRelease").value.trim() || "[название релиза]";
+      const details = $("emailReason").value.trim();
+      const greeting = to ? `Здравствуйте! Пишу ${to}.` : "Здравствуйте!";
+      const extra = details ? `\n\n${details}` : "";
+      const templates = {
+        pitch: `${greeting}\n\nМеня зовут ${artist}, я выпускаюсь на лейбле talk with a star. Хочу предложить для вашего плейлиста трек «${release}».${extra}\n\nБуду рад(а), если найдёте минуту послушать. Готов(а) прислать дополнительные материалы: обложку, пресс-релиз, ссылки на соцсети.\n\nСпасибо!\n${artist}`,
+        media: `${greeting}\n\nМеня зовут ${artist}. Скоро выходит мой новый релиз «${release}» на лейбле talk with a star — хочу предложить его для анонса или обзора.${extra}\n\nМогу прислать пресс-кит, фото и ранний доступ к треку. Открыт(а) к интервью.\n\nС уважением,\n${artist}`,
+        collab: `${greeting}\n\nМеня зовут ${artist}, я артист лейбла talk with a star. Хотел(а) бы обсудить сотрудничество в связи с релизом «${release}».${extra}\n\nБуду рад(а) созвониться или продолжить в переписке, как вам удобнее.\n\nС уважением,\n${artist}`,
+        report: `${greeting}\n\nПрошу предоставить отчёт по прослушиваниям и доходам по релизу «${release}» (артист ${artist}).${extra}\n\nЗаранее спасибо!\n${artist}`
+      };
+      $("emailOutput").value = templates[$("emailTemplate").value] || templates.pitch;
     });
     $("copyEmailBtn").addEventListener("click", async () => {
       await copyTextToClipboard($("emailOutput").value || "");
     });
-    document.querySelectorAll("[data-go]").forEach((button) => button.addEventListener("click", () => setTab(button.dataset.go === "auth" ? "profile" : button.dataset.go)));
+    document.addEventListener("click", (event) => {
+      const go = event.target.closest("[data-go]");
+      if (go) return setTab(go.dataset.go === "auth" ? "profile" : go.dataset.go);
+      if (event.target.closest("[data-new-release]")) return openReleaseTab("/release/new");
+      const start = event.target.closest("[data-start-release]");
+      if (start) {
+        if (!state.user) { setTab("profile"); return setStatus("Войдите через Telegram, чтобы создать релиз.", "warn"); }
+        return openReleaseTab(`/release/new?type=${encodeURIComponent(start.dataset.startRelease)}`);
+      }
+      const design = event.target.closest("[data-design-service]");
+      if (design) return openDesignOrder(design.dataset.designService);
+      const supportRelease = event.target.closest("[data-support-release]");
+      if (supportRelease) return openSupportModal({ releaseId: supportRelease.dataset.supportRelease, releaseName: supportRelease.dataset.supportReleaseName });
+      if (event.target.closest("[data-open-teleprompter]")) return $("teleprompterServiceBtn").click();
+      const copyRef = event.target.closest("[data-copy-ref]");
+      if (copyRef) return copyTextToClipboard(copyRef.dataset.copyRef).then(() => showToast("Ссылка скопирована.", "ok"));
+    });
+    $("heroReleaseBtn").addEventListener("click", () => {
+      if (!state.user) { setTab("profile"); return setStatus("Войдите через Telegram, чтобы создать релиз.", "warn"); }
+      openReleaseTab("/release/new");
+    });
+    $("supportServiceBtn").addEventListener("click", () => openSupportModal());
+    $("profileSupportBtn").addEventListener("click", () => openSupportModal());
+    $("topupCloseBtn").addEventListener("click", () => toggleTopupCard(false));
+    $("footerYear").textContent = String(new Date().getFullYear());
 
     document.querySelectorAll("[data-fallback-tab]").forEach((button) => {
       button.addEventListener("click", () => setTab(button.dataset.fallbackTab));
     });
     setupReleaseWizard();
     renderReleaseTypeCards();
-    renderDock();
     renderPromoSection();
     configureBotLink();
     loadRecentReleases();
@@ -3179,9 +3107,20 @@
         return;
       }
       resetReleaseForm();
+      const presetType = params.get("type");
+      if (presetType && RELEASE_TYPE_LIMITS[presetType]) setReleaseType(presetType, false);
       openReleaseBuilder(params.get("source") === "services" ? "services" : "releases");
+      rememberReleaseSaved();
       document.title = "Новый релиз — talk with a star // label";
     }
+    const initialTab = window.location.hash.replace("#", "");
+    if (!dedicatedReleasePage && TABS.includes(initialTab)) setTab(initialTab);
+    window.addEventListener("hashchange", () => {
+      const tab = window.location.hash.replace("#", "") || "home";
+      if (TABS.includes(tab) && tab !== state.activeTab) setTab(tab);
+    });
+    if (params.get("submitted")) showToast("Релиз отправлен на рассмотрение. Статус появится в списке.", "ok", 6000);
+    loadReviews();
     if (params.get("payment") === "return") {
       setTab("profile");
       toggleTopupCard(true);
