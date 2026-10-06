@@ -962,6 +962,8 @@
             <div><label for="topupAmount">Другая сумма, ₽</label><input id="topupAmount" inputmode="numeric" type="number" min="50" max="100000" step="1" value="500"></div>
             <button id="topupCreateBtn" type="button" style="flex:0 0 auto">Перейти к оплате</button>
           </div>
+          <label class="legal-check"><input type="checkbox" id="topupPersonalConsent">Даю отдельное <a href="/legal/consent/" target="_blank" rel="noopener">согласие на обработку данных для оплаты</a>. <a href="/legal/privacy/" target="_blank" rel="noopener">Политика</a>.</label>
+          <label class="legal-check"><input type="checkbox" id="topupTermsConsent">Ознакомлен с <a href="/legal/offer/" target="_blank" rel="noopener">офертой и условиями оплаты</a>.</label>
           <p class="status muted" id="topupStatus"></p>
           <div class="topup-result hidden" id="topupResult">
             <a class="button-link" id="topupPayLink" href="#" target="_blank" rel="noopener">Открыть страницу оплаты</a>
@@ -1624,7 +1626,7 @@
     async function activatePromoFromSite() {
       if (!state.user) {
         setTab("profile");
-        return setStatus("Сначала войдите через Telegram.", "warn");
+        return setStatus("Сначала войдите в аккаунт.", "warn");
       }
       const code = $("promoCodeInput").value.trim();
       if (!code) return setPromoStatus("Введите промокод.", "error");
@@ -2081,7 +2083,7 @@
     function openReleaseBuilder(source = "releases") {
       if (!state.user) {
         setTab("profile");
-        setStatus("Сначала войдите через Telegram.", "warn");
+        setStatus("Сначала войдите в аккаунт.", "warn");
         return;
       }
       closeReleaseDetail();
@@ -2859,7 +2861,7 @@
     async function createTopupPayment(amount) {
       if (!state.user) {
         setTab("profile");
-        setStatus("Сначала войдите через Telegram.", "warn");
+        setStatus("Сначала войдите в аккаунт.", "warn");
         return;
       }
       const userId = state.user.account_id || state.user.telegram_id || state.user.id;
@@ -2869,6 +2871,8 @@
         return;
       }
 
+      if (!$("topupPersonalConsent").checked || !$("topupTermsConsent").checked) return setTopupStatus("Подтвердите отдельное согласие и условия оплаты.", "warn");
+      await window.twasRecordLegalConsent?.(apiBase, "topup");
       setTopupStatus("Создаю платёж в ЮKassa...");
       $("topupResult").classList.add("hidden");
       const data = await fetchJson(`${apiBase}/api/payments/yookassa/create`, {
@@ -3005,7 +3009,7 @@
       form.querySelector("input, textarea, select")?.focus();
     }
 
-    function requireUser(message = "Сначала войдите через Telegram.") {
+    function requireUser(message = "Сначала войдите в аккаунт.") {
       if (state.user) return true;
       setTab("profile");
       setStatus(message, "warn");

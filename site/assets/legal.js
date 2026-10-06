@@ -10,8 +10,8 @@
   const receipts = new Set();
   window.twasRecordLegalConsent = async (apiBase, specified) => {
     let scope = specified;
-    let personal = specified === "oauth" && document.getElementById("oauthPersonalConsent")?.checked;
-    let terms = specified === "oauth" && document.getElementById("oauthTermsConsent")?.checked;
+    let personal = specified && document.getElementById(`${specified}PersonalConsent`)?.checked;
+    let terms = specified && document.getElementById(`${specified}TermsConsent`)?.checked;
     if (!scope) {
       const active = document.activeElement?.closest("form");
       const form = active || [...document.querySelectorAll("form[data-legal-ready]")].find(item => !item.closest(".hidden") && item.querySelector("[data-personal-consent]:checked"));
