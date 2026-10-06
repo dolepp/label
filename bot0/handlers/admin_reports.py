@@ -1,6 +1,8 @@
 """Admin report request list handlers."""
 from __future__ import annotations
 
+from db.repositories.account_connections import notification_chat_id
+
 import logging
 
 from telebot import types
@@ -198,7 +200,7 @@ def register_admin_report_handlers(bot) -> None:
             return
         try:
             bot.send_message(
-                report["user_id"],
+                notification_chat_id(report["user_id"]),
                 f"❌ Ваш запрос отчета #{report_id} отклонен\n\n"
                 f"📝 Причина: {reason}\n\n"
                 "💡 Если вы считаете, что это ошибка, обратитесь к администратору.\n"
@@ -258,7 +260,7 @@ def register_admin_report_handlers(bot) -> None:
             return
         try:
             bot.send_message(
-                report["user_id"],
+                notification_chat_id(report["user_id"]),
                 f"📊 Ваш запрос отчета #{report_id} принят в работу!\n\n"
                 "🔄 Администратор начал подготовку отчета.\n"
                 "⏳ Обычно отчет готовится в течение 1-3 рабочих дней.\n\n"

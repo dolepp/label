@@ -22,6 +22,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import parse_qsl, urlparse
 import requests
+from auth_accounts import PUBLIC_AUTH_PATHS, register_account_auth
 
 try:
     from dotenv import load_dotenv
@@ -253,11 +254,17 @@ def optional_column(column_name, available_columns, default_sql="NULL"):
 
 
 def load_user_by_telegram_id(cursor, telegram_id):
+    if int(telegram_id) > 0:
+        cursor.execute('SELECT telegram_id FROM label WHERE notification_telegram_id=%s', (telegram_id,))
+        linked = cursor.fetchone()
+        if linked:
+            telegram_id = linked[0]
     columns = get_table_columns(cursor, 'label')
     field_names = [
         'id', 'login', 'name', 'tg', 'telegram_id', 'admin', 'artist',
         'owner', 'balance', 'email', 'fio', 'phone', 'kanal', 'created_date',
         'levels', 'role', 'steezy', 'bibi', 'shvepz', 'creator',
+        'notification_telegram_id', 'telegram_notifications',
     ]
     select_fields = [
         optional_column('id', columns),
@@ -280,6 +287,8 @@ def load_user_by_telegram_id(cursor, telegram_id):
         optional_column('bibi', columns, '0'),
         optional_column('shvepz', columns, '0'),
         optional_column('creator', columns, '0'),
+        optional_column('notification_telegram_id', columns),
+        optional_column('telegram_notifications', columns, 'TRUE'),
     ]
     cursor.execute(
         f"""
@@ -323,7 +332,9 @@ def load_user_by_telegram_id(cursor, telegram_id):
         levels = ['artist']
 
     return {
-        'telegram_id': result.get('telegram_id'),
+        'account_id': result.get('telegram_id'),
+        'telegram_id': result.get('notification_telegram_id') or (result['telegram_id'] if result['telegram_id'] > 0 else None),
+        'telegram_notifications': result.get('telegram_notifications', True),
         'id': result.get('id'),
         'username': result.get('login'),
         'artistName': result.get('name'),
@@ -354,9 +365,9 @@ def current_user_id():
 
 
 def establish_user_session(user):
-    user_id = user.get('telegram_id')
+    user_id = user.get('account_id') or user.get('telegram_id')
     if not user_id:
-        raise ValueError("User has no Telegram ID")
+        raise ValueError("User has no account ID")
     session.clear()
     session.permanent = True
     session['user_id'] = int(user_id)
@@ -377,6 +388,8 @@ def requested_user_id():
 
 def public_api_request():
     path = request.path
+    if path in PUBLIC_AUTH_PATHS:
+        return True
     if path in {
         '/api', '/api/health', '/api/auth/check', '/api/auth/verify',
         '/api/auth/bot-link', '/api/auth/session', '/api/auth/logout',
@@ -1440,8 +1453,25 @@ RELEASE_STATUS_LABELS = {
 }
 
 
+def notification_chat_id(account_id):
+    conn = get_pg_connection()
+    if not conn:
+        return None
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT notification_telegram_id, telegram_notifications FROM label WHERE telegram_id=%s", (account_id,))
+        row = cursor.fetchone()
+        if not row or not row[1]:
+            return None
+        return row[0] or (int(account_id) if int(account_id) > 0 else None)
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def notify_user_about_release_status(telegram_id, release_name, status, platform_links=None):
     """Тот же текст, что отправляет бот при смене статуса."""
+    telegram_id = notification_chat_id(telegram_id)
     if not TELEGRAM_BOT_TOKEN or not telegram_id:
         return
     label = RELEASE_STATUS_LABELS.get(str(status).lower(), status)
@@ -1569,7 +1599,7 @@ def admin_users_list():
         close_cursor(conn, cursor)
 
 
-@app.route('/api/admin/users/<int:user_id>', methods=['GET'])
+@app.route('/api/admin/users/<int(signed=True):user_id>', methods=['GET'])
 def admin_user_detail(user_id):
     conn, cursor, error = admin_request_context()
     if error:
@@ -1617,7 +1647,7 @@ def admin_user_detail(user_id):
         close_cursor(conn, cursor)
 
 
-@app.route('/api/admin/users/<int:user_id>/roles', methods=['PUT'])
+@app.route('/api/admin/users/<int(signed=True):user_id>/roles', methods=['PUT'])
 def admin_update_user_roles(user_id):
     conn, cursor, error = admin_request_context()
     if error:
@@ -1654,7 +1684,7 @@ def admin_update_user_roles(user_id):
         close_cursor(conn, cursor)
 
 
-@app.route('/api/admin/users/<int:user_id>/balance', methods=['POST'])
+@app.route('/api/admin/users/<int(signed=True):user_id>/balance', methods=['POST'])
 def admin_adjust_user_balance(user_id):
     conn, cursor, error = admin_request_context()
     if error:
@@ -2383,7 +2413,7 @@ def admin_broadcast():
         message = (data.get('message') or '').strip()
         if len(message) < 2:
             return jsonify({'success': False, 'error': 'Message is required'}), 400
-        cursor.execute("SELECT telegram_id FROM label WHERE telegram_id IS NOT NULL ORDER BY id")
+        cursor.execute("SELECT DISTINCT COALESCE(notification_telegram_id, CASE WHEN telegram_id > 0 THEN telegram_id END) FROM label WHERE telegram_notifications AND (notification_telegram_id IS NOT NULL OR telegram_id > 0)")
         recipients = [row[0] for row in cursor.fetchall()]
         sent = 0
         failed = 0
@@ -3002,6 +3032,7 @@ def verify_auth_code():
             SELECT user_id, expires_at, used
             FROM auth_codes
             WHERE code = %s
+            FOR UPDATE
             """,
             (code,),
         )
@@ -3088,6 +3119,9 @@ def auth_session():
 def auth_logout():
     session.clear()
     return jsonify({'success': True})
+
+register_account_auth(app, get_pg_connection, load_user_by_telegram_id, establish_user_session,
+                      current_user_id, limiter, BOT_USERNAME)
 
 # =================== PAYMENT MODULES ===================
 
@@ -3589,7 +3623,7 @@ def update_user_balance():
         logger.error(f"Ошибка при обработке запроса: {e}")
         return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
 
-@app.route('/api/admin/users/<int:user_id>/levels', methods=['PUT'])
+@app.route('/api/admin/users/<int(signed=True):user_id>/levels', methods=['PUT'])
 def update_user_levels(user_id):
     """Обновить уровни пользователя (только для админов)"""
     try:
@@ -4581,12 +4615,14 @@ def create_distribution():
                 raise ValueError("BOT_TOKEN is not configured")
             url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
             data = {
-                'chat_id': user_id,
+                'chat_id': notification_chat_id(user_id),
                 'text': user_notification
             }
 
-            response = requests.post(url, data=data)
-            if response.status_code == 200:
+            response = requests.post(url, data=data, timeout=15) if data["chat_id"] else None
+            if response is None:
+                logger.info("User has no enabled Telegram notifications")
+            elif response.status_code == 200:
                 logger.info(f"Уведомление отправлено пользователю {user_id}")
             else:
                 logger.error(f"Ошибка отправки уведомления пользователю {user_id}: {response.text}")

@@ -1,6 +1,9 @@
 """Admin contract list and detail handlers."""
 from __future__ import annotations
 
+from db.repositories.account_connections import notification_chat_id
+from core.config import WEB_APP_URL
+
 import logging
 
 from telebot import types
@@ -438,9 +441,9 @@ def register_admin_contract_handlers(bot) -> None:
             return
         try:
             markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("📋 Мои договоры", callback_data="my_contracts"))
+            markup.add(types.InlineKeyboardButton("📋 Мои договоры", **({"url": WEB_APP_URL + "/#profile"} if contract["user_id"] < 0 else {"callback_data": "my_contracts"})))
             bot.send_message(
-                contract["user_id"],
+                notification_chat_id(contract["user_id"]),
                 f"✅ Ваш договор готов!\n\n"
                 f"📋 Договор #{contract_id} был завершен администратором.\n"
                 "📎 Файл договора прикреплен\n\n"

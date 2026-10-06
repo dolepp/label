@@ -67,6 +67,8 @@ def register_optional_handlers(
     from handlers.topups import register_topup_handlers
     from handlers.web_auth import register_web_auth_handlers
 
+    from handlers.account_connections import register_account_connection_handlers
+    register_account_connection_handlers(bot)
     register_common_handlers(bot)
     register_reviews_handlers(bot)
     register_onboarding_handlers(bot, context=onboarding_context)

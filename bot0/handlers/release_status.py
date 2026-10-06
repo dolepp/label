@@ -6,6 +6,7 @@ import logging
 
 from telebot import types
 
+from db.repositories.account_connections import notification_chat_id
 from core.config import ADMIN_IDS, PERMANENT_ADMINS
 from db.repositories.release_details import (
     get_album_detail,
@@ -89,7 +90,7 @@ def _notify_user_about_status_change(bot, release_id: int, new_status: str) -> N
     info = get_release_status_notification(release_id)
     if not info:
         return
-    telegram_id = info.get("telegram_id")
+    telegram_id = notification_chat_id(info.get("user_id"))
     if not telegram_id:
         return
     try:

@@ -273,7 +273,7 @@
       const data = await fetchJson(`/api/admin/users${q ? `?q=${q}` : ''}`);
       $('usersTable').innerHTML = data.users.map((u) => `
         <tr>
-          <td><b>${userLabel(u)}</b><br><span class="muted">ID ${escapeHtml(u.telegram_id)} ${u.tg ? `@${escapeHtml(u.tg)}` : ''}</span><br><span class="mini muted">${escapeHtml(u.email || '')}</span></td>
+          <td><b>${userLabel(u)}</b><br><span class="muted">ID ${escapeHtml(u.account_id || u.telegram_id)} ${u.tg ? `@${escapeHtml(u.tg)}` : ''}</span><br><span class="mini muted">${escapeHtml(u.email || '')}</span></td>
           <td>${money(u.balance)}</td><td>${roleBadges(u)}</td>
           <td><button class="secondary" data-user-detail="${u.telegram_id}">Открыть</button></td>
         </tr>
@@ -284,8 +284,8 @@
       const data = await fetchJson(`/api/admin/users/${userId}`);
       const u = data.user;
       $('userDetail').innerHTML = `
-        <h3>${escapeHtml(u.artistName || u.name || `ID ${u.telegram_id}`)}</h3>
-        <p class="muted">ID ${escapeHtml(u.telegram_id)} · ${escapeHtml(u.email || 'email не указан')}</p>
+        <h3>${escapeHtml(u.artistName || u.name || `ID ${u.account_id || u.telegram_id}`)}</h3>
+        <p class="muted">ID ${escapeHtml(u.account_id || u.telegram_id)} · ${escapeHtml(u.email || 'email не указан')}</p>
         <div class="grid two">
           <div class="mini-row"><span class="muted">Баланс</span><br><b>${money(u.balance)}</b></div>
           <div class="mini-row"><span class="muted">Релизы</span><br><b>${data.releases.length}</b></div>
@@ -544,7 +544,7 @@
       try {
         const session = await fetchJson('/api/auth/session');
         user = session.user;
-        adminId = user?.telegram_id || user?.id;
+        adminId = user?.account_id || user?.telegram_id || user?.id;
         isAdmin = !!(user?.isAdmin || user?.isOwner);
       } catch (error) {
         $('adminUser').textContent = 'Гость';

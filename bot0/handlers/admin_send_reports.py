@@ -1,6 +1,8 @@
 """Admin-generated XLSX report sending callback."""
 from __future__ import annotations
 
+from db.repositories.account_connections import notification_chat_id
+
 import logging
 import os
 import tempfile
@@ -253,6 +255,9 @@ def create_detailed_xlsx_report(user_data, releases_data=None, promo_codes_data=
 
 def send_xlsx_report(chat_id, report_data, filename="report.xlsx"):
     """Отправка XLSX отчета пользователю"""
+    chat_id = notification_chat_id(chat_id)
+    if not chat_id:
+        return False
     tmp_file_path = None
     try:
         # Сохраняем отчет во временный файл

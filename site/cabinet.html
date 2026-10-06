@@ -862,9 +862,26 @@
     <section class="section" id="profileSection">
       <div class="card auth-box" id="authCard">
         <span class="eyebrow">Личный кабинет</span>
-        <h2>Вход через Telegram</h2>
+        <h2>Вход и регистрация</h2>
+        <div class="actions spaced">
+          <button class="secondary" type="button" data-oauth-provider="google">Войти через Google</button>
+          <button class="secondary" type="button" data-oauth-provider="yandex">Войти через Яндекс</button>
+        </div>
+        <form id="emailAuthForm" class="profile-form spaced">
+          <h3>По электронной почте</h3>
+          <p class="muted">При первом входе создадим аккаунт. Пароль не нужен — пришлём одноразовый код.</p>
+          <div><label for="emailAuthName">Имя артиста (при регистрации)</label><input id="emailAuthName" maxlength="255" autocomplete="nickname"></div>
+          <div><label for="emailAuthAddress">Электронная почта</label><input id="emailAuthAddress" type="email" required autocomplete="email" maxlength="254"></div>
+          <button id="emailAuthRequest" type="submit">Получить код на почту</button>
+        </form>
+        <form id="emailAuthVerifyForm" class="profile-form spaced hidden">
+          <div><label for="emailAuthCode">Код из письма</label><input id="emailAuthCode" inputmode="numeric" autocomplete="one-time-code" maxlength="8" pattern="[0-9]{8}" required></div>
+          <button type="submit">Войти / зарегистрироваться</button>
+        </form>
+        <p id="emailAuthStatus" class="status muted" role="status"></p>
+        <h3 class="spaced">Через Telegram</h3>
         <ol class="auth-steps">
-          <li>Откройте бота и нажмите «Старт» — он пришлёт код.</li>
+          <li>Откройте бота кнопкой ниже и отправьте команду /код.</li>
           <li>Введите код ниже. Код одноразовый и действует несколько минут.</li>
         </ol>
         <a class="button-link secondary" id="telegramBotLink" href="https://t.me/twaslabel_bot?text=%2F%D0%BA%D0%BE%D0%B4" target="_blank" rel="noopener" style="width:100%"><svg class="i"><use href="#i-send"/></svg>Получить код в @twaslabel_bot</a>
@@ -895,6 +912,34 @@
             <button class="secondary" id="profilePromoBtn" type="button"><svg class="i"><use href="#i-ticket"/></svg>Промокод</button>
             <button class="secondary" id="profileSupportBtn" type="button"><svg class="i"><use href="#i-chat"/></svg>Поддержка</button>
           </div>
+        </div>
+
+        <div class="card full" id="accountConnectionsCard">
+          <h3>Способы входа и уведомления</h3>
+          <p id="accountConnectionsSummary" class="muted"></p>
+          <div class="actions spaced">
+            <button class="secondary" type="button" data-oauth-provider="google" data-oauth-mode="link">Привязать Google</button>
+            <button class="secondary" type="button" data-oauth-provider="yandex" data-oauth-mode="link">Привязать Яндекс</button>
+          </div>
+          <form id="emailLinkForm" class="profile-form spaced">
+            <div><label for="emailLinkAddress">Почта для входа в этот профиль</label><input id="emailLinkAddress" type="email" required autocomplete="email" maxlength="254"></div>
+            <button type="submit">Подтвердить почту</button>
+          </form>
+          <form id="emailLinkVerifyForm" class="profile-form spaced hidden">
+            <div><label for="emailLinkCode">Код из письма</label><input id="emailLinkCode" inputmode="numeric" autocomplete="one-time-code" maxlength="8" pattern="[0-9]{8}" required></div>
+            <button type="submit">Привязать почту</button>
+          </form>
+          <p id="emailLinkStatus" class="status muted" role="status"></p>
+          <h3 class="spaced">Telegram для уведомлений</h3>
+          <p class="muted">Получайте сообщения об отправке и статусах релизов, договорах и отчётах. Привязка сохраняет ваш профиль и баланс.</p>
+          <p id="telegramConnectionStatus" class="status muted" role="status"></p>
+          <div class="actions">
+            <button id="telegramConnectBtn" class="secondary" type="button">Привязать Telegram</button>
+            <a id="telegramConnectLink" class="button-link hidden" target="_blank" rel="noopener">Открыть бота для привязки</a>
+            <button id="telegramConnectionCheckBtn" class="secondary" type="button">Проверить привязку</button>
+            <button id="telegramDisconnectBtn" class="ghost hidden" type="button">Отвязать Telegram</button>
+          </div>
+          <label class="spaced"><input id="telegramNotificationsEnabled" type="checkbox"> Уведомления в Telegram</label>
         </div>
 
         <div class="card full hidden" id="topupCard">
@@ -1209,7 +1254,7 @@
     }
     async function uploadReleaseFile(releaseId, kind, file) {
       if (!file) return null;
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       const formData = new FormData();
       formData.append("user_id", userId);
       formData.append("file", file);
@@ -1243,6 +1288,130 @@
         console.warn("Не удалось получить ссылку на бот:", error);
       }
     }
+
+    let authOptions = { email: false, providers: {} };
+    const emailChallenges = { Auth: null, Link: null };
+
+    async function configureAccountAuth() {
+      try {
+        authOptions = await fetchJson(`${apiBase}/api/auth/options`);
+        document.querySelectorAll("[data-oauth-provider]").forEach((button) => {
+          button.disabled = !authOptions.providers[button.dataset.oauthProvider];
+          button.title = button.disabled ? "Этот способ входа пока не настроен" : "";
+        });
+        ["emailAuthRequest", "emailLinkForm"].forEach((id) => {
+          const node = $(id);
+          if (node.tagName === "BUTTON") node.disabled = !authOptions.email;
+          else node.querySelector("button").disabled = !authOptions.email;
+        });
+        if (!authOptions.email) $("emailAuthStatus").textContent = "Вход по почте пока недоступен.";
+      } catch (error) {
+        $("emailAuthStatus").textContent = error.message;
+      }
+    }
+
+    function authPost(path, body = {}) {
+      return fetchJson(`${apiBase}${path}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+      });
+    }
+
+    async function loadAccountConnections() {
+      if (!state.user) return;
+      const account = state.user.account_id;
+      const data = await fetchJson(`${apiBase}/api/profile/connections`);
+      if (!state.user || state.user.account_id !== account) return;
+      const names = { google: "Google", yandex: "Яндекс", email: "Почта" };
+      const methods = data.providers.map((p) => names[p]);
+      if (state.user.account_id > 0 || data.telegram_id) methods.push("Telegram");
+      $("accountConnectionsSummary").textContent = `Способы входа: ${methods.join(", ") || "—"}${data.email ? ` · ${data.email}` : ""}`;
+      document.querySelectorAll("[data-oauth-mode='link']").forEach((button) => {
+        const linked = data.providers.includes(button.dataset.oauthProvider);
+        button.disabled = linked || !authOptions.providers[button.dataset.oauthProvider];
+        button.textContent = `${names[button.dataset.oauthProvider]}${linked ? " привязан" : " — привязать"}`;
+      });
+      $("emailLinkForm").classList.toggle("hidden", !!data.email);
+      $("telegramConnectionStatus").textContent = data.telegram_id ? "Telegram привязан." : "Telegram пока не привязан.";
+      $("telegramConnectBtn").classList.toggle("hidden", !!data.telegram_id);
+      $("telegramDisconnectBtn").classList.toggle("hidden", !data.telegram_id || state.user.account_id > 0);
+      $("telegramNotificationsEnabled").disabled = !data.telegram_id;
+      $("telegramNotificationsEnabled").checked = !!data.telegram_id && data.telegram_notifications;
+      if (data.telegram_id) $("telegramConnectLink").classList.add("hidden");
+    }
+
+    document.querySelectorAll("[data-oauth-provider]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const mode = button.dataset.oauthMode === "link" ? "?mode=link" : "";
+        window.location.assign(`${apiBase}/api/auth/oauth/${button.dataset.oauthProvider}/start${mode}`);
+      });
+    });
+
+    ["Auth", "Link"].forEach((kind) => {
+      const prefix = `email${kind}`;
+      $(`${prefix}Form`).addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const button = event.target.querySelector("button");
+        button.disabled = true;
+        emailChallenges[kind] = null;
+        $(`${prefix}VerifyForm`).classList.add("hidden");
+        $(`${prefix}Status`).textContent = "Отправляем код…";
+        try {
+          const data = await authPost("/api/auth/email/request", {
+            email: $(`${prefix}Address`).value.trim(), name: kind === "Auth" ? $("emailAuthName").value : "",
+            mode: kind === "Link" ? "link" : "login"
+          });
+          emailChallenges[kind] = data.challenge_id;
+          $(`${prefix}Status`).textContent = data.message;
+          $(`${prefix}VerifyForm`).classList.remove("hidden");
+          $(`${prefix}Code`).value = "";
+          $(`${prefix}Code`).focus();
+        } catch (error) { $(`${prefix}Status`).textContent = error.message; }
+        finally { button.disabled = !authOptions.email; }
+      });
+      $(`${prefix}VerifyForm`).addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const button = event.target.querySelector("button");
+        button.disabled = true;
+        try {
+          const data = await authPost("/api/auth/email/verify", {
+            challenge_id: emailChallenges[kind], code: $(`${prefix}Code`).value.trim()
+          });
+          await applyUser(data.user);
+          localStorage.setItem("cabinet_user", JSON.stringify(data.user));
+          emailChallenges[kind] = null;
+          $(`${prefix}VerifyForm`).classList.add("hidden");
+          $(`${prefix}Status`).textContent = kind === "Link" ? "Почта привязана." : "Вход выполнен.";
+          setTab(kind === "Link" ? "profile" : "releases");
+        } catch (error) { $(`${prefix}Status`).textContent = error.message; }
+        finally { button.disabled = false; }
+      });
+    });
+
+    $("telegramConnectBtn").addEventListener("click", async () => {
+      $("telegramConnectBtn").disabled = true;
+      try {
+        const data = await authPost("/api/profile/telegram/link");
+        $("telegramConnectLink").href = data.url;
+        $("telegramConnectLink").classList.remove("hidden");
+        $("telegramConnectionStatus").textContent = data.message;
+      } catch (error) { $("telegramConnectionStatus").textContent = error.message; }
+      finally { $("telegramConnectBtn").disabled = false; }
+    });
+    $("telegramConnectionCheckBtn").addEventListener("click", async () => {
+      try { await restoreSession(); await loadAccountConnections(); }
+      catch (error) { $("telegramConnectionStatus").textContent = error.message; }
+    });
+    $("telegramDisconnectBtn").addEventListener("click", async () => {
+      try { await authPost("/api/profile/telegram/unlink"); await restoreSession(); }
+      catch (error) { $("telegramConnectionStatus").textContent = error.message; }
+    });
+    $("telegramNotificationsEnabled").addEventListener("change", async () => {
+      const input = $("telegramNotificationsEnabled");
+      input.disabled = true;
+      try { await authPost("/api/profile/telegram/notifications", { enabled: input.checked }); }
+      catch (error) { input.checked = !input.checked; $("telegramConnectionStatus").textContent = error.message; }
+      finally { input.disabled = false; }
+    });
 
     async function loginByCode(code) {
       setStatus("Проверяю код...");
@@ -1285,7 +1454,7 @@
 
     async function loadProfileDashboard() {
       if (!state.user) return;
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       const data = await fetchJson(`${apiBase}/api/profile/dashboard?user_id=${encodeURIComponent(userId)}`);
       state.profileDashboard = data;
       state.drafts = data.drafts || [];
@@ -1296,7 +1465,7 @@
 
     async function loadUserReleases() {
       if (!state.user) return;
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       const data = await fetchJson(`${apiBase}/api/user_releases?user_id=${encodeURIComponent(userId)}`);
       state.releases = data.releases || [];
       filterUserReleases();
@@ -1315,7 +1484,7 @@
 
     async function loadPromoHistory() {
       if (!state.user) return;
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       const data = await fetchJson(`${apiBase}/api/promo/history?user_id=${encodeURIComponent(userId)}`);
       state.promoHistory = data.history || [];
       state.activeDiscounts = data.active_discounts || [];
@@ -1323,14 +1492,14 @@
 
     async function loadMyContracts() {
       if (!state.user) return;
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       const data = await fetchJson(`${apiBase}/api/contracts/my?user_id=${encodeURIComponent(userId)}`);
       state.contracts = data.contracts || [];
     }
 
     async function createContractRequest() {
       if (!state.user) return setTab("profile");
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       setStatus("Создаю заявку на договор...");
       const data = await fetchJson(`${apiBase}/api/contracts/request`, {
         method: "POST",
@@ -1349,7 +1518,7 @@
 
     async function createReportRequest() {
       if (!state.user) return setTab("profile");
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       setStatus("Создаю запрос отчёта...");
       const data = await fetchJson(`${apiBase}/api/reports/request`, {
         method: "POST",
@@ -1421,7 +1590,7 @@
       }
       const code = $("promoCodeInput").value.trim();
       if (!code) return setPromoStatus("Введите промокод.", "error");
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       setPromoStatus("Проверяю промокод...");
       const data = await fetchJson(`${apiBase}/api/promo/activate`, {
         method: "POST",
@@ -1792,7 +1961,7 @@
         renderDistributionPayment();
         return null;
       }
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       const releaseType = $("releaseTypeInput").value;
       const data = await fetchJson(`${apiBase}/api/distribution/price?user_id=${encodeURIComponent(userId)}&release_type=${encodeURIComponent(releaseType)}`);
       state.distributionPayment = data.payment;
@@ -2209,7 +2378,7 @@
 
     async function saveReleaseDraft() {
       if (!state.user) return setTab("profile");
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       const data = releaseFormData();
       const draft = await fetchJson(`${apiBase}/api/drafts`, {
         method: "POST",
@@ -2233,7 +2402,7 @@
 
     async function loadDraftIntoBuilder(draftId) {
       if (!state.user) return setTab("profile");
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       const payload = await fetchJson(`${apiBase}/api/drafts/${draftId}?user_id=${encodeURIComponent(userId)}`);
       state.editingDraftId = payload.draft.id;
       fillReleaseForm(payload.draft.data || {});
@@ -2254,7 +2423,7 @@
 
     async function deleteDraft(draftId) {
       if (!state.user) return setTab("profile");
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       await fetchJson(`${apiBase}/api/drafts/${draftId}?user_id=${encodeURIComponent(userId)}`, { method: "DELETE" });
       if (String(state.editingDraftId) === String(draftId)) state.editingDraftId = null;
       await loadProfileDashboard();
@@ -2266,7 +2435,7 @@
 
     async function submitReleaseForm() {
       if (!state.user) return setTab("profile");
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       const data = releaseFormData();
       const validation = validateReleaseData(data);
       if (validation) return setReleaseBuilderStatus(validation, "error");
@@ -2328,7 +2497,7 @@
 
     async function openReleaseDetail(releaseId) {
       if (!state.user) return setTab("profile");
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       $("releaseListView").classList.add("hidden");
       $("releaseDetailView").classList.remove("hidden");
       $("releaseDetailView").innerHTML = '<p class="muted">Загружаю релиз...</p>';
@@ -2533,6 +2702,7 @@
       $("profilePhone").value = user?.phone || "";
       setProfileEditing(false);
       renderProfileDashboard();
+      if (user) loadAccountConnections().catch((error) => { $("telegramConnectionStatus").textContent = error.message; });
     }
 
     function setProfileEditing(isEditing) {
@@ -2604,7 +2774,7 @@
         setStatus("Сначала войдите через Telegram.", "warn");
         return;
       }
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       const numericAmount = Number(amount);
       if (!Number.isFinite(numericAmount) || numericAmount < 50 || numericAmount > 100000) {
         setTopupStatus("Введите сумму от 50 до 100000 ₽.", "error");
@@ -2778,7 +2948,7 @@
           const data = await fetchJson(`${apiBase}/api/design/order`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ user_id: state.user.telegram_id || state.user.id, service, details: parts.join("\n") })
+            body: JSON.stringify({ user_id: state.user.account_id || state.user.telegram_id || state.user.id, service, details: parts.join("\n") })
           });
           closeModal();
           showToast(`Заявка #${data.order_id} принята. Менеджер напишет вам в Telegram.`, "ok", 6000);
@@ -2815,7 +2985,7 @@
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              user_id: state.user.telegram_id || state.user.id,
+              user_id: state.user.account_id || state.user.telegram_id || state.user.id,
               templateId: topic,
               templateTitle: topicTitle,
               data: { message, releaseId: releaseId || undefined, releaseName: release?.release_name || preset.releaseName || undefined, source: "site" }
@@ -2992,7 +3162,7 @@
     });
     $("saveProfileBtn").addEventListener("click", async () => {
       if (!state.user) return setTab("profile");
-      const userId = state.user.telegram_id || state.user.id;
+      const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       try {
         const data = await fetchJson(`${apiBase}/api/profile`, {
           method: "PUT",
@@ -3104,6 +3274,7 @@
     renderReleaseTypeCards();
     renderPromoSection();
     configureBotLink();
+    configureAccountAuth().then(() => { if (state.user) loadAccountConnections().catch(() => {}); });
     loadRecentReleases();
     const params = new URLSearchParams(window.location.search);
     const telegramWebApp = window.Telegram?.WebApp;
@@ -3135,6 +3306,12 @@
       const tab = window.location.hash.replace("#", "") || "home";
       if (TABS.includes(tab) && tab !== state.activeTab) setTab(tab);
     });
+    if (params.get("auth_error")) {
+      setTab("profile");
+      setStatus(params.get("auth_error"), "error");
+      params.delete("auth_error");
+      history.replaceState(null, "", `${location.pathname}${params.toString() ? `?${params}` : ""}#profile`);
+    }
     if (params.get("submitted")) showToast("Релиз отправлен на рассмотрение. Статус появится в списке.", "ok", 6000);
     loadReviews();
     if (params.get("payment") === "return") {
@@ -3155,7 +3332,7 @@
           renderProfile();
           if (dedicatedReleasePage) {
             setTab("profile");
-            setStatus("Войдите через Telegram, затем форма релиза откроется в этой вкладке.", "warn");
+            setStatus("Войдите в аккаунт, затем форма релиза откроется в этой вкладке.", "warn");
           }
         });
     }

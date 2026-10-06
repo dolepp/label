@@ -1,6 +1,9 @@
 """Report request and XLSX attachment flow migrated from the legacy monolith."""
 from __future__ import annotations
 
+from db.repositories.account_connections import notification_chat_id
+from core.config import WEB_APP_URL
+
 import logging
 from datetime import datetime
 from typing import Any, Callable
@@ -239,9 +242,9 @@ def handle_complete_report(call):
         user_id = result["user_id"]
         try:
             markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("📊 Мои отчеты", callback_data="my_reports"))
+            markup.add(types.InlineKeyboardButton("📊 Мои отчеты", **({"url": WEB_APP_URL + "/#profile"} if user_id < 0 else {"callback_data": "my_reports"})))
             current_bot.send_message(
-                user_id,
+                notification_chat_id(user_id),
                 f"✅ Ваш отчет готов!\n\n"
                 f"📊 Отчет #{report_id} был завершен администратором.\n"
                 f"📎 Файл отчета прикреплен\n\n"
@@ -356,7 +359,7 @@ def process_xlsx_report_file(message, report_id):
         username = report_info.get("username")
         try:
             current_bot.send_document(
-                user_id,
+                notification_chat_id(user_id),
                 message.document.file_id,
                 caption=f"📊 Ваш отчет #{report_id} готов!\n\n"
                         f"📋 Тип запроса: {request_type}\n"
@@ -445,7 +448,7 @@ def handle_confirm_report_upload(call):
             return
         try:
             current_bot.send_message(
-                report_info["user_id"],
+                notification_chat_id(report_info["user_id"]),
                 f"✅ Ваш отчет готов!\n\n"
                 f"📊 Запрос: {report_info['request_type']}\n"
                 f"🎵 Тип: {report_info['release_type']}\n"
