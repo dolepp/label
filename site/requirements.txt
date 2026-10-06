@@ -6,3 +6,6 @@ Flask-Limiter
 python-dotenv
 gunicorn
 yookassa
+
+python-docx
+cryptography

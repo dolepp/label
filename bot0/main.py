@@ -38,6 +38,8 @@ def configure_telegram_timeouts() -> None:
 
 def start_bot() -> None:
     import label
+    from services.contracts import render_saved_template
+    label.create_license_agreement = render_saved_template
 
     configure_telegram_timeouts()
     try:

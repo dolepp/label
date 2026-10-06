@@ -391,7 +391,7 @@ def public_api_request():
     if path in PUBLIC_AUTH_PATHS:
         return True
     if path in {
-        '/api', '/api/health', '/api/auth/check', '/api/auth/verify',
+        '/api', '/api/health', '/api/legal/consent', '/api/auth/check', '/api/auth/verify',
         '/api/auth/bot-link', '/api/auth/session', '/api/auth/logout',
         '/api/telegram_auth', '/api/me', '/telegram_auth',
         '/api/releases/recent', '/api/reviews', '/api/reviews/random',
@@ -4704,6 +4704,13 @@ def cabinet():
     return response
 
 
+@app.route('/legal/<document>/', methods=['GET'])
+def legal_document(document):
+    if document not in {'privacy', 'consent', 'offer', 'terms', 'cookies'}:
+        return jsonify(success=False, error='Документ не найден'), 404
+    return send_from_directory(Path(__file__).resolve().parent / 'legal' / document, 'index.html')
+
+
 @app.route('/assets/<path:filename>', methods=['GET'])
 def assets(filename):
     """Serve site assets such as the logo image."""
@@ -5912,6 +5919,12 @@ def request_too_large(error):
     max_bytes = app.config.get('MAX_CONTENT_LENGTH') or 0
     max_mb = max_bytes // (1024 * 1024) if max_bytes else 0
     return jsonify({'success': False, 'error': f'File is too large. Max size is {max_mb} MB'}), 413
+
+from legal_api import register_legal_api
+register_legal_api(app, get_pg_connection, current_user_id, limiter)
+
+from contract_api import register_contract_api
+register_contract_api(app, get_pg_connection, current_user_id, STORAGE_ROOT)
 
 if __name__ == '__main__':
     import ssl

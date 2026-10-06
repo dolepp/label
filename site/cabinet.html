@@ -485,6 +485,7 @@
       *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
     }
   </style>
+<link rel="stylesheet" href="/assets/legal.css?v=1">
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -659,6 +660,7 @@
           </div>
           <div class="release-stepper" id="releaseStepper"></div>
           <form id="releaseForm" class="profile-form compact">
+          <div class="card"><h3>Лицензионный договор</h3><p class="muted" id="releaseLicenseStatus">Заполните реквизиты один раз — договор с данными релиза будет сформирован после отправки.</p><button type="button" class="secondary small" id="releaseLicenseProfileBtn">Заполнить реквизиты</button></div>
             <div class="release-type-field">
               <label>Тип релиза</label>
               <select id="releaseTypeInput" class="release-type-select-native" aria-label="Тип релиза">
@@ -866,6 +868,8 @@
       <div class="card auth-box" id="authCard">
         <span class="eyebrow">Личный кабинет</span>
         <h2>Вход и регистрация</h2>
+        <label class="legal-check"><input type="checkbox" id="oauthPersonalConsent">Даю отдельное <a href="/legal/consent/" target="_blank" rel="noopener">согласие на обработку данных</a> при входе через провайдера. <a href="/legal/privacy/" target="_blank" rel="noopener">Политика</a>.</label>
+        <label class="legal-check"><input type="checkbox" id="oauthTermsConsent">Принимаю <a href="/legal/terms/" target="_blank" rel="noopener">пользовательское соглашение</a>.</label>
         <div class="actions spaced">
           <button class="secondary" type="button" data-oauth-provider="google">Войти через Google</button>
           <button class="secondary" type="button" data-oauth-provider="yandex">Войти через Яндекс</button>
@@ -974,6 +978,7 @@
             <div class="profile-field"><label for="profilePhone">Телефон</label><div class="profile-copy-row"><input id="profilePhone" type="tel" placeholder="Не указан"><button class="ghost small profile-copy-btn" type="button" data-copy-profile="profilePhone">Копировать</button></div></div>
             <div class="actions">
               <button class="secondary" id="editProfileBtn" type="button">Изменить данные</button>
+              <label class="legal-check"><input type="checkbox" id="profilePersonalConsent">Даю <a href="/legal/consent/" target="_blank" rel="noopener">согласие на обработку данных профиля</a>. <a href="/legal/privacy/" target="_blank" rel="noopener">Политика</a>.</label>
               <button id="saveProfileBtn" class="hidden" type="button">Сохранить</button>
               <button class="ghost hidden" id="cancelProfileEditBtn" type="button">Отмена</button>
             </div>
@@ -988,7 +993,7 @@
         <div class="card"><h3>Последние заказы</h3><div id="profileOrders" class="mini-list muted">—</div></div>
         <div class="card"><h3>Черновики</h3><div id="profileDrafts" class="mini-list muted">—</div></div>
         <div class="card"><h3>Отчёты</h3><div id="profileReports" class="mini-list muted">—</div></div>
-        <div class="card"><h3>Договоры</h3><div id="profileContracts" class="mini-list muted">—</div></div>
+        <div class="card"><h3>Договоры</h3><button type="button" class="secondary small" id="licenseProfileBtn">Реквизиты и документы</button><p class="muted">Заполните один раз — договор будет готовиться при отправке релиза.</p><div id="generatedLicenses"></div><div id="profileContracts" class="mini-list muted">—</div></div>
         <div class="card full hidden"><div id="profileCounts"></div></div>
       </div>
     </section>
@@ -1000,6 +1005,7 @@
         <a href="https://t.me/twaslabel" target="_blank" rel="noopener">Канал @twaslabel</a>
         <a href="https://t.me/twaslabelmn" target="_blank" rel="noopener">Менеджер</a>
       </div>
+<div class="legal-footer"><span>Документы</span><nav><a href="/legal/privacy/">Политика обработки персональных данных</a><a href="/legal/consent/">Согласие на обработку персональных данных</a><a href="/legal/offer/">Публичная оферта на услуги</a><a href="/legal/terms/">Пользовательское соглашение</a><a href="/legal/cookies/">Cookie и настройки браузера</a></nav></div>
     </footer>
   </main>
 
@@ -1119,6 +1125,7 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="/assets/teleprompter-export.js?v=1" defer></script>
   <script src="/assets/teleprompter.js?v=4" defer></script>
+  <script src="/assets/legal.js?v=1" defer></script>
   <script type="module">
     const apiBase = (document.querySelector('meta[name="twas-api-base"]')?.content.trim() || window.location.origin).replace(/\/$/, "");
     function resolveApiUrls(value) {
@@ -1275,6 +1282,7 @@
         const separator = requestUrl.includes("?") ? "&" : "?";
         requestUrl = `${requestUrl}${separator}_=${Date.now()}`;
       }
+      if (!["GET", "HEAD"].includes(method) && !requestUrl.includes("/api/legal/consent")) await window.twasRecordLegalConsent?.(apiBase);
       const response = await fetch(requestUrl, requestOptions);
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || data.message || `HTTP ${response.status}`);
@@ -1368,7 +1376,9 @@
     }
 
     document.querySelectorAll("[data-oauth-provider]").forEach((button) => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", async () => {
+        if (button.dataset.oauthMode !== "link" && (!$("oauthPersonalConsent").checked || !$("oauthTermsConsent").checked)) return setStatus("Подтвердите отдельное согласие и пользовательское соглашение перед входом.", "warn");
+        try { await window.twasRecordLegalConsent?.(apiBase, "oauth"); } catch (error) { return setStatus(error.message, "error"); }
         const mode = button.dataset.oauthMode === "link" ? "?mode=link" : "";
         window.location.assign(`${apiBase}/api/auth/oauth/${button.dataset.oauthProvider}/start${mode}`);
       });
@@ -2461,6 +2471,49 @@
       setStatus(`Черновик #${draftId} удалён.`, "ok");
     }
 
+
+    let licenseInfo = null;
+    async function loadLicenseInfo() {
+      if (!state.user) { licenseInfo = null; return; }
+      const info = await fetchJson(`${apiBase}/api/license/profile`);
+      licenseInfo = info;
+      $("releaseLicenseStatus").textContent = info.complete ? "Реквизиты сохранены. Договор сформируется автоматически после отправки релиза и появится в профиле." : "Реквизиты пока не заполнены. Заполните их один раз для автоматической подготовки договора.";
+      $("generatedLicenses").innerHTML = info.documents.map(doc => `<p><a href="${apiBase}/api/releases/${doc.release_id}/license" data-license-download="${doc.release_id}">Скачать ${escapeHtml(doc.contract_number)} · DOCX</a><small class="muted"> · Для проверки и подписания</small></p>`).join("");
+      return info;
+    }
+    async function downloadLicense(id) {
+      const response = await fetch(`${apiBase}/api/releases/${id}/license`, {credentials:"include"});
+      if (!response.ok) throw new Error("Не удалось скачать договор");
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a"); link.href = url; link.download = `TWAS-release-${id}.docx`; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+    document.addEventListener("click", event => {
+      const link = event.target.closest("[data-license-download]");
+      if (link) { event.preventDefault(); downloadLicense(link.dataset.licenseDownload).catch(error => setStatus(error.message,"error")); }
+    });
+    async function openLicenseProfile() {
+      if (!state.user) return setTab("profile");
+      try {
+        const info = await loadLicenseInfo();
+        const dialog = document.createElement("dialog"); dialog.className="license-dialog";
+        const personal = ["full_name","nickname","passport","passport_issued","issue_date","department_code","birth_date","birth_place","address","snils","inn","phonogram_producer"];
+        const field = key => `<label>${escapeHtml(info.fields[key])}${info.required.includes(key) ? " *" : ""}<input name="${key}" ${info.required.includes(key)?"required":""} ${["issue_date","birth_date"].includes(key)?'type="date"':'type="text"'} value="${escapeAttr(info.profile[key] || (key === "full_name" ? state.user.fio || "" : key === "nickname" ? state.user.artistName || "" : ""))}" maxlength="600" autocomplete="off"></label>`;
+        dialog.innerHTML = `<form><div class="license-heading"><h2>Реквизиты для договора</h2><button type="button" data-close aria-label="Закрыть">×</button></div><p class="muted">Сохраните данные один раз. Название, авторы, треки и обложка подставятся из релиза. Готовый документ нужно проверить и подписать.</p><h3>Личные данные</h3><div class="license-fields">${personal.map(field).join("")}</div><details><summary>Банковские реквизиты · необязательно</summary><div class="license-fields">${Object.keys(info.fields).filter(key=>key.startsWith("bank_")).map(field).join("")}</div></details><label class="legal-check"><input type="checkbox" name="consent" required>Даю отдельное <a href="/legal/consent/" target="_blank" rel="noopener">согласие на обработку персональных данных</a> для подготовки договора; ознакомлен с <a href="/legal/privacy/" target="_blank" rel="noopener">политикой</a>.</label><p class="license-message" role="status"></p><button type="submit">Сохранить реквизиты</button><h3>Договор для существующего релиза</h3><select name="release"><option value="">Выберите релиз</option>${state.releases.filter(r=>!r.is_track).map(r=>`<option value="${Number(r.id)}">${escapeHtml(r.release_name||r.title||"Релиз")} · #${Number(r.id)}</option>`).join("")}</select><button type="button" data-generate>Сформировать и скачать</button></form>`;
+        document.body.append(dialog);dialog.showModal();
+        dialog.querySelector("[data-close]").onclick=()=>dialog.close();dialog.addEventListener("close",()=>dialog.remove());
+        const form=dialog.querySelector("form"), status=dialog.querySelector(".license-message");
+        async function save() {
+          if (!form.reportValidity()) return false;
+          const values=Object.fromEntries(new FormData(form));delete values.release;delete values.consent;
+          await fetchJson(`${apiBase}/api/license/profile`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({profile:values,consent:form.elements.consent.checked})});
+          await loadLicenseInfo();status.textContent="Реквизиты сохранены. При отправке релиза договор сформируется автоматически.";return true;
+        }
+        form.onsubmit=async event=>{event.preventDefault();try{await save();}catch(error){status.textContent=error.message;}};
+        dialog.querySelector("[data-generate]").onclick=async()=>{try{if(!form.elements.release.value){status.textContent="Выберите релиз.";return;}if(!await save())return;await fetchJson(`${apiBase}/api/releases/${form.elements.release.value}/license`,{method:"POST"});await downloadLicense(form.elements.release.value);await loadLicenseInfo();status.textContent="Договор готов. Проверьте документ перед подписанием.";}catch(error){status.textContent=error.message;}};
+      } catch(error) {setStatus(error.message,"error");}
+    }
+
     async function submitReleaseForm() {
       if (!state.user) return setTab("profile");
       const userId = state.user.account_id || state.user.telegram_id || state.user.id;
@@ -2468,6 +2521,7 @@
       const validation = validateReleaseData(data);
       if (validation) return setReleaseBuilderStatus(validation, "error");
 
+      await loadLicenseInfo();
       setReleaseBuilderStatus("Проверяю баланс...");
       const payment = await loadDistributionPrice();
       if (payment && !payment.affordable) {
@@ -2508,6 +2562,10 @@
 
       if (state.editingDraftId) {
         await fetchJson(`${apiBase}/api/drafts/${state.editingDraftId}?user_id=${encodeURIComponent(userId)}`, { method: "DELETE" });
+      }
+      if (releaseId && licenseInfo?.complete) {
+        try { await fetchJson(`${apiBase}/api/releases/${releaseId}/license`, {method:"POST"}); }
+        catch (error) { alert(`Релиз уже создан. Договор не сформирован: ${error.message}. Сформируйте его в профиле — повторно отправлять и оплачивать релиз не нужно.`); }
       }
       resetReleaseForm();
       rememberReleaseSaved();
@@ -2707,6 +2765,7 @@
     }
 
     function renderProfile() {
+      loadLicenseInfo().catch(() => {});
       const user = state.user;
       const displayName = user ? (user.artistName || user.name || "Артист") : "";
       $("topUser").textContent = user ? displayName : "Войти";
@@ -3075,7 +3134,10 @@
       openReleaseTab("/release/new/?source=services");
     });
     $("reportServiceBtn").addEventListener("click", () => createReportRequest().catch((error) => setStatus(`Ошибка запроса отчёта: ${error.message}`, "error")));
-    $("contractServiceBtn").addEventListener("click", () => createContractRequest().catch((error) => setStatus(`Ошибка заявки на договор: ${error.message}`, "error")));
+    $("contractServiceBtn").textContent = "Оформить";
+    $("contractServiceBtn").addEventListener("click", () => openLicenseProfile());
+    $("releaseLicenseProfileBtn").addEventListener("click", () => openLicenseProfile());
+    $("licenseProfileBtn").addEventListener("click", () => openLicenseProfile());
     $("closeReleaseBuilderBtn").addEventListener("click", () => {
       if (!confirmReleaseDiscard()) return;
       if (document.body.classList.contains("release-page")) {
@@ -3198,6 +3260,7 @@
       button.addEventListener("click", () => copyTextToClipboard($(button.dataset.copyProfile)?.value || ""));
     });
     $("saveProfileBtn").addEventListener("click", async () => {
+      if (!$("profilePersonalConsent").checked) return setStatus("Подтвердите согласие на обработку данных профиля.", "warn");
       if (!state.user) return setTab("profile");
       const userId = state.user.account_id || state.user.telegram_id || state.user.id;
       try {

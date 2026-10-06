@@ -34,6 +34,7 @@ jobs:
           cp site/cabinet.html _site/release/new/index.html
           cp site/admin.html _site/admin/index.html
           cp -R site/assets _site/assets
+          cp -R site/legal _site/legal
           sed -i 's|<meta name="twas-api-base" content="">|<meta name="twas-api-base" content="https://api.twaslabel.ru:8443">|' _site/index.html _site/release/new/index.html _site/admin/index.html
           cp _site/index.html _site/404.html
           echo 'twaslabel.ru' > _site/CNAME

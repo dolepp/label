@@ -53,3 +53,26 @@ def contract_filename(nickname: str | None) -> str:
         safe_nickname = re.sub(r'[<>:"/\\|?*]', "_", str(nickname))
         return f"Лицензионный_договор_{safe_nickname}.docx"
     return "Лицензионный_договтор.docx"
+
+
+def render_saved_template(user_data: dict):
+    """Use the owner's preserved licensing template for the existing bot wizard."""
+    import importlib.util
+    from pathlib import Path
+    from uuid import uuid4
+    from docx import Document
+
+    path = Path(__file__).resolve().parents[2] / 'site/contract_documents.py'
+    spec = importlib.util.spec_from_file_location('label_contract_documents', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    profile = {key: str(user_data.get(key) or '') for key in module.FIELDS}
+    profile = {key: '' if value in {'N/A', 'Не указано'} else value for key, value in profile.items()}
+    release = {'id': uuid4().hex[:12], 'release_name': user_data.get('release_name'),
+               'artist_name': user_data.get('nickname')}
+    track = dict(release, track_name=user_data.get('track_name'),
+                 release_name=user_data.get('track_name') or user_data.get('release_name'),
+                 music_author=user_data.get('music_author'), text_author=user_data.get('text_author'),
+                 performer_name=user_data.get('performer'), phonogram_producer=user_data.get('phonogram_producer'))
+    output, _ = module.render_contract(profile, release, [track], contract_date=user_data.get('date') if user_data.get('date') not in {None, '', 'N/A'} else None)
+    return Document(output)
