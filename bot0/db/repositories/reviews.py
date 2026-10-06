@@ -123,11 +123,23 @@ def count_pending_reviews() -> int:
 
 
 def create_review(user_id: int, service_type: str, rating: int, text: str) -> int | None:
+    if type(rating) is not int or not 1 <= rating <= 5:
+        raise ValueError("Оценка должна быть от 1 до 5")
     with connection() as conn:
         if conn is None:
             return None
         cur = conn.cursor()
         try:
+            # Serialize submissions by the same user across bot workers.
+            cur.execute("SELECT pg_advisory_xact_lock(%s)", (user_id,))
+            cur.execute(
+                "SELECT 1 FROM reviews WHERE user_id = %s "
+                "AND (status = 'pending' OR created_date > CURRENT_TIMESTAMP - INTERVAL '1 day') LIMIT 1",
+                (user_id,),
+            )
+            if cur.fetchone():
+                conn.rollback()
+                return None
             cur.execute(
                 """
                 INSERT INTO reviews (user_id, service_type, rating, text, status, created_date)

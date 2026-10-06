@@ -126,14 +126,20 @@ def handle_referral_registration(cursor, user_id: int, referral_code: str, conn)
     cursor.execute(
         """
         INSERT INTO referrals (referrer_id, referred_id, referral_code, status, bonus_paid, bonus_amount)
-        VALUES (%s, %s, %s, 'active', FALSE, 100.00)
+        VALUES (%s, %s, %s, 'active', TRUE, 100.00)
+        ON CONFLICT (referred_id) DO NOTHING
+        RETURNING id
         """,
         (referrer_id, user_id, referral_code),
     )
+    if not cursor.fetchone():
+        return False
     cursor.execute(
         """
         UPDATE label
-        SET referral_count = COALESCE(referral_count, 0) + 1
+        SET referral_count = COALESCE(referral_count, 0) + 1,
+            referral_earnings = COALESCE(referral_earnings, 0) + 100.00,
+            balance = COALESCE(balance, 0) + 100.00
         WHERE telegram_id = %s
         """,
         (referrer_id,),

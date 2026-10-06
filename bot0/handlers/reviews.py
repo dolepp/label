@@ -19,6 +19,7 @@ from db.repositories.reviews import (
     list_reviews_for_admin,
 )
 from db.repositories.users import list_admin_ids
+from handlers.admin_promos import _require_admin
 
 
 logger = logging.getLogger(__name__)
@@ -156,6 +157,9 @@ def register_reviews_handlers(bot) -> None:
         except (IndexError, ValueError):
             bot.answer_callback_query(call.id, "❌ Неверная оценка", show_alert=True)
             return
+        if not 1 <= rating <= 5:
+            bot.answer_callback_query(call.id, "❌ Неверная оценка", show_alert=True)
+            return
         user_state = _state(bot).setdefault(call.from_user.id, {})
         user_state["rating"] = rating
         bot.edit_message_text(
@@ -188,8 +192,10 @@ def register_reviews_handlers(bot) -> None:
             return
 
         _state(bot).pop(user_id, None)
-        if review_id:
-            _notify_admins_about_review(bot, review_id)
+        if not review_id:
+            bot.reply_to(message, "❌ Можно отправить один отзыв в сутки и только один отзыв на модерацию.")
+            return
+        _notify_admins_about_review(bot, review_id)
         bot.reply_to(message, "✅ Спасибо за отзыв! Он будет опубликован после проверки модератором.")
 
     @bot.callback_query_handler(func=lambda call: call.data == "reviews_view_menu")
@@ -256,6 +262,8 @@ def register_reviews_handlers(bot) -> None:
 
     @bot.callback_query_handler(func=lambda call: call.data == "admin_reviews")
     def handle_admin_reviews(call):
+        if not _require_admin(bot, call):
+            return
         pending = count_pending_reviews()
         bot.edit_message_text(
             f"📝 Управление отзывами\n\n⏳ Ждут одобрения: {pending}",
@@ -266,6 +274,8 @@ def register_reviews_handlers(bot) -> None:
 
     @bot.callback_query_handler(func=lambda call: call.data in ("admin_reviews_pending", "admin_reviews_all"))
     def handle_admin_reviews_list(call):
+        if not _require_admin(bot, call):
+            return
         pending_only = call.data == "admin_reviews_pending"
         reviews = list_reviews_for_admin(pending_only=pending_only, limit=20)
         title = "⏳ Отзывы на модерации" if pending_only else "📚 Все отзывы"
@@ -296,6 +306,8 @@ def register_reviews_handlers(bot) -> None:
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_review_detail_"))
     def handle_admin_review_detail(call):
+        if not _require_admin(bot, call):
+            return
         try:
             review_id = int(call.data.replace("admin_review_detail_", "", 1))
         except ValueError:
@@ -322,6 +334,8 @@ def register_reviews_handlers(bot) -> None:
         or call.data.startswith("reject_review_")
     )
     def handle_review_moderation(call):
+        if not _require_admin(bot, call):
+            return
         parts = call.data.split("_")
         if call.data.startswith(("review_approve_", "review_reject_")):
             action = parts[1]

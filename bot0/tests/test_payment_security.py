@@ -113,6 +113,21 @@ class DistributionPaymentTests(unittest.TestCase):
         steps.handle_distribution_pay(make_call("distribution_pay_1199"))
         self.assertEqual(self.db.balance, 5000.0 - 1199)
 
+    def test_full_discount_charges_one_ruble_and_consumes_promo(self):
+        self.db.owned_promos.add(8)
+        steps.handle_apply_promo_distribution(make_call("apply_promo_dist_8"))
+        self.assertEqual(self.bot.user_data[USER_ID]["distribution_promo_id"], 8)
+        steps.handle_distribution_pay(make_call("distribution_pay_1"))
+        self.assertEqual(self.db.balance, 4999)
+        self.assertEqual(self.saved, [USER_ID])
+        self.assertNotIn("distribution_promo_id", self.bot.user_data[USER_ID])
+        deletes = [params for sql, params in self.db.queries
+                   if sql.startswith("DELETE FROM user_discount_promos")]
+        self.assertEqual(deletes, [(USER_ID, 8)])
+        steps.handle_distribution_pay(make_call("distribution_pay_1"))
+        self.assertEqual(self.db.balance, 4999)
+        self.assertEqual(self.saved, [USER_ID])
+
     def test_foreign_promo_cannot_be_applied(self):
         steps.handle_apply_promo_distribution(make_call("apply_promo_dist_8"))
         self.assertNotIn("distribution_promo_id", self.bot.user_data[USER_ID])

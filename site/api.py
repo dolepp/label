@@ -418,9 +418,17 @@ def enforce_authenticated_api():
         g.current_user = user
         return None
 
-    supplied_user_id = requested_user_id()
-    if supplied_user_id is not None and supplied_user_id != user_id:
-        return jsonify({'success': False, 'error': 'Нет доступа к данным другого пользователя'}), 403
+    supplied_ids = [request.args.get('user_id'), request.form.get('user_id')]
+    if request.is_json:
+        supplied_ids.append((request.get_json(silent=True) or {}).get('user_id'))
+    for supplied_id in supplied_ids:
+        if supplied_id is not None:
+            try:
+                matches = int(str(supplied_id)) == user_id
+            except (TypeError, ValueError):
+                matches = False
+            if not matches:
+                return jsonify({'success': False, 'error': 'Нет доступа к данным другого пользователя'}), 403
     return None
 
 @app.route('/api/reviews', methods=['GET'])
@@ -597,6 +605,18 @@ def money_decimal(value):
         return Decimal("0.00")
 
 
+def payment_amount(value):
+    try:
+        amount = Decimal(str(value))
+        if not amount.is_finite() or amount < 50 or amount > 100000:
+            raise ValueError
+        if amount != amount.quantize(Decimal("0.01")):
+            raise ValueError
+        return amount.quantize(Decimal("0.01"))
+    except Exception:
+        raise ValueError("Сумма должна быть от 50 до 100000 ₽, не более двух знаков после запятой")
+
+
 def money_float(value):
     return float(money_decimal(value))
 
@@ -621,12 +641,9 @@ def distribution_price_for(release_type):
 
 
 def user_has_artist_role(cursor, user_id):
-    user = load_user_by_telegram_id(cursor, user_id)
-    if not user:
-        return False
-    levels = {str(level).lower() for level in (user.get('levels') or [])}
-    role = str(user.get('role') or '').lower()
-    return bool(user.get('isArtist') or role == 'artist' or 'artist' in levels)
+    cursor.execute("SELECT COALESCE(artist, 0) FROM label WHERE telegram_id = %s", (user_id,))
+    row = cursor.fetchone()
+    return bool(row and row[0] == 1)
 
 
 def promo_limit_reached(limit, current):
@@ -658,6 +675,7 @@ def get_active_discount_promo(cursor, user_id):
           AND (p.expires_at IS NULL OR p.expires_at >= CURRENT_TIMESTAMP)
         ORDER BY COALESCE(p.discount, 0) DESC, udp.created_at ASC
         LIMIT 1
+        FOR UPDATE OF udp
         """,
         (user_id,),
     )
@@ -768,12 +786,15 @@ def charge_distribution(cursor, user_id, release_type, release_name):
         """
         UPDATE label
         SET balance = COALESCE(balance, 0) - %s
-        WHERE telegram_id = %s
+        WHERE telegram_id = %s AND COALESCE(balance, 0) >= %s
         RETURNING COALESCE(balance, 0)
         """,
-        (payment["final_price"], user_id),
+        (payment["final_price"], user_id, payment["final_price"]),
     )
-    balance_after = money_decimal(cursor.fetchone()[0])
+    row = cursor.fetchone()
+    if not row:
+        return {"success": False, "error": "Недостаточно средств на балансе"}
+    balance_after = money_decimal(row[0])
     payment["balance_after"] = balance_after
     order_id = record_distribution_order(cursor, user_id, payment["final_price"], release_type, release_name, payment)
     if payment.get("active_discount"):
@@ -839,8 +860,20 @@ def activate_promo_for_site(user_id, raw_code):
             conn.commit()
             return {"success": False, "status": "expired", "error": "Промокод истёк.", "code": stored_code}, 410
 
+        cursor.execute(
+            "SELECT 1 FROM promo_code_usage WHERE user_id = %s AND promo_code_id = %s",
+            (user_id, promo_id),
+        )
+        if cursor.fetchone():
+            conn.rollback()
+            return {"success": False, "error": "Вы уже использовали этот промокод."}, 409
+
         amount_value = money_decimal(amount)
         discount_value = money_decimal(discount)
+        if (not amount_value.is_finite() or not discount_value.is_finite()
+                or amount_value < 0 or not 0 <= discount_value <= 100):
+            conn.rollback()
+            return {"success": False, "status": "invalid", "error": "Промокод некорректен: сумма должна быть неотрицательной, скидка — от 0 до 100%.", "code": stored_code}, 400
 
         if discount_value > 0:
             if promo_limit_reached(max_uses, current_uses):
@@ -862,6 +895,10 @@ def activate_promo_for_site(user_id, raw_code):
                     "discount": money_float(discount_value),
                 }, 409
 
+            cursor.execute(
+                "INSERT INTO promo_code_usage (user_id, promo_code_id) VALUES (%s, %s)",
+                (user_id, promo_id),
+            )
             next_current_uses = int(current_uses or 0) + 1
             cursor.execute(
                 """
@@ -898,17 +935,8 @@ def activate_promo_for_site(user_id, raw_code):
             conn.rollback()
             return {"success": False, "status": "invalid", "error": "Промокод некорректен: нет суммы пополнения или скидки.", "code": stored_code}, 400
 
-        cursor.execute(
-            "SELECT 1 FROM promo_code_usage WHERE user_id = %s AND promo_code_id = %s",
-            (user_id, promo_id),
-        )
-        if cursor.fetchone():
-            conn.rollback()
-            return {"success": False, "status": "already_used", "error": "Вы уже использовали этот промокод.", "code": stored_code}, 409
-
-        active_limit = max_activations if max_activations is not None else max_uses
-        active_current = current_activations if max_activations is not None else current_uses
-        if promo_limit_reached(active_limit, active_current):
+        if (promo_limit_reached(max_uses, current_uses)
+                or promo_limit_reached(max_activations, current_activations)):
             cursor.execute("UPDATE promo_codes SET is_active = FALSE, is_used = TRUE WHERE id = %s", (promo_id,))
             conn.commit()
             return {"success": False, "status": "limit_reached", "error": "Промокод достиг лимита использований.", "code": stored_code}, 409
@@ -1546,7 +1574,7 @@ def admin_user_detail(user_id):
     try:
         user = load_user_by_telegram_id(cursor, user_id)
         if not user:
-            return jsonify({'success': False, 'error': 'User not found'}), 404
+            return jsonify({'success': False, 'error': 'Пользователь не найден'}), 404
         cursor.execute(
             """
             SELECT id, user_id, release_type, release_name, artist_name, genre, status, release_date, created_at,
@@ -1631,14 +1659,14 @@ def admin_adjust_user_balance(user_id):
     try:
         data = request.get_json() or {}
         delta = money_decimal(data.get('delta'))
-        if delta == 0:
-            return jsonify({'success': False, 'error': 'Delta must not be zero'}), 400
+        if not delta.is_finite() or delta == 0:
+            return jsonify({'success': False, 'error': 'Укажите конечную ненулевую сумму'}), 400
         reason = data.get('reason') or 'Админ корректировка баланса'
-        cursor.execute("UPDATE label SET balance = COALESCE(balance,0) + %s WHERE telegram_id=%s RETURNING balance", (delta, user_id))
+        cursor.execute("UPDATE label SET balance = COALESCE(balance,0) + %s WHERE telegram_id=%s AND COALESCE(balance,0) + %s >= 0 RETURNING balance", (delta, user_id, delta))
         row = cursor.fetchone()
         if not row:
             conn.rollback()
-            return jsonify({'success': False, 'error': 'User not found'}), 404
+            return jsonify({'success': False, 'error': 'Пользователь не найден или недостаточно средств'}), 404
         ensure_orders_table(cursor)
         cursor.execute(
             """
@@ -3101,11 +3129,18 @@ def change_user_balance(user_id, delta):
         return False
     try:
         cursor = conn.cursor()
-        cursor.execute('UPDATE label SET balance = COALESCE(balance,0) + %s WHERE telegram_id = %s', (delta, user_id))
+        delta = Decimal(str(delta))
+        if not delta.is_finite() or delta == 0:
+            return False
+        cursor.execute('UPDATE label SET balance = COALESCE(balance,0) + %s WHERE telegram_id = %s AND COALESCE(balance,0) + %s >= 0 RETURNING balance', (delta, user_id, delta))
+        if not cursor.fetchone():
+            conn.rollback()
+            return False
         conn.commit()
         logger.info(f"Changed balance for user {user_id} by {delta}")
         return True
     except Exception as e:
+        conn.rollback()
         logger.error(f"Failed to change balance for {user_id} by {delta}: {e}")
         return False
     finally:
@@ -3130,15 +3165,12 @@ def create_yookassa_payment():
         amount = data.get('amount')
         user_id = data.get('user_id')  # ID пользователя для пополнения баланса
         description = data.get('description', 'Пополнение баланса TWAS Label')
-        service_type = data.get('service_type', 'topup')
+        service_type = 'topup'
 
         try:
-            amount = float(amount)
-        except (TypeError, ValueError):
-            return jsonify({'success': False, 'error': 'Неверная сумма'}), 400
-
-        if amount < 50 or amount > 100000:
-            return jsonify({'success': False, 'error': 'Сумма должна быть от 50 до 100000 ₽'}), 400
+            amount = payment_amount(amount)
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
 
         if not user_id:
             return jsonify({'success': False, 'error': 'ID пользователя обязателен'}), 400
@@ -3225,10 +3257,12 @@ def create_yookassa_payment():
             'success': True,
             'payment_id': payment_id,
             'payment_url': payment_url,
-            'amount': amount
+            'amount': money_float(amount)
         })
 
     except Exception as e:
+        if 'conn' in locals() and conn:
+            conn.rollback()
         logger.error(f"Error creating YooKassa payment: {e}")
         return jsonify({'success': False, 'error': 'Ошибка создания платежа'}), 500
     finally:
@@ -3250,10 +3284,12 @@ def create_crypto_payment():
         amount = data.get('amount')
         user_id = data.get('user_id')  # ID пользователя для пополнения баланса
         description = data.get('description', 'Пополнение баланса')
-        service_type = data.get('service_type', 'topup')
+        service_type = 'topup'
 
-        if not amount or amount < 50:
-            return jsonify({'success': False, 'error': 'Минимальная сумма 50 ₽'}), 400
+        try:
+            amount = payment_amount(amount)
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
 
         if not user_id:
             return jsonify({'success': False, 'error': 'ID пользователя не указан'}), 400
@@ -3263,8 +3299,9 @@ def create_crypto_payment():
         crypto_api_url = "https://pay.crypt.bot/api/createInvoice"
 
         payload = {
-            "asset": "USDT",
-            "amount": amount / 100,  # Конвертируем рубли в USDT примерно
+            "currency_type": "fiat",
+            "fiat": "RUB",
+            "amount": str(amount),
             "description": description,
             "payload": f"{service_type}_{amount}"
         }
@@ -3274,7 +3311,7 @@ def create_crypto_payment():
             "Content-Type": "application/json"
         }
 
-        response = requests.post(crypto_api_url, json=payload, headers=headers)
+        response = requests.post(crypto_api_url, json=payload, headers=headers, timeout=20)
 
         if response.status_code == 200:
             resp_data = response.json()
@@ -3326,7 +3363,7 @@ def create_crypto_payment():
                     'success': True,
                     'payment_id': invoice_id,
                     'payment_url': pay_url,
-                    'amount': amount
+                    'amount': money_float(amount)
                 })
             else:
                 return jsonify({'success': False, 'error': 'Ошибка Crypto Bot API'}), 500
@@ -3334,6 +3371,8 @@ def create_crypto_payment():
             return jsonify({'success': False, 'error': 'Ошибка связи с Crypto Bot'}), 500
 
     except Exception as e:
+        if 'conn' in locals() and conn:
+            conn.rollback()
         logger.error(f"Error creating Crypto Bot payment: {e}")
         return jsonify({'success': False, 'error': 'Ошибка создания платежа'}), 500
     finally:
@@ -3344,146 +3383,82 @@ def create_crypto_payment():
 
 @app.route('/api/payments/<payment_system>/status/<payment_id>', methods=['GET'])
 def check_payment_status(payment_system, payment_id):
-    """Проверить статус платежа"""
+    """Проверка владельца и зачисление в одной транзакции с заказом."""
+    if payment_system not in {'yookassa', 'crypto'}:
+        return jsonify({'success': False, 'error': 'Неизвестная платёжная система'}), 400
+    conn = get_pg_connection()
+    if not conn:
+        return jsonify({'success': False, 'error': 'База данных недоступна'}), 500
+    cursor = conn.cursor()
     try:
+        cursor.execute(
+            """SELECT id, amount, status FROM orders
+               WHERE payment_id = %s AND (payment_system = %s OR payment_system IS NULL)
+                 AND user_id = %s AND service_type = 'topup' FOR UPDATE""",
+            (payment_id, payment_system, current_user_id()),
+        )
+        order = cursor.fetchone()
+        if not order:
+            return jsonify({'success': False, 'error': 'Платёж не найден'}), 404
+        order_id, amount, status = order
+        if status != 'pending':
+            return jsonify({'success': True, 'status': status, 'payment_id': payment_id})
+        amount = payment_amount(amount)
         if payment_system == 'yookassa':
             if not YOOKASSA_AVAILABLE:
                 return jsonify({'success': False, 'error': 'YooKassa не настроена'}), 503
-
-            # Проверяем статус в YooKassa
             payment = Payment.find_one(payment_id)
-            if not payment:
-                return jsonify({'success': False, 'error': 'Платёж не найден'}), 404
-
-            status = payment.status
-
-            if status == 'succeeded':
-                # Обновляем статус в базе данных и начисляем баланс
-                conn = get_pg_connection()
-                if conn:
-                    cursor = conn.cursor()
-
-                    # Получаем информацию о заказе
-                    cursor.execute(
-                        'SELECT user_id, amount, status FROM orders WHERE payment_id = %s',
-                        (payment_id,)
-                    )
-                    order_info = cursor.fetchone()
-
-                    if order_info:
-                        user_id, amount, current_status = order_info
-
-                        # Проверяем, что заказ ещё не обработан
-                        if current_status != 'completed':
-                            # Обновляем статус заказа
-                            cursor.execute(
-                                'UPDATE orders SET status = %s WHERE payment_id = %s',
-                                ('completed', payment_id)
-                            )
-
-                            # Проверяем баланс пользователя
-                            if user_id:
-                                change_user_balance(user_id, amount)
-                                logger.info(f"Payment {payment_id} processed: added {amount} to user {user_id}")
-
-                            conn.commit()
-
-                    cursor.close()
-                    conn.close()
-
-                return jsonify({
-                    'success': True,
-                    'status': 'completed',
-                    'payment_id': payment_id
-                })
-            elif status == 'pending':
-                return jsonify({
-                    'success': True,
-                    'status': 'pending',
-                    'payment_id': payment_id
-                })
-            else:
-                return jsonify({
-                    'success': True,
-                    'status': 'failed',
-                    'payment_id': payment_id
-                })
-
-        elif payment_system == 'crypto':
-            import requests
-
-            # Проверяем статус в Crypto Bot
-            crypto_api_url = f"https://pay.crypt.bot/api/getInvoices"
-
-            headers = {
-                "Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN,
-                "Content-Type": "application/json"
-            }
-
-            params = {"invoice_ids": payment_id}
-            response = requests.get(crypto_api_url, headers=headers, params=params)
-
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("ok") and data["result"]["items"]:
-                    invoice = data["result"]["items"][0]
-                    status = invoice.get("status")
-
-                    if status == "paid":
-                        # Обновляем статус в базе данных и начисляем баланс
-                        conn = get_pg_connection()
-                        if conn:
-                            cursor = conn.cursor()
-
-                            # Получаем информацию о заказе
-                            cursor.execute(
-                                'SELECT user_id, amount, status FROM orders WHERE payment_id = %s',
-                                (payment_id,)
-                            )
-                            order_info = cursor.fetchone()
-
-                            if order_info:
-                                user_id, amount, current_status = order_info
-
-                                # Проверяем, что заказ ещё не обработан
-                                if current_status != 'completed':
-                                    # Обновляем статус заказа
-                                    cursor.execute(
-                                        'UPDATE orders SET status = %s WHERE payment_id = %s',
-                                        ('completed', payment_id)
-                                    )
-
-                                    # Проверяем баланс пользователя
-                                    if user_id:
-                                        change_user_balance(user_id, amount)
-                                        logger.info(f"Crypto payment {payment_id} processed: added {amount} to user {user_id}")
-
-                                    conn.commit()
-
-                            cursor.close()
-                            conn.close()
-
-                        return jsonify({
-                            'success': True,
-                            'status': 'completed',
-                            'payment_id': payment_id
-                        })
-                    else:
-                        return jsonify({
-                            'success': True,
-                            'status': 'pending',
-                            'payment_id': payment_id
-                        })
-                else:
-                    return jsonify({'success': False, 'error': 'Платёж не найден'}), 404
-            else:
-                return jsonify({'success': False, 'error': 'Ошибка Crypto Bot API'}), 500
+            if not payment or str(payment.id) != payment_id:
+                raise ValueError('Платёж не найден у провайдера')
+            paid = payment.status == 'succeeded'
+            if paid and (payment.amount.currency != 'RUB' or Decimal(str(payment.amount.value)) != amount):
+                raise ValueError('Сумма платежа не совпадает с заказом')
+            status = 'completed' if paid else ('cancelled' if payment.status == 'canceled' else 'pending')
         else:
-            return jsonify({'success': False, 'error': 'Неизвестная платёжная система'}), 400
-
+            response = requests.get(
+                'https://pay.crypt.bot/api/getInvoices',
+                headers={'Crypto-Pay-API-Token': CRYPTO_BOT_TOKEN},
+                params={'invoice_ids': payment_id}, timeout=20,
+            )
+            response.raise_for_status()
+            data = response.json()
+            items = data.get('result', {}).get('items', []) if data.get('ok') else []
+            invoice = next((item for item in items if str(item.get('invoice_id')) == payment_id), None)
+            if not invoice:
+                raise ValueError('Платёж не найден у провайдера')
+            paid = invoice.get('status') == 'paid'
+            invoice_amount = Decimal(str(invoice.get('amount', '0')))
+            matches_amount = invoice_amount.is_finite() and (
+                (invoice.get('currency_type') == 'fiat' and invoice.get('fiat') == 'RUB'
+                 and invoice_amount == amount)
+                or (invoice.get('currency_type') in (None, 'crypto') and invoice.get('asset') == 'USDT'
+                    and invoice_amount == amount / 100)
+            )
+            if paid and not matches_amount:
+                raise ValueError('Сумма платежа не совпадает с заказом')
+            status = 'completed' if paid else ('failed' if invoice.get('status') == 'expired' else 'pending')
+        if status != 'pending':
+            cursor.execute(
+                "UPDATE orders SET status = %s WHERE id = %s AND status = 'pending' RETURNING id",
+                (status, order_id),
+            )
+            changed = cursor.fetchone()
+            if changed and paid:
+                cursor.execute(
+                    "UPDATE label SET balance = COALESCE(balance, 0) + %s WHERE telegram_id = %s RETURNING balance",
+                    (amount, current_user_id()),
+                )
+                if not cursor.fetchone():
+                    raise ValueError('Пользователь не найден')
+        conn.commit()
+        return jsonify({'success': True, 'status': status, 'payment_id': payment_id})
     except Exception as e:
-        logger.error(f"Error checking payment status: {e}")
-        return jsonify({'success': False, 'error': 'Ошибка создания платежа'}), 500
+        logger.error("Error checking payment status: %s", e)
+        return jsonify({'success': False, 'error': 'Ошибка проверки платежа'}), 500
+    finally:
+        conn.rollback()
+        cursor.close()
+        conn.close()
 
 # =================== DISTRIBUTION API ===================
 
@@ -4520,9 +4495,12 @@ def create_distribution():
             logger.info("Таблица releases создана")
 
         # Сохраняем данные релиза
-        cursor.execute('SELECT artist FROM label WHERE telegram_id = %s', (user_id,))
-        user_result = cursor.fetchone()
-        is_artist = user_result and user_result[0] == 1
+        release_data['releaseType'] = normalize_release_type(release_data['releaseType'])
+        charge_result = charge_distribution(cursor, user_id, release_data['releaseType'], release_data['releaseName'])
+        if not charge_result['success']:
+            conn.rollback()
+            return jsonify(charge_result), 402
+        is_artist = charge_result['payment']['is_free']
 
         # Сохраняем релиз
         cursor.execute("""
@@ -4621,6 +4599,8 @@ def create_distribution():
         })
 
     except Exception as e:
+        if 'conn' in locals() and conn:
+            conn.rollback()
         logger.error(f"Error creating distribution: {e}")
         return jsonify({'success': False, 'error': 'Ошибка создания релиза'}), 500
     finally:
@@ -4694,56 +4674,7 @@ def assets(filename):
 
 @app.route('/api/orders', methods=['POST'])
 def create_order():
-    """Создать заказ дистрибуции"""
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'error': 'Данные не получены'}), 400
-
-        # Получаем данные из запроса
-        user_id = data.get('user_id')
-        release_type = data.get('releaseType')
-        release_name = data.get('releaseName')
-        artist_name = data.get('artistName')
-        producer = data.get('producer')
-        genre = data.get('genre')
-        track_count = data.get('trackCount')
-        release_date = data.get('releaseDate')
-
-        if not user_id:
-            return jsonify({'success': False, 'error': 'ID пользователя не указан'}), 400
-
-        conn = get_pg_connection()
-        if not conn:
-            return jsonify({'success': False, 'error': 'Ошибка подключения к базе данных'}), 500
-
-        cursor = conn.cursor()
-
-        # Создаём заказ в таблице orders
-        cursor.execute("""
-            INSERT INTO orders (user_id, service_type, amount, status, created_date)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING id
-        """, (user_id, f"Дистрибуция {release_type}", 100.00, 'pending', datetime.now()))
-
-        order_id = cursor.fetchone()[0]
-
-        conn.commit()
-
-        return jsonify({
-            'success': True,
-            'order_id': order_id,
-            'message': 'Заказ создан успешно'
-        })
-
-    except Exception as e:
-        logger.error(f"Ошибка при создании заказа: {e}")
-        return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
-    finally:
-        if 'conn' in locals() and conn:
-            if 'cursor' in locals():
-                cursor.close()
-            conn.close()
+    return jsonify({'success': False, 'error': 'Этот способ создания заказа больше не доступен. Используйте создание релиза.'}), 410
 
 @app.route('/api/releases/create', methods=['POST'])
 def create_release():
@@ -5728,6 +5659,8 @@ def create_design_order():
         })
 
     except Exception as e:
+        if 'conn' in locals() and conn:
+            conn.rollback()
         logger.error(f"Ошибка при создании заказа дизайна: {e}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")

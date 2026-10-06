@@ -242,42 +242,61 @@ def activate_promo(user_id: int, raw_code: str) -> dict[str, Any]:
                 current_activations,
             ) = promo
 
-            if expires_at and expires_at < datetime.now():
+            if expires_at and expires_at <= datetime.now(tz=expires_at.tzinfo):
                 cur.execute("UPDATE promo_codes SET is_active = FALSE WHERE id = %s", (promo_id,))
                 conn.commit()
                 return {"status": "expired", "code": stored_code}
 
             amount_value = _to_decimal(amount)
             discount_value = _to_decimal(discount)
+            if (not amount_value.is_finite() or not discount_value.is_finite()
+                    or amount_value < 0 or not 0 <= discount_value <= 100):
+                return {"status": "invalid", "code": stored_code}
+            if (_limit_reached(max_uses, current_uses)
+                    or _limit_reached(max_activations, current_activations)):
+                return {"status": "limit_reached", "code": stored_code}
+            cur.execute(
+                "SELECT 1 FROM promo_code_usage WHERE user_id = %s AND promo_code_id = %s",
+                (user_id, promo_id),
+            )
+            if cur.fetchone():
+                return {"status": "already_used", "code": stored_code}
             _ensure_user(cur, user_id)
 
             if discount_value > 0:
-                if _limit_reached(max_uses, current_uses):
-                    cur.execute("UPDATE promo_codes SET is_active = FALSE WHERE id = %s", (promo_id,))
-                    conn.commit()
-                    return {"status": "limit_reached", "code": stored_code}
-
                 _ensure_discount_table(cur)
                 cur.execute(
-                    "SELECT 1 FROM user_discount_promos WHERE user_id = %s AND promo_code_id = %s",
+                    "SELECT 1 FROM user_discount_promos WHERE user_id = %s AND promo_code_id = %s FOR UPDATE",
                     (user_id, promo_id),
                 )
                 if cur.fetchone():
                     return {"status": "discount_already_active", "code": stored_code, "discount": discount_value}
 
+                # A concurrent purchase can delete the active discount and record usage.
+                # Recheck after waiting for that transaction's row lock.
+                cur.execute(
+                    "SELECT 1 FROM promo_code_usage WHERE user_id = %s AND promo_code_id = %s",
+                    (user_id, promo_id),
+                )
+                if cur.fetchone():
+                    return {"status": "already_used", "code": stored_code}
                 new_current_uses = _new_current(current_uses)
                 cur.execute(
                     """
                     INSERT INTO user_discount_promos (user_id, promo_code_id)
                     VALUES (%s, %s)
                     ON CONFLICT DO NOTHING
+                    RETURNING user_id
                     """,
                     (user_id, promo_id),
                 )
+                if not cur.fetchone():
+                    return {"status": "discount_already_active", "code": stored_code}
                 cur.execute(
                     """
                     UPDATE promo_codes
                     SET current_uses = %s,
+                        current_activations = COALESCE(current_activations, 0) + 1,
                         used_by = %s,
                         used_at = CURRENT_TIMESTAMP,
                         is_active = CASE
@@ -297,25 +316,6 @@ def activate_promo(user_id: int, raw_code: str) -> dict[str, Any]:
 
             if amount_value <= 0:
                 return {"status": "invalid", "code": stored_code}
-
-            cur.execute(
-                "SELECT 1 FROM promo_code_usage WHERE user_id = %s AND promo_code_id = %s",
-                (user_id, promo_id),
-            )
-            if cur.fetchone():
-                return {"status": "already_used", "code": stored_code}
-
-            if max_activations is not None:
-                active_limit = max_activations
-                active_current = current_activations
-            else:
-                active_limit = max_uses
-                active_current = current_uses
-
-            if _limit_reached(active_limit, active_current):
-                cur.execute("UPDATE promo_codes SET is_active = FALSE, is_used = TRUE WHERE id = %s", (promo_id,))
-                conn.commit()
-                return {"status": "limit_reached", "code": stored_code}
 
             next_current_activations = _new_current(current_activations)
             next_current_uses = _new_current(current_uses)
@@ -344,14 +344,14 @@ def activate_promo(user_id: int, raw_code: str) -> dict[str, Any]:
                     is_used = CASE
                         WHEN (
                             (max_activations IS NOT NULL AND %s >= max_activations)
-                            OR (max_activations IS NULL AND max_uses IS NOT NULL AND %s >= max_uses)
+                            OR (max_uses IS NOT NULL AND %s >= max_uses)
                         )
                         THEN TRUE ELSE COALESCE(is_used, FALSE)
                     END,
                     is_active = CASE
                         WHEN (
                             (max_activations IS NOT NULL AND %s >= max_activations)
-                            OR (max_activations IS NULL AND max_uses IS NOT NULL AND %s >= max_uses)
+                            OR (max_uses IS NOT NULL AND %s >= max_uses)
                         )
                         THEN FALSE ELSE COALESCE(is_active, TRUE)
                     END
@@ -378,4 +378,5 @@ def activate_promo(user_id: int, raw_code: str) -> dict[str, Any]:
             conn.rollback()
             raise
         finally:
+            conn.rollback()
             cur.close()

@@ -118,13 +118,18 @@ def _start_impl(message):
         cursor = conn.cursor()
         cursor.execute("SELECT id, tg FROM label WHERE telegram_id = %s", (user_id,))
         row = cursor.fetchone()
+        if not row:
+            # Serialize new registrations and MAX(id) allocation until commit.
+            cursor.execute("SELECT pg_advisory_xact_lock(%s)", (72419001,))
+            cursor.execute("SELECT id, tg FROM label WHERE telegram_id = %s", (user_id,))
+            row = cursor.fetchone()
 
         is_new_user = False
         if row:
             current_tg = row[1]
             if username and current_tg != username:
                 cursor.execute("UPDATE label SET tg = %s WHERE telegram_id = %s", (username, user_id))
-            active_bot.reply_to(message, "С возвращением!")
+            registration_text = "С возвращением!"
         else:
             is_new_user = True
             cursor.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM label")
@@ -134,29 +139,18 @@ def _start_impl(message):
                 "INSERT INTO label (id, tg, telegram_id, admin, artist, created_date) VALUES (%s, %s, %s, %s, %s, %s)",
                 (new_id, username, user_id, 0, 0, datetime.now()),
             )
-            active_bot.reply_to(message, "Добро пожаловать! Вы успешно зарегистрированы в системе.")
+            registration_text = "Добро пожаловать! Вы успешно зарегистрированы в системе."
             logger.info("New user registered: %s (username: %s) with ID %s", user_id, username or "не указан", new_id)
 
+        if referral_code and is_new_user and handle_referral_registration:
+            handle_referral_registration(cursor, user_id, referral_code, conn)
         conn.commit()
-
-        if referral_code:
-            try:
-                if is_new_user:
-                    cursor.execute("SELECT id FROM referrals WHERE referred_id = %s", (user_id,))
-                    existing_referral = cursor.fetchone()
-                    if not existing_referral and handle_referral_registration:
-                        handle_referral_registration(cursor, user_id, referral_code, conn)
-                        conn.commit()
-                        logger.info("Referral code %s processed for new user %s", referral_code, user_id)
-                    elif notify_referrer_about_visit:
-                        notify_referrer_about_visit(referral_code, user_id, username)
-                elif notify_referrer_about_visit:
-                    notify_referrer_about_visit(referral_code, user_id, username)
-            except Exception as exc:
-                logger.error("Error processing referral code %s for user %s: %s", referral_code, user_id, exc)
-                if is_new_user:
-                    conn.rollback()
+        active_bot.reply_to(message, registration_text)
+        if referral_code and not is_new_user and notify_referrer_about_visit:
+            notify_referrer_about_visit(referral_code, user_id, username)
     except Exception as exc:
+        if conn:
+            conn.rollback()
         logger.error("Database error in start handler: %s", exc)
         active_bot.reply_to(message, "Произошла ошибка при обработке вашего запроса.")
     finally:

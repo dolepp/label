@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 import re
 import time
 
@@ -39,8 +40,11 @@ def _payment_method_markup(amount: int):
 
 def _parse_amount(text: str) -> int | None:
     try:
-        amount = int(re.sub(r"[^0-9]", "", text or ""))
-        return amount if amount > 0 else None
+        value = (text or "").strip()
+        if not re.fullmatch(r"[0-9]+(?: [0-9]{3})*\s*₽?", value):
+            return None
+        amount = int(value.rstrip("₽").replace(" ", ""))
+        return amount if 50 <= amount <= 100000 else None
     except Exception:
         return None
 
@@ -56,6 +60,9 @@ def _send_amount_menu(bot, chat_id: int, message_id: int | None = None) -> None:
 
 
 def _send_payment_methods(bot, call, amount: int) -> None:
+    if amount is None or not 50 <= amount <= 100000:
+        bot.answer_callback_query(call.id, "❌ Сумма должна быть от 50 до 100000 ₽", show_alert=True)
+        return
     text = f"💰 Пополнение баланса на {amount}₽\n\nВыберите способ оплаты:"
     try:
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=_payment_method_markup(amount))
@@ -68,11 +75,7 @@ def _provider_unavailable(bot, call) -> None:
 
 
 def _parse_provider_amount(call) -> int | None:
-    try:
-        amount = int(call.data.split("_")[2])
-    except Exception:
-        return None
-    return amount if 50 <= amount <= 100000 else None
+    return _parse_amount(call.data.split("_", 2)[-1])
 
 
 def _save_topup_order(ctx: dict, user_id: int, amount: int, payment_id: str) -> bool:
@@ -299,8 +302,35 @@ def _create_ton_payment(bot, call, ctx: dict) -> None:
     )
 
 
+def _owns_topup(bot, call, ctx: dict, payment_id: str) -> bool:
+    conn = None
+    cursor = None
+    try:
+        conn = ctx["get_pg_connection"]()
+        if conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM orders WHERE payment_id = %s AND user_id = %s AND service_type = 'topup'",
+                (payment_id, call.from_user.id),
+            )
+            if cursor.fetchone():
+                return True
+    except Exception:
+        pass
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.rollback()
+            ctx["return_pg_connection"](conn)
+    bot.answer_callback_query(call.id, "❌ Платёж не найден или принадлежит другому пользователю", show_alert=True)
+    return False
+
+
 def _check_crypto_payment(bot, call, ctx: dict) -> None:
-    invoice_id = call.data.split("_")[2]
+    invoice_id = call.data.split("_", 2)[2]
+    if not _owns_topup(bot, call, ctx, invoice_id):
+        return
     token = ctx.get("crypto_bot_token")
     if not token:
         bot.answer_callback_query(call.id, "❌ Crypto Bot не настроен", show_alert=True)
@@ -339,7 +369,7 @@ def _check_crypto_payment(bot, call, ctx: dict) -> None:
                 bot.answer_callback_query(call.id, "❌ Ошибка подключения к базе данных", show_alert=True)
                 return
             cursor = conn.cursor()
-            cursor.execute("SELECT user_id, amount, status FROM orders WHERE payment_id = %s", (invoice_id,))
+            cursor.execute("SELECT user_id, amount, status FROM orders WHERE payment_id = %s AND service_type = 'topup' FOR UPDATE", (invoice_id,))
             order_info = cursor.fetchone()
             if not order_info:
                 bot.answer_callback_query(call.id, "❌ Заказ не найден", show_alert=True)
@@ -348,19 +378,37 @@ def _check_crypto_payment(bot, call, ctx: dict) -> None:
             if user_id != call.from_user.id:
                 bot.answer_callback_query(call.id, "❌ Это не ваш платёж", show_alert=True)
                 return
+            invoice = data["result"]["items"][0]
+            paid_amount = Decimal(str(invoice.get("amount", "0")))
+            order_amount = Decimal(str(amount))
+            matches_amount = paid_amount.is_finite() and (
+                (invoice.get("currency_type") == "fiat" and invoice.get("fiat") == "RUB"
+                 and paid_amount == order_amount)
+                or (invoice.get("currency_type") in (None, "crypto") and invoice.get("asset") == "USDT"
+                    and paid_amount == order_amount / 100)
+            )
+            if (str(invoice.get("invoice_id")) != invoice_id
+                    or not order_amount.is_finite() or not 50 <= order_amount <= 100000
+                    or not matches_amount):
+                bot.answer_callback_query(call.id, "❌ Данные платежа не совпадают с заказом", show_alert=True)
+                return
             # Атомарный переход: зачисляем только тот раз, когда статус реально сменился.
             cursor.execute(
-                "UPDATE orders SET status = 'completed' WHERE payment_id = %s AND status <> 'completed' RETURNING id",
-                (invoice_id,),
+                "UPDATE orders SET status = 'completed' WHERE payment_id = %s AND user_id = %s AND service_type = 'topup' AND status = 'pending' RETURNING id",
+                (invoice_id, call.from_user.id),
             )
             transitioned = cursor.fetchone()
-            conn.commit()
             if not transitioned:
-                bot.answer_callback_query(call.id, "✅ Этот платёж уже зачислен", show_alert=True)
+                text = "✅ Этот платёж уже зачислен" if order_status == "completed" else "❌ Заказ отменён"
+                bot.answer_callback_query(call.id, text, show_alert=True)
                 return
-            if not _change_user_balance(ctx, user_id, amount):
-                bot.answer_callback_query(call.id, "❌ Ошибка зачисления баланса", show_alert=True)
-                return
+            cursor.execute(
+                "UPDATE label SET balance = COALESCE(balance, 0) + %s WHERE telegram_id = %s RETURNING id",
+                (amount, user_id),
+            )
+            if not cursor.fetchone():
+                raise RuntimeError("Topup user not found")
+            conn.commit()
             bot.edit_message_text(
                 f"✅ Платеж успешно обработан!\n\nВаш баланс пополнен на {amount}₽",
                 call.message.chat.id,
@@ -370,6 +418,7 @@ def _check_crypto_payment(bot, call, ctx: dict) -> None:
             if cursor:
                 cursor.close()
             if conn:
+                conn.rollback()
                 ctx["return_pg_connection"](conn)
     except Exception as exc:
         if logger:
@@ -378,7 +427,7 @@ def _check_crypto_payment(bot, call, ctx: dict) -> None:
 
 
 def _open_stars_payment(bot, call) -> None:
-    payment_id = call.data.split("_")[2]
+    payment_id = call.data.split("_", 2)[2]
     stars_url = f"https://t.me/StarsBot?start=pay_{payment_id}"
     markup = types.InlineKeyboardMarkup()
     markup.add(
@@ -413,6 +462,9 @@ def _manual_check_message(bot, call, provider_label: str, payment_id: str) -> No
 
 
 def _handle_provider_payment(bot, call, payment_handlers: dict, payment_context: dict, provider: str) -> None:
+    if _parse_provider_amount(call) is None:
+        bot.answer_callback_query(call.id, "❌ Сумма должна быть от 50 до 100000 ₽", show_alert=True)
+        return
     handler = payment_handlers.get(provider)
     if handler is not None:
         handler(call)
@@ -455,13 +507,13 @@ def register_topup_handlers(
             bot.edit_message_text("Введите сумму пополнения (целое число рублей):", call.message.chat.id, call.message.message_id)
             bot.register_next_step_handler(call.message, process_custom_topup_amount)
             return
-        amount = int(call.data.split("_")[1])
+        amount = _parse_amount(call.data.split("_", 1)[1])
         _send_payment_methods(bot, call, amount)
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("topup_pay_"))
     def handle_topup_pay(call):
         bot.answer_callback_query(call.id)
-        amount = int(call.data.split("_")[2])
+        amount = _parse_provider_amount(call)
         _send_payment_methods(bot, call, amount)
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("yookassa_pay_"))
@@ -491,11 +543,14 @@ def register_topup_handlers(
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("pay_stars_"))
     def handle_pay_stars(call):
-        _open_stars_payment(bot, call)
+        if _owns_topup(bot, call, payment_context, call.data.split("_", 2)[2]):
+            _open_stars_payment(bot, call)
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("check_stars_"))
     def handle_check_stars(call):
-        _manual_check_message(bot, call, "Stars", call.data.split("_")[2])
+        payment_id = call.data.split("_", 2)[2]
+        if _owns_topup(bot, call, payment_context, payment_id):
+            _manual_check_message(bot, call, "Stars", payment_id)
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("copy_ton_"))
     def handle_copy_ton_address(call):
@@ -513,7 +568,9 @@ def register_topup_handlers(
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("check_ton_"))
     def handle_check_ton(call):
-        _manual_check_message(bot, call, "TON", call.data.split("_")[2])
+        payment_id = call.data.split("_", 2)[2]
+        if _owns_topup(bot, call, payment_context, payment_id):
+            _manual_check_message(bot, call, "TON", payment_id)
 
     @bot.callback_query_handler(func=lambda call: call.data == "cancel_topup")
     def handle_cancel_topup(call):
@@ -542,7 +599,7 @@ def register_topup_handlers(
     def process_custom_topup_amount(message):
         amount = _parse_amount(getattr(message, "text", ""))
         if amount is None:
-            sent = bot.reply_to(message, "❌ Неверная сумма. Введите положительное число, например: 500")
+            sent = bot.reply_to(message, "❌ Неверная сумма. Введите целое число от 50 до 100000 ₽, например: 500")
             bot.register_next_step_handler(sent, process_custom_topup_amount)
             return
 

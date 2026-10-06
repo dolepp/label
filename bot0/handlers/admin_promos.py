@@ -105,7 +105,7 @@ def _parse_positive_decimal(value: str, title: str) -> Decimal:
         parsed = Decimal(value.replace(",", "."))
     except Exception as exc:
         raise ValueError(f"{title} должен быть числом") from exc
-    if parsed <= 0:
+    if not parsed.is_finite() or parsed <= 0:
         raise ValueError(f"{title} должен быть больше 0")
     return parsed
 
@@ -260,6 +260,9 @@ def register_admin_promo_handlers(bot) -> None:
         bot.register_next_step_handler(call.message, process_discount_unlimited)
 
     def process_balance_limited(message):
+        if not _is_admin(message.from_user.id):
+            bot.reply_to(message, "У вас нет доступа к этой функции.")
+            return
         try:
             code, raw_amount, raw_limit = (message.text or "").strip().split()
             amount = _parse_positive_decimal(raw_amount, "Сумма")
@@ -274,6 +277,9 @@ def register_admin_promo_handlers(bot) -> None:
             _handle_create_error(bot, message, exc)
 
     def process_balance_timed(message):
+        if not _is_admin(message.from_user.id):
+            bot.reply_to(message, "У вас нет доступа к этой функции.")
+            return
         try:
             code, raw_amount, raw_date = (message.text or "").strip().split()
             amount = _parse_positive_decimal(raw_amount, "Сумма")
@@ -288,6 +294,9 @@ def register_admin_promo_handlers(bot) -> None:
             _handle_create_error(bot, message, exc)
 
     def process_balance_unlimited(message):
+        if not _is_admin(message.from_user.id):
+            bot.reply_to(message, "У вас нет доступа к этой функции.")
+            return
         try:
             code, raw_amount = (message.text or "").strip().split()
             amount = _parse_positive_decimal(raw_amount, "Сумма")
@@ -308,6 +317,9 @@ def register_admin_promo_handlers(bot) -> None:
         _process_discount(message, mode="unlimited")
 
     def _process_discount(message, mode: str):
+        if not _is_admin(message.from_user.id):
+            bot.reply_to(message, "У вас нет доступа к этой функции.")
+            return
         try:
             parts = (message.text or "").strip().split()
             if len(parts) < 2:
