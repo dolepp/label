@@ -486,6 +486,7 @@
     }
   </style>
 <link rel="stylesheet" href="/assets/legal.css?v=1">
+<link rel="stylesheet" href="/assets/ttml-editor.css?v=1">
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -727,7 +728,7 @@
             <div><label>Обложка PNG/JPG 3000x3000</label><input id="releaseCoverInput" type="file" accept="image/png,image/jpeg,image/webp"></div>
             <div class="single-release-only"><label>Файл трека WAV/MP3/FLAC</label><input id="releaseAudioInput" type="file" accept="audio/*,.wav,.mp3,.flac"></div>
             <div class="single-release-only"><label>Договор на бит</label><input id="releaseContractInput" type="file" accept=".pdf,.doc,.docx,image/png,image/jpeg"></div>
-            <div class="single-release-only"><label>Текст трека TXT</label><input id="releaseLyricsInput" type="file" accept=".txt,text/plain"></div>
+            <div class="single-release-only"><label>Текст трека · TXT / TTML</label><input id="releaseLyricsInput" type="file" accept=".txt,.ttml,.xml,text/plain,application/ttml+xml,application/xml,text/xml"></div>
             <div><label>Ссылка на видеошот</label><input id="releaseVideoInput" placeholder="https://... или нет"></div>
             <div><label>Начало предпрослушивания, секунда</label><input id="releasePreviewInput" inputmode="numeric" type="number" min="0" placeholder="90"></div>
             <div><label>Нецензурная лексика</label><select id="releaseExplicitInput"><option value="false">Нет</option><option value="true">Да</option></select></div>
@@ -1059,6 +1060,7 @@
         <span class="tp-file-types">Для текста без таймингов строки распределяются равномерно по длительности аудио. TTML сохраняет свои тайминги.</span>
       </label>
 
+      <p class="tp-file-types">Нужны точные тайминги? <a href="#ttml-editor" id="ttmlEditorLink">Создать TTML · записать строки под музыку</a></p>
       <div class="tp-setup-footer">
         <span id="tpSetupStatus" class="tp-status" role="status">Файлы обрабатываются только в этом браузере.</span>
         <button id="tpStartBtn" type="button" disabled>Запустить</button>
@@ -1124,9 +1126,41 @@
   <div id="modalHost"></div>
   <div class="toast-host" id="toastHost" aria-live="polite"></div>
 
+
+  <div id="ttmlEditor" class="ttml-editor hidden" role="dialog" aria-modal="true" aria-labelledby="ttmlTitle">
+    <section class="ttml-card">
+      <header class="ttml-heading"><div><span class="tp-kicker">TALK WITH A STAR // LYRICS</span><h2 id="ttmlTitle">Записать TTML</h2></div><button id="ttmlClose" type="button" class="icon-btn" aria-label="Закрыть">×</button></header>
+      <p class="ttml-steps" id="ttmlStepLabel">1 / 3 · Аудио и текст</p>
+      <div id="ttmlSetup">
+        <div class="ttml-source-grid"><label class="ttml-file-zone">Аудио с устройства<span>WAV, MP3, FLAC, M4A, OGG</span><input id="ttmlAudioInput" type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg"></label><label>Или из своих релизов<select id="ttmlSourceRelease"><option value="">Выберите трек</option></select><small id="ttmlReleaseHint">Войдите в аккаунт, чтобы выбрать свой трек.</small></label></div>
+        <p id="ttmlAudioName" class="muted">Аудио не выбрано</p>
+        <label for="ttmlText">Текст песни</label><textarea id="ttmlText" rows="10" maxlength="100000" placeholder="Вставьте текст. Каждая непустая строка — отдельная строка караоке."></textarea>
+        <p class="muted">Пустые строки пропускаются. Тайминги записываются для строк целиком.</p>
+        <button id="ttmlNext" type="button" disabled>Дальше · записать тайминги</button>
+      </div>
+      <div id="ttmlRecord" class="hidden">
+        <audio id="ttmlAudio" controls preload="metadata"></audio>
+        <p id="ttmlCounter" class="ttml-counter"></p>
+        <p id="ttmlPrevious" class="ttml-neighbor"></p><p id="ttmlCurrent" class="ttml-current"></p><p id="ttmlFollowing" class="ttml-neighbor"></p>
+        <button id="ttmlHold" type="button" class="ttml-hold" disabled>Удерживайте во время строки</button>
+        <p class="ttml-instruction">Запустите трек. Нажмите, когда строка начинается, и отпустите, когда она заканчивается. На ПК можно удерживать пробел.</p>
+        <div class="ttml-actions"><button id="ttmlUndo" type="button" class="secondary" disabled>← Перезаписать строку</button><button id="ttmlRestart" type="button" class="secondary">Начать заново</button><button id="ttmlBack" type="button" class="secondary">Аудио и текст</button></div>
+        <button id="ttmlFinish" type="button" disabled>Готово · проверить и сохранить</button>
+      </div>
+      <div id="ttmlResult" class="hidden">
+        <h3>Тайминги записаны</h3><p class="muted">Проверьте начало и конец строк. Можно прослушать каждую и вернуться к записи.</p>
+        <div id="ttmlTimeline" class="ttml-timeline"></div>
+        <div class="ttml-actions"><button id="ttmlDownload" type="button">Скачать TTML</button><button id="ttmlUse" type="button" class="secondary">Открыть в суфлёре</button><button id="ttmlRevise" type="button" class="secondary">Вернуться к записи</button></div>
+        <div class="ttml-attach"><h3>Прикрепить к своему релизу</h3><select id="ttmlTargetRelease"><option value="">Выберите трек</option></select><p class="muted">TTML сохранится как текст выбранного трека и будет доступен команде лейбла. Если текст уже прикреплён, потребуется подтвердить замену.</p><label class="legal-check"><input id="ttmlAttachPersonalConsent" type="checkbox">Даю отдельное <a href="/legal/consent/" target="_blank" rel="noopener">согласие на обработку данных релиза</a>. <a href="/legal/privacy/" target="_blank" rel="noopener">Политика</a>.</label><button id="ttmlAttach" type="button">Отправить к релизу</button></div>
+      </div>
+      <p id="ttmlStatus" class="tp-status" role="status" aria-live="polite"></p>
+    </section>
+  </div>
+
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="/assets/teleprompter-export.js?v=1" defer></script>
-  <script src="/assets/teleprompter.js?v=4" defer></script>
+  <script src="/assets/teleprompter.js?v=5" defer></script>
+  <script src="/assets/ttml-editor.js?v=1" defer></script>
   <script src="/assets/legal.js?v=1" defer></script>
   <script type="module">
     const apiBase = (document.querySelector('meta[name="twas-api-base"]')?.content.trim() || window.location.origin).replace(/\/$/, "");
@@ -1510,6 +1544,28 @@
       state.releases = data.releases || [];
       filterUserReleases();
     }
+
+    window.TwasReleaseTools = {
+      async listTracks() {
+        if (!state.user) return [];
+        await loadUserReleases();
+        const items = [];
+        for (const release of state.releases) {
+          if (release.is_album) {
+            const account = state.user.account_id || state.user.telegram_id || state.user.id;
+            const data = await fetchJson(`${apiBase}/api/releases/${release.id}?user_id=${encodeURIComponent(account)}`);
+            items.push(...(data.tracks || []).map(track => ({...track, album_name: release.release_name})));
+          } else items.push(release);
+        }
+        const seen = new Set();
+        return items.filter(track => !seen.has(track.id) && seen.add(track.id)).map(track => ({id:track.id,title:track.release_name || track.title || "Трек",artist:track.artist_name || track.performer_name || "",audioUrl:track.audio_url,hasLyrics:!!(track.lyrics_url || track.lyrics_file_id || track.lyrics_local_path)}));
+      },
+      async attachLyrics(releaseId, file) {
+        if (!state.user) throw new Error("Войдите в аккаунт, чтобы прикрепить TTML.");
+        await window.twasRecordLegalConsent?.(apiBase, "ttmlAttach");
+        return uploadReleaseFile(releaseId, "lyrics", file);
+      }
+    };
 
     async function loadRecentReleases() {
       try {
@@ -2397,7 +2453,7 @@
           <div><label>Язык трека</label><input data-track-field="language" value="${escapeAttr(track.language || "")}" placeholder="Русский / Без слов"></div>
           <div><label>Аудио трека</label><input type="file" data-track-file="audio" accept="audio/*,.wav,.mp3,.flac,.m4a"></div>
           <div><label>Договор / права</label><input type="file" data-track-file="contract" accept=".pdf,.doc,.docx,image/png,image/jpeg"></div>
-          <div><label>Текст TXT</label><input type="file" data-track-file="lyrics" accept=".txt,text/plain"></div>
+          <div><label>Текст · TXT / TTML</label><input type="file" data-track-file="lyrics" accept=".txt,.ttml,.xml,text/plain,application/ttml+xml,application/xml,text/xml"></div>
           <div><label>Текст трека</label><textarea data-track-field="lyricsText" placeholder="Текст точно как произносится">${escapeHtml(track.lyricsText || "")}</textarea></div>
           <div><label>.ttml / рингтон / видео</label><textarea data-track-field="videoNote" placeholder="Ссылки/комментарии по синхро-тексту, рингтону или видео">${escapeHtml(track.videoNote || "")}</textarea></div>
           <button class="secondary" type="button" data-remove-track="${index}" ${state.albumTracks.length <= releaseLimits().min ? "disabled" : ""}>Удалить трек</button>

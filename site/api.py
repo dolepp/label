@@ -157,11 +157,15 @@ ALLOWED_UPLOADS = {
         },
     },
 }
+ALLOWED_UPLOADS['lyrics'] = {
+    'extensions': {'.ttml', '.xml', '.txt'},
+    'mimetypes': {'application/ttml+xml', 'application/xml', 'text/xml', 'text/plain', 'application/octet-stream'},
+}
 MEDIA_KIND_FILE_TYPES = {
     "cover": "photo",
     "audio": "audio",
     "contract": "document",
-    "lyrics": "document",
+    "lyrics": "lyrics",
 }
 PG_POOL = None
 _pool_lock = threading.Lock()
@@ -1046,6 +1050,9 @@ def validate_upload_file(file_storage, file_type='document'):
     if mimetype not in rules["mimetypes"]:
         return False, "Unsupported file MIME type"
 
+    if file_type == "lyrics":
+        from lyrics_validation import validate_lyrics_upload
+        return validate_lyrics_upload(file_storage, suffix)
     return True, None
 
 
@@ -1082,6 +1089,7 @@ def infer_mimetype(filename, fallback="application/octet-stream"):
 
 
 def detect_media_mimetype(path, kind=None):
+    if kind == 'lyrics': return 'text/plain; charset=utf-8'
     guessed = infer_mimetype(path.name)
     if guessed != "application/octet-stream":
         return guessed
@@ -1172,7 +1180,7 @@ def download_telegram_file_to_storage(file_id, user_id, release_id, kind, filena
     return relative, None, 200
 
 
-def upload_path_to_telegram(path, file_type='document', filename=None, mimetype=None):
+def upload_path_to_telegram(path, file_type='document', filename=None, mimetype=None, caption=None):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_STORAGE_CHAT_ID:
         raise ValueError("Bot token and storage chat id must be configured")
 
@@ -1188,7 +1196,7 @@ def upload_path_to_telegram(path, file_type='document', filename=None, mimetype=
         files = {field_name: (filename, handle, mimetype)}
         response = requests.post(
             f"{TELEGRAM_API_URL}/{method}",
-            data={'chat_id': TELEGRAM_STORAGE_CHAT_ID},
+            data={'chat_id': TELEGRAM_STORAGE_CHAT_ID, **({'caption': caption[:1000]} if caption else {})},
             files=files,
             timeout=180,
         )
@@ -1917,6 +1925,7 @@ def admin_upload_release_media(release_id, kind):
                 file_type=telegram_type,
                 filename=safe_filename(upload.filename, absolute_path.name),
                 mimetype=upload.mimetype or infer_mimetype(upload.filename),
+                **({'caption': f"🎤 Текст / TTML для релиза #{release_id}: {row[2]}"} if kind == 'lyrics' else {}),
             )
         except Exception as exc:
             telegram_error = str(exc)
@@ -4167,6 +4176,7 @@ def upload_release_media(release_id, kind):
                 file_type=telegram_type,
                 filename=safe_filename(upload.filename, absolute_path.name),
                 mimetype=upload.mimetype or infer_mimetype(upload.filename),
+                **({"caption": f"🎤 Текст / TTML для релиза #{release_id}: {row[2]}"} if kind == "lyrics" else {}),
             )
         except Exception as e:
             telegram_error = str(e)
@@ -4183,6 +4193,12 @@ def upload_release_media(release_id, kind):
                 (local_path, release_id, user_id),
             )
         conn.commit()
+
+        if kind == 'lyrics' and Path(upload.filename).suffix.lower() in {'.ttml', '.xml'}:
+            try:
+                send_admin_notification(f"🎤 Добавлен синхронизированный текст TTML\nРелиз #{release_id}: {row[2]}\nАккаунт: {user_id}\nФайл доступен в карточке релиза. Для опубликованного трека проверьте необходимость обновления на площадках.")
+            except Exception:
+                logger.warning("TTML saved, but team notification failed for release %s", release_id)
 
         return jsonify({
             'success': True,

@@ -509,6 +509,16 @@
     renderPosition(audio.currentTime + (Number(offsetRange.value) || 0), true);
   }
 
+  window.TwasTeleprompter = {
+    seed: () => ({audioFile, text: plainText.value, artist: artistInput.value, title: titleInput.value}),
+    pause: () => {audio.pause();stopAnimation();},
+    loadRecording: ({audioFile: recordedAudio, ttmlFile, artist, title}) => {
+      showSetup();openTool();
+      if (recordedAudio) loadAudioFile(recordedAudio);
+      artistInput.value = artist || "";titleInput.value = title || "";updateTrackMetadata();
+      loadTtmlFile(ttmlFile);
+    }
+  };
   openButton.addEventListener("click", openTool);
   byId("tpCloseBtn").addEventListener("click", closeTool);
   byId("tpExitBtn").addEventListener("click", closeTool);
