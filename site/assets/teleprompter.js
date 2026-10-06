@@ -11,6 +11,9 @@
   const audio = byId("tpAudio");
   const audioInput = byId("tpAudioInput");
   const ttmlInput = byId("tpTtmlInput");
+  const plainText = byId("tpPlainText");
+  let plainMode = false;
+  let textLoadVersion = 0;
   const audioZone = byId("tpAudioZone");
   const ttmlZone = byId("tpTtmlZone");
   const audioName = byId("tpAudioName");
@@ -33,6 +36,7 @@
 
   let lines = [];
   let audioFile = null;
+  let audioReady = false;
   let audioUrl = null;
   let currentLineIndex = null;
   let animationFrame = null;
@@ -140,11 +144,25 @@
     return parsed;
   }
 
+  function applyPlainText() {
+    const texts = plainText.value.replace(/^\uFEFF/, "").split(/\r?\n/).map((text) => text.trim()).filter(Boolean);
+    const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+    lines = texts.map((text, index) => {
+      const begin = duration * index / texts.length;
+      const end = duration * (index + 1) / texts.length;
+      return { text, begin, end, words: [{ text, begin, end }] };
+    });
+    currentLineIndex = null;
+    updateReadyState();
+  }
+
   function updateReadyState() {
-    const ready = Boolean(audioFile && lines.length);
+    const ready = Boolean(audioFile && audioReady && lines.length && Number.isFinite(audio.duration) && audio.duration > 0);
     startButton.disabled = !ready;
+    if (plainMode && !lines.length) setStatus("Введите текст или загрузите файл.");
+    else if (audioFile && lines.length && !ready) setStatus("Ожидаем длительность аудио…");
     if (ready) {
-      setStatus(`${lines.length} строк готово к воспроизведению.`, "ready");
+      setStatus(`${lines.length} строк готово к воспроизведению.${plainMode ? " Строки распределены равномерно." : ""}`, "ready");
     }
   }
 
@@ -154,6 +172,7 @@
       return;
     }
     if (audioUrl) URL.revokeObjectURL(audioUrl);
+    audioReady = false;
     audioFile = file;
     audioUrl = URL.createObjectURL(file);
     audio.src = audioUrl;
@@ -164,20 +183,33 @@
   }
 
   function loadTtmlFile(file) {
-    if (!file || !/\.(ttml|xml)$/i.test(file.name)) {
-      setStatus("Выберите файл TTML или XML.", "error");
+    if (!file || !/\.(ttml|xml|txt)$/i.test(file.name)) {
+      setStatus("Выберите файл TTML, XML или TXT.", "error");
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      setStatus("Файл TTML слишком большой.", "error");
+      setStatus("Текстовый файл слишком большой.", "error");
       return;
     }
 
+    const version = ++textLoadVersion;
     const reader = new FileReader();
     reader.onload = () => {
+      if (version !== textLoadVersion) return;
       try {
+        if (/\.txt$/i.test(file.name)) {
+          plainMode = true;
+          plainText.value = String(reader.result || "");
+          applyPlainText();
+          if (!lines.length) throw new Error("В файле нет текста.");
+          ttmlName.textContent = `${file.name} · ${lines.length} строк`;
+          ttmlZone.classList.add("is-loaded");
+          return;
+        }
         const parsed = parseTtml(String(reader.result || ""));
         if (!parsed.length) throw new Error("В TTML нет строк с таймингами.");
+        plainMode = false;
+        plainText.value = "";
         lines = parsed;
         ttmlName.textContent = `${file.name} · ${lines.length} строк`;
         ttmlZone.classList.add("is-loaded");
@@ -335,7 +367,7 @@
     previousLine.textContent = "";
     nextLine.textContent = lines[0]?.text || "";
     currentLine.innerHTML = '<span class="tp-placeholder">Готово к воспроизведению</span>';
-    renderPosition((Number(offsetRange.value) || 0), true);
+    renderPosition(audio.currentTime + (Number(offsetRange.value) || 0), true);
   }
 
   openButton.addEventListener("click", openTool);
@@ -345,6 +377,14 @@
   startButton.addEventListener("click", showStage);
 
   audioInput.addEventListener("change", () => loadAudioFile(audioInput.files?.[0]));
+  plainText.addEventListener("input", () => {
+    textLoadVersion++;
+    plainMode = true;
+    ttmlInput.value = "";
+    ttmlName.textContent = "Выбрать файл";
+    ttmlZone.classList.remove("is-loaded");
+    applyPlainText();
+  });
   ttmlInput.addEventListener("change", () => loadTtmlFile(ttmlInput.files?.[0]));
   bindDropZone(audioZone, loadAudioFile);
   bindDropZone(ttmlZone, loadTtmlFile);
@@ -372,9 +412,16 @@
     showControls();
   });
   audio.addEventListener("loadedmetadata", () => {
+    audioReady = true;
+    if (plainMode) applyPlainText();
+    else updateReadyState();
     timeLabel.textContent = `0:00 / ${formatTime(audio.duration)}`;
   });
-  audio.addEventListener("error", () => setStatus("Браузер не смог прочитать аудиофайл.", "error"));
+  audio.addEventListener("error", () => {
+    audioReady = false;
+    startButton.disabled = true;
+    setStatus("Браузер не смог прочитать аудиофайл.", "error");
+  });
 
   seek.addEventListener("input", () => {
     if (!Number.isFinite(audio.duration)) return;

@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;700;800&display=swap">
-  <link rel="stylesheet" href="/assets/teleprompter.css?v=2">
+  <link rel="stylesheet" href="/assets/teleprompter.css?v=3">
   <style>
     :root {
       color-scheme: dark;
@@ -867,7 +867,7 @@
           <li>Откройте бота и нажмите «Старт» — он пришлёт код.</li>
           <li>Введите код ниже. Код одноразовый и действует несколько минут.</li>
         </ol>
-        <a class="button-link secondary" id="telegramBotLink" href="https://t.me/twaslabel_bot?start=webauth" target="_blank" rel="noopener" style="width:100%"><svg class="i"><use href="#i-send"/></svg>Получить код в @twaslabel_bot</a>
+        <a class="button-link secondary" id="telegramBotLink" href="https://t.me/twaslabel_bot?text=%2F%D0%BA%D0%BE%D0%B4" target="_blank" rel="noopener" style="width:100%"><svg class="i"><use href="#i-send"/></svg>Получить код в @twaslabel_bot</a>
         <form id="loginForm" class="profile-form spaced">
           <div><label for="authCode">Код из Telegram</label><input id="authCode" class="code-input" inputmode="numeric" placeholder="••••••" maxlength="8" autocomplete="one-time-code"></div>
           <button type="submit">Войти</button>
@@ -976,12 +976,18 @@
 
         <label id="tpTtmlZone" class="tp-upload-zone" for="tpTtmlInput">
           <span class="tp-upload-icon"><svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg></span>
-          <strong>Текст с таймингами</strong>
-          <span class="tp-file-types">TTML или XML</span>
+          <strong>Текст песни</strong>
+          <span class="tp-file-types">TTML, XML или TXT</span>
           <span id="tpTtmlName" class="tp-file-name">Выбрать файл</span>
-          <input id="tpTtmlInput" type="file" accept=".ttml,.xml,text/xml,application/xml">
+          <input id="tpTtmlInput" type="file" accept=".ttml,.xml,.txt,text/plain,text/xml,application/xml">
         </label>
       </div>
+
+      <label class="tp-text-editor" for="tpPlainText">
+        <strong>Или введите свой текст</strong>
+        <textarea id="tpPlainText" rows="7" placeholder="Введите или вставьте текст. Каждая строка — отдельная строка суфлёра."></textarea>
+        <span class="tp-file-types">Для текста без таймингов строки распределяются равномерно по длительности аудио. TTML сохраняет свои тайминги.</span>
+      </label>
 
       <div class="tp-setup-footer">
         <span id="tpSetupStatus" class="tp-status" role="status">Файлы обрабатываются только в этом браузере.</span>
@@ -1039,7 +1045,7 @@
   <div class="toast-host" id="toastHost" aria-live="polite"></div>
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="/assets/teleprompter.js?v=2" defer></script>
+  <script src="/assets/teleprompter.js?v=3" defer></script>
   <script type="module">
     const apiBase = (document.querySelector('meta[name="twas-api-base"]')?.content.trim() || window.location.origin).replace(/\/$/, "");
     function resolveApiUrls(value) {

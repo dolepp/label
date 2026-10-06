@@ -3057,7 +3057,7 @@ def auth_bot_link():
     return jsonify({
         'success': True,
         'bot_username': BOT_USERNAME,
-        'url': f"https://t.me/{BOT_USERNAME}?start=webauth",
+        'url': f"https://t.me/{BOT_USERNAME}?text=%2F%D0%BA%D0%BE%D0%B4",
         'command': '/код',
         'fallback_command': '/webauth'
     })

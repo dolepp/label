@@ -463,3 +463,6 @@ body.teleprompter-open {
     transition: none;
   }
 }
+
+.tp-text-editor { display: grid; gap: 12px; }
+.tp-text-editor textarea { width: 100%; box-sizing: border-box; padding: 14px; border: 1px solid #475569; border-radius: 12px; background: #0f172a; color: #f8fafc; font: inherit; resize: vertical; user-select: text; }
