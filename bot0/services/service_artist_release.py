@@ -163,6 +163,11 @@ def modify_distribution_for_artist_release(admin_id: int, target_user_id: int):
             )
             release_id = cursor.fetchone()[0]
             conn.commit()
+            try:
+                from services.contracts import generate_release_contract
+                generate_release_contract(conn, actual_user_id, release_id)
+            except Exception:
+                logger.warning("Release %s saved; contract generation failed", release_id)
             active_bot.send_message(chat_id, f"✅ Релиз #{release_id} создан за пользователя {actual_user_id}")
             try:
                 target_chat_id = notification_chat_id(actual_user_id)

@@ -76,3 +76,29 @@ def render_saved_template(user_data: dict):
                  performer_name=user_data.get('performer'), phonogram_producer=user_data.get('phonogram_producer'))
     output, _ = module.render_contract(profile, release, [track], contract_date=user_data.get('date') if user_data.get('date') not in {None, '', 'N/A'} else None)
     return Document(output)
+
+
+def generate_release_contract(connection, account_id: int, release_id: int):
+    """Reuse details saved in the cabinet when a release is submitted in the bot."""
+    import os
+    import sys
+    from pathlib import Path
+    from psycopg2.extras import RealDictCursor
+
+    site = Path(__file__).resolve().parents[2] / 'site'
+    if str(site) not in sys.path: sys.path.append(str(site))
+    from contract_store import profile_cipher, read_contract_profile, generate_owned_contract
+    root = Path(os.getenv('MEDIA_STORAGE_ROOT', site.parent / 'storage'))
+    cursor = connection.cursor(cursor_factory=RealDictCursor)
+    try:
+        cipher = profile_cipher()
+        if not read_contract_profile(cursor, account_id, cipher):
+            connection.rollback()
+            return None
+        result = generate_owned_contract(cursor, account_id, release_id, root, cipher)
+        connection.commit()
+        return root / result['relative_path']
+    except Exception:
+        connection.rollback()
+        raise
+    finally: cursor.close()

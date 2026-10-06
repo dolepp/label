@@ -4,6 +4,7 @@ import secrets
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 import psycopg2
 from psycopg2 import sql
@@ -67,3 +68,15 @@ class ContractApiTests(unittest.TestCase):
         with conn.cursor() as cursor:cursor.execute('SELECT count(*) FROM generated_release_contracts');self.assertEqual(cursor.fetchone()[0],1)
         conn.close()
         self.assertEqual(client.get('/api/license/profile').json['profile']['full_name'],PROFILE['full_name'])
+        # The Telegram release path uses the same encrypted details and private storage.
+        sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'bot0'))
+        from services.contracts import generate_release_contract
+        conn=self.connect()
+        with conn.cursor() as cursor:
+            cursor.execute("INSERT INTO releases(id,user_id,release_name,artist_name,is_album) VALUES(3,-42,'Из бота','Тест',false)")
+        conn.commit()
+        with patch.dict(os.environ, {'SESSION_SECRET':'test-contract','MEDIA_STORAGE_ROOT':self.directory.name}):
+            document=generate_release_contract(conn,-42,3)
+        conn.close()
+        self.assertTrue(document.is_file())
+        self.assertEqual(client.get('/api/releases/3/license').status_code,200)

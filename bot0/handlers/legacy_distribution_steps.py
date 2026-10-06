@@ -2172,6 +2172,20 @@ def save_release_data(message):
             reply_markup=create_main_menu()
         )
 
+        # A document failure must never turn an already committed release into a retry.
+        try:
+            from services.contracts import generate_release_contract
+            document_path = generate_release_contract(conn, user_id, album_id if user_data.get('release_type') in {'ALBUM', 'EP', 'Maxi Single'} else release_id)
+            if document_path:
+                with open(document_path, 'rb') as document:
+                    bot.send_document(message.chat.id, document, caption="Лицензионный договор с данными релиза. Проверьте документ перед подписанием.")
+        except Exception:
+            logger.warning("Release saved; contract generation or delivery failed for user %s", user_id)
+            try:
+                bot.send_message(message.chat.id, "Релиз сохранён. Договор можно сформировать в кабинете: https://twaslabel.ru/#profile. Повторно отправлять релиз не нужно.")
+            except Exception:
+                logger.warning("Could not deliver contract notice to user %s", user_id)
+
         # Уведомление админов
         notify_admins_about_new_release(user_id, release_id if release_type != "ALBUM" else album_id)
 
