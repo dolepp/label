@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
+  <meta name="twas-api-base" content="">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>talk with a star // label</title>
@@ -526,7 +527,7 @@
         <button class="nav-item" type="button" data-fallback-tab="promos"><svg class="i"><use href="#i-ticket"/></svg><span class="nav-label">Промокоды</span></button>
       </nav>
       <div class="top-actions">
-        <a class="button-link secondary small hidden" id="adminPanelBtn" href="/admin"><svg class="i"><use href="#i-shield"/></svg>Админка</a>
+        <a class="button-link secondary small hidden" id="adminPanelBtn" href="/admin/"><svg class="i"><use href="#i-shield"/></svg>Админка</a>
         <button class="user-chip" type="button" data-fallback-tab="profile" aria-label="Профиль"><span class="avatar" id="topAvatar">?</span><span class="name" id="topUser">Войти</span></button>
         <button class="ghost small hidden" id="logoutBtn" type="button" title="Выйти" aria-label="Выйти"><svg class="i"><use href="#i-logout"/></svg></button>
       </div>
@@ -1039,7 +1040,15 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="/assets/teleprompter.js?v=2" defer></script>
   <script type="module">
-    const apiBase = window.location.origin;
+    const apiBase = (document.querySelector('meta[name="twas-api-base"]')?.content.trim() || window.location.origin).replace(/\/$/, "");
+    function resolveApiUrls(value) {
+      if (typeof value === "string") return value.startsWith("/api/") ? `${apiBase}${value}` : value;
+      if (Array.isArray(value)) return value.map(resolveApiUrls);
+      if (value && typeof value === "object") {
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveApiUrls(item)]));
+      }
+      return value;
+    }
     const $ = (id) => document.getElementById(id);
     const state = { user: null, releases: [], drafts: [], filteredReleases: [], recentReleases: [], selectedRelease: null, profileDashboard: null, contracts: [], promoHistory: [], activeDiscounts: [], distributionPayment: null, activeTab: "home", editingDraftId: null, albumTracks: [], releaseStep: 0, releasePage: 1, releasePageSize: 12, releaseDirty: false, releaseSavedSignature: "" };
 
@@ -1189,7 +1198,7 @@
       const response = await fetch(requestUrl, requestOptions);
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || data.message || `HTTP ${response.status}`);
-      return data;
+      return resolveApiUrls(data);
     }
     async function uploadReleaseFile(releaseId, kind, file) {
       if (!file) return null;
@@ -2233,7 +2242,7 @@
     }
 
     function openDraftTab(draftId) {
-      openReleaseTab(`/release/new?draft=${encodeURIComponent(draftId)}`);
+      openReleaseTab(`/release/new/?draft=${encodeURIComponent(draftId)}`);
     }
 
     async function deleteDraft(draftId) {
@@ -2306,7 +2315,7 @@
       setStatus(isAlbum ? "Альбом отправлен на рассмотрение." : "Релиз отправлен на рассмотрение.", "ok");
       if (document.body.classList.contains("release-page")) {
         state.releaseDirty = false;
-        setTimeout(() => { window.location.href = "/cabinet?submitted=1#releases"; }, 900);
+        setTimeout(() => { window.location.href = "/?submitted=1#releases"; }, 900);
       }
     }
 
@@ -2605,7 +2614,7 @@
           amount: numericAmount,
           service_type: "topup",
           description: `Пополнение баланса talk with a star // label на ${numericAmount} ₽`,
-          return_url: `${apiBase}/cabinet?payment=return`
+          return_url: `${window.location.origin}/?payment=return#profile`
         })
       });
       savePendingPayment(data);
@@ -2846,10 +2855,10 @@
     $("releaseNextPageBtn").addEventListener("click", () => { state.releasePage += 1; renderUserReleases(); });
     $("releasePageSizeSelect").addEventListener("change", () => { state.releasePageSize = Number($("releasePageSizeSelect").value) || 12; state.releasePage = 1; renderUserReleases(); });
     $("newReleaseBtn").addEventListener("click", () => {
-      openReleaseTab("/release/new");
+      openReleaseTab("/release/new/");
     });
     $("distributionServiceBtn").addEventListener("click", () => {
-      openReleaseTab("/release/new?source=services");
+      openReleaseTab("/release/new/?source=services");
     });
     $("reportServiceBtn").addEventListener("click", () => createReportRequest().catch((error) => setStatus(`Ошибка запроса отчёта: ${error.message}`, "error")));
     $("contractServiceBtn").addEventListener("click", () => createContractRequest().catch((error) => setStatus(`Ошибка заявки на договор: ${error.message}`, "error")));
@@ -2858,7 +2867,7 @@
       if (document.body.classList.contains("release-page")) {
         state.releaseDirty = false;
         window.close();
-        setTimeout(() => { window.location.href = "/cabinet#releases"; }, 150);
+        setTimeout(() => { window.location.href = "/#releases"; }, 150);
       } else $("releaseBuilder").classList.add("hidden");
     });
     $("saveReleaseDraftBtnForm").addEventListener("click", () => saveReleaseDraft().catch((error) => setReleaseBuilderStatus(`Ошибка черновика: ${error.message}`, "error")));
@@ -3058,11 +3067,11 @@
     document.addEventListener("click", (event) => {
       const go = event.target.closest("[data-go]");
       if (go) return setTab(go.dataset.go === "auth" ? "profile" : go.dataset.go);
-      if (event.target.closest("[data-new-release]")) return openReleaseTab("/release/new");
+      if (event.target.closest("[data-new-release]")) return openReleaseTab("/release/new/");
       const start = event.target.closest("[data-start-release]");
       if (start) {
         if (!state.user) { setTab("profile"); return setStatus("Войдите через Telegram, чтобы создать релиз.", "warn"); }
-        return openReleaseTab(`/release/new?type=${encodeURIComponent(start.dataset.startRelease)}`);
+        return openReleaseTab(`/release/new/?type=${encodeURIComponent(start.dataset.startRelease)}`);
       }
       const design = event.target.closest("[data-design-service]");
       if (design) return openDesignOrder(design.dataset.designService);
@@ -3074,7 +3083,7 @@
     });
     $("heroReleaseBtn").addEventListener("click", () => {
       if (!state.user) { setTab("profile"); return setStatus("Войдите через Telegram, чтобы создать релиз.", "warn"); }
-      openReleaseTab("/release/new");
+      openReleaseTab("/release/new/");
     });
     $("supportServiceBtn").addEventListener("click", () => openSupportModal());
     $("profileSupportBtn").addEventListener("click", () => openSupportModal());

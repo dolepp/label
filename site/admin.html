@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
+  <meta name="twas-api-base" content="">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>talk with a star // label — админ панель</title>
@@ -81,7 +82,7 @@
       <div class="brand"><div class="logo"><img src="/assets/logo.png?v=4" alt="TWAS"></div><div>Админ панель talk with a star // label</div></div>
       <div class="actions">
         <span id="adminUser" class="muted">Проверка доступа...</span>
-        <a class="button secondary" href="/cabinet">Кабинет</a>
+        <a class="button secondary" href="/">Кабинет</a>
       </div>
     </header>
 
@@ -196,7 +197,15 @@
   </main>
 
   <script>
-    const apiBase = window.location.origin;
+    const apiBase = (document.querySelector('meta[name="twas-api-base"]')?.content.trim() || window.location.origin).replace(/\/$/, "");
+    function resolveApiUrls(value) {
+      if (typeof value === "string") return value.startsWith("/api/") ? `${apiBase}${value}` : value;
+      if (Array.isArray(value)) return value.map(resolveApiUrls);
+      if (value && typeof value === "object") {
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveApiUrls(item)]));
+      }
+      return value;
+    }
     const $ = (id) => document.getElementById(id);
     let user = null;
     let adminId = null;
@@ -231,7 +240,7 @@
         return error.message || 'Файл не открылся';
       }
     }
-    async function fetchJson(path, options = {}) { const response = await fetch(path.startsWith('http') ? path : `${apiBase}${path}`, { credentials:'include', cache:'no-store', ...options }); const data = await response.json().catch(() => ({})); if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`); return data; }
+    async function fetchJson(path, options = {}) { const response = await fetch(path.startsWith('http') ? path : `${apiBase}${path}`, { credentials:'include', cache:'no-store', ...options }); const data = await response.json().catch(() => ({})); if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`); return resolveApiUrls(data); }
     async function sendJson(path, method, payload = {}) { return fetchJson(path, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) }); }
 
     function setTab(tab) {

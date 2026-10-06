@@ -12,7 +12,7 @@ except ImportError:
 
 BOT_TOKEN = os.environ['BOT_TOKEN']
 BOT_USERNAME = os.getenv("BOT_USERNAME", "twaslabel_bot")
-WEB_APP_URL = os.getenv("WEB_APP_URL", "https://twas.webhop.me")
+WEB_APP_URL = os.getenv("WEB_APP_URL", "https://twaslabel.ru")
 CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "@twaslabel")
 OWNER_USERNAME = os.getenv("OWNER_USERNAME", "@realjustci")
 MANAGER_USERNAME = os.getenv("MANAGER_USERNAME", "@twaslabelmn")

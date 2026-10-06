@@ -46,6 +46,7 @@ app.config['MAX_CONTENT_LENGTH'] = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 10
 CORS(app, origins=[
     "https://twaslabel.ru",
     "https://www.twaslabel.ru",
+    "https://st124325.github.io",
     "http://localhost:5000",
 ], supports_credentials=True, allow_headers=["Content-Type", "Authorization"], always_send=False)
 
@@ -395,6 +396,8 @@ def public_api_request():
 def enforce_authenticated_api():
     path = request.path
     if not (path.startswith('/api/') or path == '/user_releases'):
+        return None
+    if request.method == 'OPTIONS':
         return None
     if public_api_request():
         return None

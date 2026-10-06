@@ -5,3 +5,4 @@ requests
 Flask-Limiter
 python-dotenv
 gunicorn
+yookassa
