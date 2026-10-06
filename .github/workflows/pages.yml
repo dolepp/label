@@ -1,4 +1,5 @@
 name: Deploy Pages
+# Сборка: site/cabinet.html → /, release/new/, admin/; API — https://api.twaslabel.ru:8443
 
 on:
   push:
