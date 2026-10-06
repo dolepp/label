@@ -159,7 +159,7 @@ body.teleprompter-open {
   inset: 0;
   min-height: 100dvh;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto 1fr auto;
   overflow: hidden;
 }
 
@@ -466,3 +466,38 @@ body.teleprompter-open {
 
 .tp-text-editor { display: grid; gap: 12px; }
 .tp-text-editor textarea { width: 100%; box-sizing: border-box; padding: 14px; border: 1px solid #475569; border-radius: 12px; background: #0f172a; color: #f8fafc; font: inherit; resize: vertical; user-select: text; }
+
+.tp-track-settings { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 20px; }
+.tp-cover-upload { min-height: 160px; padding: 16px; gap: 8px; }
+.tp-cover-preview { width: 96px; height: 96px; object-fit: cover; border-radius: 12px; }
+.tp-track-fields { display: grid; align-content: center; gap: 14px; }
+.tp-track-fields label { display: grid; gap: 7px; color: #cbd5e1; font-size: 13px; }
+.tp-track-fields input { min-width: 0; padding: 12px 14px; border: 1px solid #475569; border-radius: 10px; color: #f8fafc; background: #0f172a; font: inherit; user-select: text; }
+#tpClearCoverBtn { justify-self: start; }
+.tp-track-heading { display: flex; align-items: center; gap: 18px; min-width: 0; padding: 22px 28px 12px; }
+.tp-stage-cover { display: grid; place-items: center; flex: 0 0 76px; width: 76px; height: 76px; overflow: hidden; border-radius: 14px; background: #172033; color: #7dd3fc; font-size: 36px; }
+.tp-stage-cover img { width: 100%; height: 100%; object-fit: cover; }
+.tp-track-info { display: grid; gap: 6px; min-width: 0; }
+.tp-artist-name { color: #a5b4fc; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-track-info .tp-track-title { max-width: 100%; padding: 0; font-size: clamp(20px, 2.3vw, 34px); font-weight: 800; color: #f8fafc; }
+.tp-export-button { min-height: 42px; white-space: nowrap; }
+.tp-export-panel { position: absolute; z-index: 5; left: 50%; bottom: 84px; transform: translateX(-50%); width: min(560px, calc(100% - 32px)); box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 18px; border: 1px solid #334155; border-radius: 14px; background: #0f172a; box-shadow: 0 12px 40px #0008; }
+#tpExportStatus { flex: 1 0 100%; color: #cbd5e1; font-size: 13px; }
+#tpExportProgress { flex: 1; min-width: 100px; accent-color: #38bdf8; }
+.tp-stage.is-exporting .tp-topbar, .tp-stage.is-exporting .tp-bottombar { opacity: 1; transform: none; pointer-events: auto; }
+@media (max-width: 760px) {
+  .tp-track-settings { grid-template-columns: 1fr; }
+  .tp-cover-upload { min-height: 120px; }
+  .tp-track-heading { padding: 14px 16px 8px; gap: 12px; }
+  .tp-stage-cover { flex-basis: 56px; width: 56px; height: 56px; border-radius: 10px; }
+  .tp-artist-name { font-size: 13px; }
+  .tp-track-info .tp-track-title { font-size: 20px; }
+  .tp-export-button { order: 9; grid-column: 1 / -1; width: 100%; }
+}
+@media (max-height: 560px) and (orientation: landscape) {
+  .tp-track-heading { padding-block: 8px; }
+  .tp-stage-cover { flex-basis: 44px; width: 44px; height: 44px; }
+  .tp-track-info .tp-track-title { font-size: 20px; }
+  .tp-artist-name { font-size: 12px; }
+}
+.tp-export-canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; flex: 1 0 100%; border-radius: 8px; pointer-events: none; }

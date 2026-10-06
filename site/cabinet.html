@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;700;800&display=swap">
-  <link rel="stylesheet" href="/assets/teleprompter.css?v=3">
+  <link rel="stylesheet" href="/assets/teleprompter.css?v=4">
   <style>
     :root {
       color-scheme: dark;
@@ -463,6 +463,8 @@
       .user-chip .name { max-width: 110px; }
     }
     @media (max-width: 600px) {
+      .topbar-inner { flex-wrap: wrap; height: auto; min-height: 64px; padding-block: 10px; gap: 10px; }
+      #topRegisterBtn { font-size: 12px; padding-inline: 10px; }
       .shell { width: calc(100% - 32px); }
       main.shell { padding-top: 18px; }
       .profile-form.compact, .track-editor { grid-template-columns: 1fr; }
@@ -530,6 +532,7 @@
       <div class="top-actions">
         <a class="button-link secondary small hidden" id="adminPanelBtn" href="/admin/"><svg class="i"><use href="#i-shield"/></svg>Админка</a>
         <button class="user-chip" type="button" data-fallback-tab="profile" aria-label="Профиль"><span class="avatar" id="topAvatar">?</span><span class="name" id="topUser">Войти</span></button>
+        <button class="secondary small" id="topRegisterBtn" type="button">Зарегистрироваться</button>
         <button class="ghost small hidden" id="logoutBtn" type="button" title="Выйти" aria-label="Выйти"><svg class="i"><use href="#i-logout"/></svg></button>
       </div>
     </div>
@@ -887,7 +890,7 @@
         <a class="button-link secondary" id="telegramBotLink" href="https://t.me/twaslabel_bot?text=%2F%D0%BA%D0%BE%D0%B4" target="_blank" rel="noopener" style="width:100%"><svg class="i"><use href="#i-send"/></svg>Получить код в @twaslabel_bot</a>
         <form id="loginForm" class="profile-form spaced">
           <div><label for="authCode">Код из Telegram</label><input id="authCode" class="code-input" inputmode="numeric" placeholder="••••••" maxlength="8" autocomplete="one-time-code"></div>
-          <button type="submit">Войти</button>
+          <div class="actions"><button type="submit">Войти</button><button class="secondary" id="authRegisterBtn" type="button">Зарегистрироваться</button></div>
         </form>
         <p id="status" class="status muted" role="status"></p>
       </div>
@@ -1028,6 +1031,20 @@
         </label>
       </div>
 
+      <div class="tp-track-settings">
+        <label id="tpCoverZone" class="tp-upload-zone tp-cover-upload" for="tpCoverInput">
+          <img id="tpCoverPreview" class="tp-cover-preview hidden" alt="Обложка трека">
+          <strong>Обложка трека</strong>
+          <span id="tpCoverName" class="tp-file-types">JPG, PNG или WEBP · необязательно</span>
+          <input id="tpCoverInput" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp">
+        </label>
+        <div class="tp-track-fields">
+          <label for="tpArtistInput">Исполнитель<input id="tpArtistInput" maxlength="160" placeholder="Имя исполнителя" autocomplete="off"></label>
+          <label for="tpTitleInput">Название трека<input id="tpTitleInput" maxlength="200" placeholder="Название трека" autocomplete="off"></label>
+          <button id="tpClearCoverBtn" class="secondary small" type="button">Убрать обложку</button>
+        </div>
+      </div>
+
       <label class="tp-text-editor" for="tpPlainText">
         <strong>Или введите свой текст</strong>
         <textarea id="tpPlainText" rows="7" placeholder="Введите или вставьте текст. Каждая строка — отдельная строка суфлёра."></textarea>
@@ -1041,9 +1058,12 @@
     </section>
 
     <section id="tpStage" class="tp-stage hidden" aria-label="Режим суфлёра">
+      <div class="tp-track-heading">
+        <div class="tp-stage-cover"><img id="tpStageCover" class="hidden" alt="Обложка трека"><span id="tpCoverPlaceholder" aria-hidden="true">♫</span></div>
+        <div class="tp-track-info"><span id="tpArtistName" class="tp-artist-name">Исполнитель</span><strong id="tpTrackTitle" class="tp-track-title">Название трека</strong></div>
+      </div>
       <header id="tpTopBar" class="tp-toolbar tp-topbar">
         <button id="tpBackBtn" class="tp-icon-button" type="button" title="Вернуться к файлам" aria-label="Вернуться к файлам">←</button>
-        <span id="tpTrackTitle" class="tp-track-title"></span>
         <div class="tp-toolbar-spacer"></div>
         <label class="tp-control">
           <span>Размер</span>
@@ -1057,9 +1077,16 @@
         <button id="tpMirrorBtn" class="tp-tool-button" type="button" title="Зеркальный текст" aria-pressed="false">Зеркало</button>
         <button id="tpFullscreenBtn" class="tp-icon-button" type="button" title="Полный экран" aria-label="Полный экран"><svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
         <button id="tpHideBtn" class="tp-icon-button" type="button" title="Скрыть панели" aria-label="Скрыть панели"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+        <button id="tpDownloadBtn" class="tp-export-button" type="button">Скачать 1080p</button>
         <button id="tpExitBtn" class="tp-icon-button" type="button" title="Закрыть суфлёр" aria-label="Закрыть суфлёр">×</button>
       </header>
 
+      <div id="tpExportPanel" class="tp-export-panel hidden" role="status">
+        <span id="tpExportStatus">Подготовка видео…</span>
+        <progress id="tpExportProgress" max="100" value="0" aria-label="Подготовка видео"></progress>
+        <button id="tpExportCancelBtn" class="secondary small" type="button">Отменить</button>
+        <a id="tpExportSaveLink" class="button-link hidden">Сохранить видео</a>
+      </div>
       <div id="tpLyricsWrap" class="tp-lyrics-wrap">
         <div class="tp-lyrics-column" aria-live="off">
           <div id="tpPreviousLine" class="tp-line tp-line-secondary"></div>
@@ -1090,7 +1117,8 @@
   <div class="toast-host" id="toastHost" aria-live="polite"></div>
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="/assets/teleprompter.js?v=3" defer></script>
+  <script src="/assets/teleprompter-export.js?v=1" defer></script>
+  <script src="/assets/teleprompter.js?v=4" defer></script>
   <script type="module">
     const apiBase = (document.querySelector('meta[name="twas-api-base"]')?.content.trim() || window.location.origin).replace(/\/$/, "");
     function resolveApiUrls(value) {
@@ -2688,6 +2716,7 @@
       $("profileSubline").textContent = user ? [user.isOwner ? "Владелец" : user.isAdmin ? "Администратор" : user.isArtist ? "Артист лейбла" : "Артист", user.tg ? `@${String(user.tg).replace(/^@/, "")}` : ""].filter(Boolean).join(" · ") : "";
       $("adminPanelBtn").classList.toggle("hidden", !(user?.isAdmin || user?.isOwner));
       $("logoutBtn").classList.toggle("hidden", !user);
+      $("topRegisterBtn").classList.toggle("hidden", !!user);
       $("authCard").classList.toggle("hidden", !!user);
       $("homeLoginBtn").classList.toggle("hidden", !!user);
       $("artistName").textContent = user?.artistName || user?.name || "—";
@@ -2996,6 +3025,14 @@
         }
       });
     }
+
+    function openRegistration() {
+      setTab("profile");
+      $("emailAuthForm").scrollIntoView({ behavior: "smooth", block: "center" });
+      $("emailAuthName").focus({ preventScroll: true });
+    }
+    $("topRegisterBtn").addEventListener("click", openRegistration);
+    $("authRegisterBtn").addEventListener("click", openRegistration);
 
     $("loginForm").addEventListener("submit", async (event) => {
       event.preventDefault();

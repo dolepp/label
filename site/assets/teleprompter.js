@@ -33,6 +33,25 @@
   const nextLine = byId("tpNextLine");
   const lyricsWrap = byId("tpLyricsWrap");
   const trackTitle = byId("tpTrackTitle");
+  const artistName = byId("tpArtistName");
+  const artistInput = byId("tpArtistInput");
+  const titleInput = byId("tpTitleInput");
+  const coverInput = byId("tpCoverInput");
+  const coverZone = byId("tpCoverZone");
+  const coverPreview = byId("tpCoverPreview");
+  const stageCover = byId("tpStageCover");
+  const downloadButton = byId("tpDownloadBtn");
+  const exportPanel = byId("tpExportPanel");
+  const exportStatus = byId("tpExportStatus");
+  const exportProgress = byId("tpExportProgress");
+  const exportCancelButton = byId("tpExportCancelBtn");
+  const exportSaveLink = byId("tpExportSaveLink");
+  let coverImage = null;
+  let coverUrl = null;
+  let coverLoadVersion = 0;
+  let automaticTitle = "";
+  let exportController = null;
+  let exportUrl = null;
 
   let lines = [];
   let audioFile = null;
@@ -177,9 +196,125 @@
     audioUrl = URL.createObjectURL(file);
     audio.src = audioUrl;
     audioName.textContent = file.name;
-    trackTitle.textContent = file.name;
+    const fileTitle = file.name.replace(/\.[^.]+$/, "");
+    if (!titleInput.value.trim() || titleInput.value === automaticTitle) titleInput.value = fileTitle;
+    automaticTitle = fileTitle;
+    updateTrackMetadata();
     audioZone.classList.add("is-loaded");
     updateReadyState();
+  }
+
+  function updateTrackMetadata() {
+    artistName.textContent = artistInput.value.trim() || "Исполнитель";
+    trackTitle.textContent = titleInput.value.trim() || automaticTitle || "Название трека";
+  }
+
+  function clearCover() {
+    coverLoadVersion++;
+    if (coverUrl) URL.revokeObjectURL(coverUrl);
+    coverUrl = null;
+    coverImage = null;
+    coverInput.value = "";
+    coverPreview.removeAttribute("src");
+    stageCover.removeAttribute("src");
+    coverPreview.classList.add("hidden");
+    stageCover.classList.add("hidden");
+    byId("tpCoverPlaceholder").classList.remove("hidden");
+    byId("tpCoverName").textContent = "JPG, PNG или WEBP · необязательно";
+    coverZone.classList.remove("is-loaded");
+  }
+
+  async function loadCoverFile(file) {
+    if (!file || !/\.(jpe?g|png|webp)$/i.test(file.name)) {
+      setStatus("Выберите обложку JPG, PNG или WEBP.", "error");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setStatus("Обложка должна быть не больше 10 МБ.", "error");
+      return;
+    }
+    const version = ++coverLoadVersion;
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.src = url;
+    try {
+      await image.decode();
+      if (version !== coverLoadVersion) { URL.revokeObjectURL(url); return; }
+      if (coverUrl) URL.revokeObjectURL(coverUrl);
+      coverUrl = url;
+      coverImage = image;
+      coverPreview.src = url;
+      stageCover.src = url;
+      coverPreview.classList.remove("hidden");
+      stageCover.classList.remove("hidden");
+      byId("tpCoverPlaceholder").classList.add("hidden");
+      byId("tpCoverName").textContent = file.name;
+      coverZone.classList.add("is-loaded");
+      updateReadyState();
+    } catch (_) {
+      URL.revokeObjectURL(url);
+      if (version === coverLoadVersion) setStatus("Не удалось прочитать обложку.", "error");
+    }
+  }
+
+  function cancelExport() {
+    exportController?.abort();
+  }
+
+  function setExporting(active) {
+    stage.classList.toggle("is-exporting", active);
+    [downloadButton, playButton, seek, offsetRange, fontScale, mirrorButton, byId("tpHideBtn")].forEach((button) => { button.disabled = active; });
+    exportCancelButton.classList.toggle("hidden", !active);
+    showControls();
+  }
+
+  async function downloadVideo() {
+    if (exportController || startButton.disabled) return;
+    audio.pause();
+    stopAnimation();
+    updateTrackMetadata();
+    exportPanel.classList.remove("hidden");
+    exportSaveLink.classList.add("hidden");
+    if (exportUrl) URL.revokeObjectURL(exportUrl);
+    exportUrl = null;
+    exportProgress.value = 0;
+    if (!window.TeleprompterExport?.supported()) {
+      exportStatus.textContent = "Браузер не поддерживает сохранение видео. Попробуйте актуальный Chrome, Edge или Safari.";
+      exportCancelButton.classList.add("hidden");
+      return;
+    }
+    exportController = new AbortController();
+    setExporting(true);
+    exportStatus.textContent = "Готовим видео 1920×1080. Подготовка занимает время трека; держите вкладку открытой.";
+    try {
+      const result = await window.TeleprompterExport.exportVideo({
+        audioUrl, duration: audio.duration, cover: coverImage, previewHost: exportPanel,
+        artist: artistName.textContent, title: trackTitle.textContent,
+        lines: lines.map((line) => ({ ...line, words: line.words.map((word) => ({ ...word })) })),
+        fontScale: fontScale.value, offset: Number(offsetRange.value) || 0,
+        mirror: lyricsWrap.classList.contains("is-mirrored"), signal: exportController.signal,
+        onProgress: (progress, time) => {
+          exportProgress.value = progress;
+          if (Number.isFinite(time)) renderPosition(time + (Number(offsetRange.value) || 0));
+          exportStatus.textContent = `Готовим видео 1920×1080: ${Math.floor(progress)}%. Держите вкладку открытой.`;
+        },
+      });
+      exportUrl = URL.createObjectURL(result.blob);
+      const filename = `${artistInput.value.trim() ? `${artistInput.value.trim()} — ` : ""}${trackTitle.textContent}`
+        .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").slice(0, 120);
+      exportSaveLink.href = exportUrl;
+      exportSaveLink.download = `${filename || "Суфлер"}_1080p.${result.extension}`;
+      exportSaveLink.classList.remove("hidden");
+      exportStatus.textContent = `Видео 1920×1080 готово · ${result.extension.toUpperCase()} · ${(result.blob.size / 1024 / 1024).toFixed(1)} МБ.`;
+      // A manual save link remains available if the browser blocks automatic download.
+      exportSaveLink.click();
+    } catch (error) {
+      exportStatus.textContent = error.name === "AbortError" ? "Подготовка видео отменена." : error.message || "Не удалось подготовить видео.";
+    } finally {
+      exportController = null;
+      setExporting(false);
+      tick();
+    }
   }
 
   function loadTtmlFile(file) {
@@ -340,6 +475,7 @@
   }
 
   function closeTool() {
+    cancelExport();
     audio.pause();
     stopAnimation();
     showControls();
@@ -352,6 +488,7 @@
   }
 
   function showSetup() {
+    cancelExport();
     audio.pause();
     stopAnimation();
     stage.classList.add("hidden");
@@ -361,6 +498,8 @@
 
   function showStage() {
     if (startButton.disabled) return;
+    updateTrackMetadata();
+    exportPanel.classList.add("hidden");
     setup.classList.add("hidden");
     stage.classList.remove("hidden");
     currentLineIndex = null;
@@ -375,6 +514,14 @@
   byId("tpExitBtn").addEventListener("click", closeTool);
   byId("tpBackBtn").addEventListener("click", showSetup);
   startButton.addEventListener("click", showStage);
+
+  artistInput.addEventListener("input", updateTrackMetadata);
+  titleInput.addEventListener("input", updateTrackMetadata);
+  coverInput.addEventListener("change", () => loadCoverFile(coverInput.files?.[0]));
+  bindDropZone(coverZone, loadCoverFile);
+  byId("tpClearCoverBtn").addEventListener("click", clearCover);
+  downloadButton.addEventListener("click", downloadVideo);
+  exportCancelButton.addEventListener("click", cancelExport);
 
   audioInput.addEventListener("change", () => loadAudioFile(audioInput.files?.[0]));
   plainText.addEventListener("input", () => {
@@ -446,6 +593,10 @@
   byId("tpHideBtn").addEventListener("click", () => stage.classList.toggle("controls-hidden"));
   stage.addEventListener("pointermove", () => {
     if (!audio.paused) scheduleControlsHide();
+    else showControls();
+  });
+  stage.addEventListener("pointerdown", () => {
+    if (stage.classList.contains("controls-hidden")) showControls();
   });
 
   document.addEventListener("keydown", (event) => {
@@ -454,7 +605,7 @@
       closeTool();
       return;
     }
-    if (stage.classList.contains("hidden") || event.target instanceof HTMLInputElement) return;
+    if (exportController || stage.classList.contains("hidden") || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
     if (event.code === "Space") {
       event.preventDefault();
       playButton.click();
@@ -472,6 +623,9 @@
   });
 
   window.addEventListener("pagehide", () => {
+    cancelExport();
+    if (coverUrl) URL.revokeObjectURL(coverUrl);
+    if (exportUrl) URL.revokeObjectURL(exportUrl);
     if (audioUrl) URL.revokeObjectURL(audioUrl);
   });
 })();
