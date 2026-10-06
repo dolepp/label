@@ -1,6 +1,8 @@
 """Admin broadcast handlers."""
 from __future__ import annotations
 
+from db.repositories.account_connections import notification_chat_id
+
 import logging
 
 from telebot import types
@@ -80,7 +82,12 @@ def _process_broadcast_message(bot, message) -> None:
                 detailed_log.append(f"⏩ Пропущено {user_id_db}: нет совпадения ролей")
                 continue
             try:
-                bot.send_message(user_id_db, broadcast_text)
+                target_chat_id = notification_chat_id(user_id_db)
+                if not target_chat_id:
+                    total_skipped += 1
+                    detailed_log.append(f"⏩ Пропущено {user_id_db}: уведомления отключены или Telegram не привязан")
+                    continue
+                bot.send_message(target_chat_id, broadcast_text)
                 total_sent += 1
                 detailed_log.append(f"✅ Отправлено {user_id_db} (роли: {', '.join(active_roles)})")
             except Exception as send_error:

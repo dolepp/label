@@ -1,6 +1,8 @@
 """Admin flow for creating a release on behalf of an artist."""
 from __future__ import annotations
 
+from db.repositories.account_connections import notification_chat_id
+
 import logging
 from typing import Any, Callable
 
@@ -163,7 +165,9 @@ def modify_distribution_for_artist_release(admin_id: int, target_user_id: int):
             conn.commit()
             active_bot.send_message(chat_id, f"✅ Релиз #{release_id} создан за пользователя {actual_user_id}")
             try:
-                active_bot.send_message(actual_user_id, "📀 Для вас создан релиз администратором. Проверьте раздел 'Мои релизы'.")
+                target_chat_id = notification_chat_id(actual_user_id)
+                if target_chat_id:
+                    active_bot.send_message(target_chat_id, "📀 Для вас создан релиз администратором. Проверьте раздел 'Мои релизы'.")
             except Exception:
                 pass
             active_bot.admin_release_target.pop(admin_id, None)
