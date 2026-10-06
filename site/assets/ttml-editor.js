@@ -91,6 +91,7 @@
     if (source) $("ttmlTargetRelease").value=String(source.id);
     status("TTML готов. Файл можно скачать или отправить к релизу.");
   }
+  window.TwasTtmlEditor = {open};
   $("ttmlEditorLink").onclick=event=>{event.preventDefault();open();};$("ttmlClose").onclick=close;
   $("ttmlAudioInput").onchange=()=>{
     const next=$("ttmlAudioInput").files[0];if(!next)return;

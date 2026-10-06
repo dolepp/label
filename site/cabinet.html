@@ -1060,7 +1060,7 @@
         <span class="tp-file-types">Для текста без таймингов строки распределяются равномерно по длительности аудио. TTML сохраняет свои тайминги.</span>
       </label>
 
-      <p class="tp-file-types">Нужны точные тайминги? <a href="#ttml-editor" id="ttmlEditorLink">Создать TTML · записать строки под музыку</a></p>
+      <p class="tp-file-types">Нужны точные тайминги? <a href="/?tool=ttml#tools" id="ttmlEditorLink">Создать TTML · записать строки под музыку</a></p>
       <div class="tp-setup-footer">
         <span id="tpSetupStatus" class="tp-status" role="status">Файлы обрабатываются только в этом браузере.</span>
         <button id="tpStartBtn" type="button" disabled>Запустить</button>
@@ -3482,14 +3482,15 @@
     }
     if (telegramInitData) {
       loginByTelegramInitData(telegramInitData)
-        .then(openDedicatedReleasePage)
+        .then(() => { openDedicatedReleasePage(); if (params.get("tool") === "ttml") window.TwasTtmlEditor?.open(); })
         .catch((error) => setStatus(`Ошибка входа: ${error.message}`, "error"));
     } else {
       restoreSession()
-        .then(openDedicatedReleasePage)
+        .then(() => { openDedicatedReleasePage(); if (params.get("tool") === "ttml") window.TwasTtmlEditor?.open(); })
         .catch(() => {
           localStorage.removeItem("cabinet_user");
           renderProfile();
+          if (params.get("tool") === "ttml") window.TwasTtmlEditor?.open();
           if (dedicatedReleasePage) {
             setTab("profile");
             setStatus("Войдите в аккаунт, затем форма релиза откроется в этой вкладке.", "warn");
