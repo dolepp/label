@@ -5,11 +5,16 @@ from flask import Flask,session
 import psycopg2
 from psycopg2 import sql
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from analytics_api import register_analytics_api,clean_config
+from analytics_api import register_analytics_api,clean_config,analytics_rate_key
 from smartlinks_api import register_smartlinks_api,validate_links
 class NoLimiter:
- def limit(self,_):return lambda f:f
+ def limit(self,_,**kwargs):return lambda f:f
 class InputTests(unittest.TestCase):
+ def test_rate_limit_trusts_only_local_proxy(self):
+  app=Flask(__name__)
+  for peer,forwarded,expected in [('127.0.0.1','203.0.113.4','203.0.113.4'),('127.0.0.1','invalid','127.0.0.1'),('203.0.113.5','203.0.113.4','203.0.113.5')]:
+   with app.test_request_context(headers={'X-Real-IP':forwarded},environ_base={'REMOTE_ADDR':peer}):
+    self.assertEqual(analytics_rate_key(),expected)
  def test_configuration_and_platform_validation(self):
   self.assertEqual(clean_config({'google_id':'G-ABC123'})['google_id'],'G-ABC123')
   for value in ['<script>','not-an-id',5]:

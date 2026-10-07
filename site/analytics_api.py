@@ -1,6 +1,7 @@
 """Counter configuration and anonymous, consent-only product events."""
 import os
 import re
+from ipaddress import ip_address
 from contextlib import contextmanager
 from flask import jsonify,request
 from psycopg2.extras import Json, RealDictCursor
@@ -9,6 +10,15 @@ CONFIG_FIELDS={'yandex_id':r'\d{1,12}','google_id':r'G-[A-Z0-9]{4,30}','vk_id':r
 EVENTS={'page_view','auth_success','release_submitted','checkout_started','payment_success','tool_open','ttml_completed','ttml_download','ttml_attached','video_exported','smartlink_created','platform_click'}
 CONTEXTS={'','home','services','tools','profile','releases','promos','teleprompter','ttml','smartlink','legal','lyrics_video'}
 PLATFORMS={'','yandex','vk','apple','spotify','zvuk','deezer','youtube','amazon','mts'}
+
+
+def analytics_rate_key():
+    peer=request.remote_addr or 'unknown'
+    # Local nginx overwrites X-Real-IP; ignore forwarding headers from other peers.
+    if peer in {'127.0.0.1','::1'}:
+        try:return str(ip_address(request.headers.get('X-Real-IP','')))
+        except ValueError:pass
+    return peer
 
 
 def clean_config(data):
@@ -61,7 +71,7 @@ def register_analytics_api(app,get_connection,current_user_id,limiter):
         except ValueError as error:return jsonify(success=False,error=str(error)),400
 
     @app.post('/api/analytics/event')
-    @limiter.limit('60 per minute')
+    @limiter.limit('60 per minute',key_func=analytics_rate_key)
     def analytics_event():
         if request.headers.get('Origin') not in {os.getenv('AUTH_FRONTEND_URL','https://twaslabel.ru').rstrip('/'),'https://twaslabel.ru','https://www.twaslabel.ru'}:
             return jsonify(success=False,error='Недопустимый источник запроса'),403
