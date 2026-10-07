@@ -299,6 +299,7 @@
           exportStatus.textContent = `Готовим видео 1920×1080: ${Math.floor(progress)}%. Держите вкладку открытой.`;
         },
       });
+      window.TwasAnalytics?.track("video_exported",{context:"teleprompter"});
       exportUrl = URL.createObjectURL(result.blob);
       const filename = `${artistInput.value.trim() ? `${artistInput.value.trim()} — ` : ""}${trackTitle.textContent}`
         .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").slice(0, 120);
@@ -469,6 +470,7 @@
   }
 
   function openTool() {
+    window.TwasAnalytics?.track("tool_open",{context:"teleprompter"});
     tool.classList.remove("hidden");
     document.body.classList.add("teleprompter-open");
     byId("tpCloseBtn").focus();

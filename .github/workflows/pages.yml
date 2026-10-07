@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -29,13 +29,15 @@ jobs:
       - uses: actions/configure-pages@v5
       - name: Build static site
         run: |
-          mkdir -p _site/release/new _site/admin
+          mkdir -p _site/release/new _site/admin _site/listen _site/lyrics-video
           cp site/cabinet.html _site/index.html
           cp site/cabinet.html _site/release/new/index.html
           cp site/admin.html _site/admin/index.html
+          cp site/smartlink.html _site/listen/index.html
+          cp site/lyrics-video.html _site/lyrics-video/index.html
           cp -R site/assets _site/assets
           cp -R site/legal _site/legal
-          sed -i 's|<meta name="twas-api-base" content="">|<meta name="twas-api-base" content="https://api.twaslabel.ru:8443">|' _site/index.html _site/release/new/index.html _site/admin/index.html
+          sed -i 's|<meta name="twas-api-base" content="">|<meta name="twas-api-base" content="https://api.twaslabel.ru:8443">|' _site/index.html _site/release/new/index.html _site/admin/index.html _site/listen/index.html _site/lyrics-video/index.html
           cp _site/index.html _site/404.html
           echo 'twaslabel.ru' > _site/CNAME
           touch _site/.nojekyll

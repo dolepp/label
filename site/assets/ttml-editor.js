@@ -46,6 +46,7 @@
     if ([...select.options].some(item=>item.value===previous)) select.value=previous;
   }
   async function open() {
+    window.TwasAnalytics?.track("tool_open",{context:"ttml"});
     window.TwasTeleprompter?.pause();editor.classList.remove("hidden");document.body.classList.add("ttml-open");$("ttmlClose").focus();
     const seed=window.TwasTeleprompter?.seed();
     if (!file && seed?.audioFile) {loadFile(seed.audioFile);if (!$("ttmlText").value) $("ttmlText").value=seed.text||"";}
@@ -86,6 +87,7 @@
   }
   function finish() {
     if (timings.length!==lines.length || !lines.length) return;
+    window.TwasAnalytics?.track("ttml_completed",{context:"ttml"});
     show("result");
     $("ttmlTimeline").innerHTML=timings.map((line,index)=>`<div class="ttml-timeline-row"><span>${index+1}</span><div><p>${escape(line.text)}</p><small>${time(line.begin)} → ${time(line.end)}</small></div><button type="button" class="secondary" data-preview="${index}">Слушать</button></div>`).join("");
     if (source) $("ttmlTargetRelease").value=String(source.id);
@@ -143,7 +145,7 @@
   $("ttmlFinish").onclick=finish;
   $("ttmlRevise").onclick=()=>{previewEnd=null;show("record");renderRecording();};
   $("ttmlTimeline").onclick=event=>{const button=event.target.closest("[data-preview]");if(!button)return;const line=timings[Number(button.dataset.preview)];audio.currentTime=line.begin;previewEnd=line.end;audio.play().catch(()=>status("Не удалось запустить аудио.",true));};
-  $("ttmlDownload").onclick=()=>{try{const next=ttmlFile(),url=URL.createObjectURL(next),link=document.createElement("a");link.href=url;link.download=next.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),60000);}catch(error){status(error.message,true);}};
+  $("ttmlDownload").onclick=()=>{try{window.TwasAnalytics?.track("ttml_download",{context:"ttml"});const next=ttmlFile(),url=URL.createObjectURL(next),link=document.createElement("a");link.href=url;link.download=next.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),60000);}catch(error){status(error.message,true);}};
   $("ttmlUse").onclick=()=>{try{window.TwasTeleprompter?.loadRecording({audioFile:file,ttmlFile:ttmlFile(),artist:source?.artist||window.TwasTeleprompter?.seed().artist,title:source?.title||window.TwasTeleprompter?.seed().title||file.name.replace(/\.[^.]+$/,"")});close();}catch(error){status(error.message,true);}};
   $("ttmlAttach").onclick=async()=>{
     const target=tracks.find(track=>String(track.id)===$("ttmlTargetRelease").value);
@@ -151,7 +153,7 @@
     if(!$("ttmlAttachPersonalConsent").checked){status("Подтвердите отдельное согласие перед отправкой.",true);return;}
     if(target.hasLyrics&&!confirm("У трека уже есть текст. Заменить его новым TTML?"))return;
     $("ttmlAttach").disabled=true;
-    try{const result=await window.TwasReleaseTools.attachLyrics(target.id,ttmlFile());target.hasLyrics=true;status(result?.telegram_synced===false?"TTML сохранён у релиза и доступен команде. Доставка файла в Telegram пока не выполнена.":"TTML отправлен к релизу и доступен команде лейбла.");}
+    try{const result=await window.TwasReleaseTools.attachLyrics(target.id,ttmlFile());target.hasLyrics=true;window.TwasAnalytics?.track("ttml_attached",{context:"ttml"});status(result?.telegram_synced===false?"TTML сохранён у релиза и доступен команде. Доставка файла в Telegram пока не выполнена.":"TTML отправлен к релизу и доступен команде лейбла.");}
     catch(error){status(error.message,true);}
     finally{$("ttmlAttach").disabled=false;}
   };

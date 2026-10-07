@@ -103,9 +103,11 @@
         <button class="tab" data-tab="reports">Отчёты</button>
         <button class="tab" data-tab="contracts">Договоры</button>
         <button class="tab" data-tab="support">Поддержка</button>
+        <button class="tab" data-tab="analytics">Метрики</button>
         <button class="tab" data-tab="broadcast">Рассылка</button>
       </div>
 
+      <section class="panel" id="analyticsPanel"><div class="card"><h2>Метрики и пиксели</h2><p class="muted">Счётчики подключаются после отдельного согласия посетителя. Поля формы, контакты, паспорт, баланс и коды входа не передаются. Webvisor отключён.</p><form id="analyticsConfigForm"><div class="grid"><label>Яндекс Метрика<input name="yandex_id" placeholder="12345678"></label><label>Google Analytics 4<input name="google_id" placeholder="G-XXXXXXXXXX"></label><label>VK Реклама · ID пикселя<input name="vk_id" placeholder="1234567"></label><label>Meta Pixel · ID<input name="meta_id" placeholder="123456789012345"></label></div><p class="muted">Пустое поле отключает соответствующий счётчик. Идентификаторы публичные; пароли и токены здесь не нужны.</p><button type="submit">Сохранить счётчики</button><p id="analyticsConfigStatus" role="status"></p></form></div><div class="card"><h2>Действия на сайте · 30 дней</h2><p class="muted">Сводка анонимных событий посетителей, разрешивших аналитику. Это количество действий, не уникальных людей.</p><div id="analyticsEventStats"></div><h3>Переходы на площадки</h3><div id="analyticsPlatformStats"></div></div></section>
       <section class="panel active" id="overviewPanel">
         <div class="grid">
           <div class="card stat"><span class="muted">Пользователи</span><b id="usersCount">—</b></div>
@@ -558,5 +560,6 @@
     }
     init().catch((error) => { $('denied').classList.remove('hidden'); $('denied').innerHTML = `<h2>Ошибка</h2><p class="error">${escapeHtml(error.message)}</p>`; });
   </script>
+<script src="/assets/admin-analytics.js?v=1" defer></script>
 </body>
 </html>

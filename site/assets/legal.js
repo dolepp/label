@@ -2,7 +2,7 @@
   const version = "2026-10-06";
   let accepted = false;
   try { accepted = localStorage.getItem("twas_cookie_notice") === version; } catch (_) {}
-  if (!accepted) {
+  if (!accepted && !window.TwasConsentManager) {
     const banner = document.createElement("aside"); banner.className="cookie-notice";banner.setAttribute("aria-label","Cookie");
     banner.innerHTML='<strong>Cookie для работы кабинета</strong><p>Используем необходимые cookie для входа и сохраняем настройки в браузере.</p><button type="button">Принять необходимые</button><a href="/legal/cookies/" target="_blank" rel="noopener">Подробнее</a>';
     banner.querySelector("button").onclick=()=>{try{localStorage.setItem("twas_cookie_notice",version);}catch(_){}banner.remove();};document.body.append(banner);

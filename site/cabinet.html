@@ -485,8 +485,10 @@
       *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
     }
   </style>
-<link rel="stylesheet" href="/assets/legal.css?v=1">
+<link rel="stylesheet" href="/assets/legal.css?v=2">
 <link rel="stylesheet" href="/assets/ttml-editor.css?v=1">
+<link rel="stylesheet" href="/assets/smartlinks.css?v=1">
+<script>if(/^\/l\/[a-z0-9][a-z0-9_-]{2,79}\/?$/.test(location.pathname))location.replace("/listen/?slug="+encodeURIComponent(location.pathname.split("/")[2]));</script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -837,6 +839,7 @@
         <div style="flex:1;min-width:220px"><h3>Суфлёр для съёмки</h3><p class="muted" style="margin:0">Загрузите трек и TTML с таймингами — текст будет подсвечиваться синхронно. Файлы не покидают браузер.</p></div>
         <button class="secondary" type="button" data-open-teleprompter>Открыть суфлёр</button>
       </div>
+      <div class="card spaced"><h3>Лирик-видео</h3><p class="muted">Редактор из присланного HTML: обложка, аудио, TTML и визуальные настройки. Обработка файлов — в браузере.</p><a class="button-link secondary" href="/lyrics-video/" target="_blank" rel="noopener">Открыть редактор лирик-видео</a></div>
     </section>
 
     <!-- ================= PROMOS ================= -->
@@ -1159,9 +1162,10 @@
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="/assets/teleprompter-export.js?v=1" defer></script>
-  <script src="/assets/teleprompter.js?v=5" defer></script>
-  <script src="/assets/ttml-editor.js?v=1" defer></script>
-  <script src="/assets/legal.js?v=1" defer></script>
+  <script src="/assets/teleprompter.js?v=6" defer></script>
+  <script src="/assets/ttml-editor.js?v=2" defer></script>
+  <script src="/assets/analytics.js?v=1" defer></script>
+  <script src="/assets/legal.js?v=2" defer></script>
   <script type="module">
     const apiBase = (document.querySelector('meta[name="twas-api-base"]')?.content.trim() || window.location.origin).replace(/\/$/, "");
     function resolveApiUrls(value) {
@@ -1338,6 +1342,7 @@
 
     const TABS = ["home", "releases", "services", "tools", "promos", "profile"];
     function setTab(tab) {
+      const changedTab = state.activeTab !== tab;
       if (!TABS.includes(tab)) tab = "home";
       document.querySelectorAll(".section").forEach((node) => node.classList.remove("active"));
       $(`${tab}Section`).classList.add("active");
@@ -1348,6 +1353,7 @@
       if (!document.body.classList.contains("release-page")) {
         const hash = tab === "home" ? "" : `#${tab}`;
         if (window.location.hash !== hash) history.replaceState(null, "", `${window.location.pathname}${window.location.search}${hash}`);
+        if (changedTab) window.dispatchEvent(new CustomEvent("twas:navigation", {detail:{context:tab}}));
       }
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
@@ -1451,6 +1457,7 @@
             challenge_id: emailChallenges[kind], code: $(`${prefix}Code`).value.trim()
           });
           await applyUser(data.user);
+          if (kind === "Auth") window.TwasAnalytics?.track("auth_success",{context:"profile"});
           localStorage.setItem("cabinet_user", JSON.stringify(data.user));
           emailChallenges[kind] = null;
           $(`${prefix}VerifyForm`).classList.add("hidden");
@@ -1496,6 +1503,7 @@
       });
       await applyUser(data.user);
       localStorage.setItem("cabinet_user", JSON.stringify(data.user));
+      window.TwasAnalytics?.track("auth_success",{context:"profile"});
       setStatus("Вход выполнен.", "ok");
       setTab("releases");
     }
@@ -1509,6 +1517,7 @@
       });
       await applyUser(profile.user);
       localStorage.setItem("cabinet_user", JSON.stringify(profile.user));
+      window.TwasAnalytics?.track("auth_success",{context:"profile"});
       setStatus("Вход выполнен.", "ok");
     }
 
@@ -2598,6 +2607,7 @@
         body: JSON.stringify(payload)
       });
       const releaseId = created.release_id || created.album_id;
+      window.TwasAnalytics?.track("release_submitted",{context:"releases"});
 
       if (releaseId) {
         setReleaseBuilderStatus("Релиз создан. Загружаю файлы...");
@@ -2682,6 +2692,27 @@
       `;
     }
 
+
+    async function openSmartlinkEditor(id) {
+      if (!state.user) return setTab("profile");
+      try {
+        const data = await fetchJson(`${apiBase}/api/releases/${id}/smartlink`);
+        const dialog = document.createElement("dialog");dialog.className="smartlink-editor";
+        const doc=data.smartlink;
+        dialog.innerHTML=`<form><div class="actions" style="justify-content:space-between"><h2>Ссылка на все площадки</h2><button type="button" class="ghost" data-close aria-label="Закрыть">×</button></div><p class="muted">Одна страница с обложкой и кнопками прослушивания. Ссылки из релиза уже подставлены; остальные добавьте вручную.</p><label>Адрес страницы<input type="text" name="slug" required pattern="[a-z0-9][a-z0-9_-]{2,79}" maxlength="80" value="${escapeAttr(doc.slug)}" placeholder="randomkind_allin"></label><div class="smartlink-form-grid">${Object.entries(data.platforms).map(([key,label])=>`<label>${escapeHtml(label)}<input type="url" name="platform_${key}" value="${escapeAttr(doc.platform_links[key]||"")}" placeholder="https://…" maxlength="2048"></label>`).join("")}</div><label><input type="checkbox" name="published" ${doc.published?"checked":""}> Страница опубликована и доступна по ссылке</label><p class="muted">Публикуются только название, артист, обложка и ссылки. Аудиофайлы и данные аккаунта остаются закрытыми.</p><div class="smartlink-stats">Переходы за 30 дней: ${data.clicks.length?data.clicks.map(row=>`${escapeHtml(data.platforms[row.platform]||row.platform)} — ${Number(row.total)}`).join(" · "):"пока нет"}. Учитываются посетители, разрешившие аналитику.</div><p data-status role="status"></p><div class="actions"><button type="submit">Сохранить страницу</button><button type="button" class="secondary" data-copy>Копировать ссылку</button></div><div class="smartlink-result"><a data-link href="${escapeAttr(doc.url)}" target="_blank" rel="noopener">${escapeHtml(doc.url)}</a></div></form>`;
+        document.body.append(dialog);dialog.showModal();dialog.querySelector("[data-close]").onclick=()=>dialog.close();dialog.addEventListener("close",()=>dialog.remove());
+        let saved=!!doc.id;
+        dialog.querySelector("[data-copy]").onclick=()=>{if(!saved){dialog.querySelector("[data-status]").textContent="Сначала сохраните страницу.";return;}copyTextToClipboard(dialog.querySelector("[data-link]").href);};
+        dialog.querySelector("form").onsubmit=async event=>{
+          event.preventDefault();const form=event.target,status=dialog.querySelector("[data-status]"),button=form.querySelector('[type="submit"]');button.disabled=true;
+          const links={};for(const key of Object.keys(data.platforms))links[key]=form.elements[`platform_${key}`].value;
+          try {const result=await fetchJson(`${apiBase}/api/releases/${id}/smartlink`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({slug:form.elements.slug.value,platform_links:links,published:form.elements.published.checked})});saved=true;const link=dialog.querySelector("[data-link]");link.href=result.smartlink.url;link.textContent=result.smartlink.url;status.textContent=result.smartlink.published?"Страница опубликована. Можно делиться ссылкой.":"Страница сохранена и скрыта от посетителей.";window.TwasAnalytics?.track("smartlink_created",{context:"releases",release_id:Number(id)});}
+          catch(error){status.textContent=error.message;}finally{button.disabled=false;}
+        };
+      } catch(error) {setStatus(error.message,"error");}
+    }
+    document.addEventListener("click",event=>{const button=event.target.closest("[data-smartlink-release]");if(button)openSmartlinkEditor(Number(button.dataset.smartlinkRelease));});
+
     function renderReleaseDetail(data) {
       const release = data.release;
       const tracks = data.tracks || [];
@@ -2720,6 +2751,7 @@
             </div>
             <div class="actions spaced">
               ${releaseLink ? `<a class="button-link" href="${escapeHtml(releaseLink)}" target="_blank" rel="noopener">Открыть релиз</a>` : ""}
+              <button class="secondary" type="button" data-smartlink-release="${release.id}">Ссылка на все площадки</button>
               <button class="secondary" type="button" data-support-release="${release.id}" data-support-release-name="${escapeAttr(release.release_name || "")}"><svg class="i"><use href="#i-chat"/></svg>Вопрос по релизу</button>
             </div>
           </div>
@@ -2929,6 +2961,7 @@
 
       if (!$("topupPersonalConsent").checked || !$("topupTermsConsent").checked) return setTopupStatus("Подтвердите отдельное согласие и условия оплаты.", "warn");
       await window.twasRecordLegalConsent?.(apiBase, "topup");
+      window.TwasAnalytics?.track("checkout_started",{context:"profile"});
       setTopupStatus("Создаю платёж в ЮKassa...");
       $("topupResult").classList.add("hidden");
       const data = await fetchJson(`${apiBase}/api/payments/yookassa/create`, {
@@ -2955,6 +2988,7 @@
       setTopupStatus("Проверяю оплату...");
       const data = await fetchJson(`${apiBase}/api/payments/yookassa/status/${encodeURIComponent(payment.payment_id)}`);
       if (data.status === "completed") {
+        window.TwasAnalytics?.track("payment_success",{context:"profile"});
         localStorage.removeItem("cabinet_pending_payment");
         $("topupResult").classList.add("hidden");
         setTopupStatus("Оплата прошла. Баланс обновлён.", "ok");
